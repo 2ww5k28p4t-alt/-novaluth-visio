@@ -5,7 +5,8 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { StatusUpdateStatut } from './statusUpdateStatut';
 
-export interface HealthStatus {
-  status: string;
+export interface StatusUpdate {
+  statut: StatusUpdateStatut;
 }

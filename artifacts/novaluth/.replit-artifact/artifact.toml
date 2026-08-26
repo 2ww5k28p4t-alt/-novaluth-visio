@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "NovaLuth"
+description = "Application web de mise en relation entre musiciens, luthiers innovants et jeunes marques d’instruments, avec annuaire, recherche de correspondances, briefs et administration."
+version = "1.0.0"
+id = "artifacts/novaluth"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19865
+
+[services.development]
+run = "pnpm --filter @workspace/novaluth run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/novaluth", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/novaluth/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19865"
+BASE_PATH = "/"

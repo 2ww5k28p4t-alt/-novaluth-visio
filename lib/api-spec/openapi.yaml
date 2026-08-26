@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API publique de NovaLuth
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: directory
+    description: Public directory of makers
+  - name: recommendations
+    description: Instrument matching engine
+  - name: briefs
+    description: Musician project briefs
+  - name: admin
+    description: Moderation and curation
 paths:
   /healthz:
     get:
@@ -24,7 +32,171 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /fiches:
+    get:
+      operationId: listFiches
+      tags: [directory]
+      summary: List published makers
+      parameters:
+        - name: pays
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [luthier, marque_emergente]
+        - name: innovation_min
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 10
+            default: 0
+        - name: statut
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [publiee, candidate, a_verifier, a_suivre, trop_etablie, rejetee]
+            default: publiee
+      responses:
+        "200":
+          description: Matching directory entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Fiche"
+  /fiches/meta:
+    get:
+      operationId: getFichesMeta
+      tags: [directory]
+      summary: Get directory summary and available filters
+      responses:
+        "200":
+          description: Directory summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FichesMeta"
+  /fiches/{slug}:
+    get:
+      operationId: getFiche
+      tags: [directory]
+      summary: Get one published maker
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Maker profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Fiche"
+        "404":
+          description: Maker not found
+  /recommend:
+    post:
+      operationId: recommend
+      tags: [recommendations]
+      summary: Match a musician brief with published makers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BriefInput"
+      responses:
+        "200":
+          description: Recommendations with explanations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationResponse"
+        "422":
+          description: Invalid brief
+  /briefs:
+    post:
+      operationId: createBrief
+      tags: [briefs]
+      summary: Save a musician project brief
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BriefInput"
+      responses:
+        "201":
+          description: Brief saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BriefReceipt"
+        "422":
+          description: Invalid brief
+  /admin/summary:
+    get:
+      operationId: getAdminSummary
+      tags: [admin]
+      summary: Get moderation queue summary
+      security:
+        - adminToken: []
+      responses:
+        "200":
+          description: Moderation summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSummary"
+        "401":
+          description: Missing or invalid admin token
+  /admin/fiches/{slug}/status:
+    patch:
+      operationId: updateFicheStatus
+      tags: [admin]
+      summary: Change a maker profile status
+      security:
+        - adminToken: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatusUpdate"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Fiche"
+        "401":
+          description: Missing or invalid admin token
+        "404":
+          description: Maker not found
 components:
+  securitySchemes:
+    adminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +205,223 @@ components:
           type: string
       required:
         - status
+    Specification:
+      type: object
+      properties:
+        bois_corps: { type: ["string", "null"] }
+        bois_manche: { type: ["string", "null"] }
+        touche: { type: ["string", "null"] }
+        profil_manche: { type: ["string", "null"] }
+        diapason_mm: { type: ["integer", "null"] }
+        nombre_cases: { type: ["integer", "null"] }
+        type_micros: { type: ["string", "null"] }
+        configuration_micros: { type: ["string", "null"] }
+        chevalet: { type: ["string", "null"] }
+        poids_kg: { type: ["number", "null"] }
+    Modele:
+      type: object
+      required: [nom, type, personnalisable, specifications]
+      properties:
+        nom: { type: string }
+        type:
+          type: string
+          enum: [electrique, acoustique, basse, autre]
+        inspiration: { type: ["string", "null"] }
+        prix_base_eur: { type: ["integer", "null"] }
+        personnalisable: { type: boolean }
+        specifications:
+          $ref: "#/components/schemas/Specification"
+    ProfilSonore:
+      type: object
+      properties:
+        styles:
+          type: array
+          items: { type: string }
+        niveau_sortie: { type: ["string", "null"] }
+        chaleur: { type: ["integer", "null"] }
+        brillance: { type: ["integer", "null"] }
+        dynamique: { type: ["integer", "null"] }
+        type_grain: { type: ["string", "null"] }
+        description: { type: ["string", "null"] }
+    Logistique:
+      type: object
+      properties:
+        expedie_france: { type: boolean }
+        expedie_europe: { type: boolean }
+        expedie_monde: { type: boolean }
+        transporteur: { type: ["string", "null"] }
+        garantie_annees: { type: ["integer", "null"] }
+        politique_retour: { type: ["string", "null"] }
+    Innovation:
+      type: object
+      properties:
+        niveau: { type: ["integer", "null"] }
+        materiaux_alternatifs:
+          type: array
+          items: { type: string }
+        demarche_ecologique: { type: ["string", "null"] }
+        technologie_proprietaire: { type: ["string", "null"] }
+        edition_limitee: { type: boolean }
+        marqueurs:
+          type: array
+          items: { type: string }
+    IaMetadata:
+      type: object
+      properties:
+        tags:
+          type: array
+          items: { type: string }
+        mots_cles:
+          type: array
+          items: { type: string }
+        resume_ia: { type: ["string", "null"] }
+        modele_utilise: { type: ["string", "null"] }
+        genere_le: { type: ["string", "null"] }
+    Fiche:
+      type: object
+      required: [slug, nom, type, modeles, profil_sonore, logistique, innovation, ia, statut, demonstration]
+      properties:
+        slug: { type: string }
+        nom: { type: string }
+        type:
+          type: string
+          enum: [luthier, marque_emergente]
+        annee_creation: { type: ["integer", "null"] }
+        pays: { type: ["string", "null"] }
+        ville: { type: ["string", "null"] }
+        site_web: { type: ["string", "null"] }
+        reseaux:
+          type: object
+          additionalProperties: { type: string }
+        expedition_internationale: { type: boolean }
+        delai_moyen_mois: { type: ["integer", "null"] }
+        prix_min_eur: { type: ["integer", "null"] }
+        prix_max_eur: { type: ["integer", "null"] }
+        production_annuelle: { type: ["integer", "null"] }
+        approche_artisanale: { type: ["string", "null"] }
+        score_originalite: { type: ["integer", "null"] }
+        score_innovation: { type: ["integer", "null"] }
+        modeles:
+          type: array
+          items: { $ref: "#/components/schemas/Modele" }
+        profil_sonore:
+          $ref: "#/components/schemas/ProfilSonore"
+        logistique:
+          $ref: "#/components/schemas/Logistique"
+        innovation:
+          $ref: "#/components/schemas/Innovation"
+        ia:
+          $ref: "#/components/schemas/IaMetadata"
+        statut:
+          type: string
+          enum: [candidate, a_verifier, a_suivre, trop_etablie, rejetee, publiee]
+        source_donnees:
+          type: array
+          items: { type: string }
+        valide_par_artisan: { type: boolean }
+        verification_identite_le: { type: ["string", "null"] }
+        demonstration: { type: boolean }
+        cree_le: { type: ["string", "null"] }
+        maj_le: { type: ["string", "null"] }
+    BriefInput:
+      type: object
+      required: [type_instrument, budget_min_eur, budget_max_eur, styles, bois_souhaites, zone_preferee, personnalisation, description_libre]
+      properties:
+        type_instrument:
+          type: string
+          enum: [electrique, acoustique, basse, autre]
+        budget_min_eur: { type: integer, minimum: 0, maximum: 200000 }
+        budget_max_eur: { type: integer, minimum: 0, maximum: 200000 }
+        styles:
+          type: array
+          maxItems: 8
+          items: { type: string }
+        bois_souhaites:
+          type: array
+          maxItems: 8
+          items: { type: string }
+        delai_max_mois: { type: ["integer", "null"], minimum: 0, maximum: 120 }
+        pays_livraison: { type: ["string", "null"], maxLength: 60 }
+        zone_preferee:
+          type: string
+          enum: [france, europe, monde]
+        chaleur_souhaitee: { type: ["integer", "null"], minimum: 0, maximum: 10 }
+        brillance_souhaitee: { type: ["integer", "null"], minimum: 0, maximum: 10 }
+        innovation_recherchee: { type: ["integer", "null"], minimum: 0, maximum: 10 }
+        personnalisation: { type: boolean }
+        description_libre: { type: string, maxLength: 1500 }
+        email: { type: ["string", "null"], maxLength: 180 }
+        consentement_transmission: { type: boolean }
+    Recommendation:
+      type: object
+      required: [slug, nom, type, correspondance, points_correspondance, points_vigilance, demonstration, valide_par_artisan]
+      properties:
+        slug: { type: string }
+        nom: { type: string }
+        type:
+          type: string
+          enum: [luthier, marque_emergente]
+        ville: { type: ["string", "null"] }
+        pays: { type: ["string", "null"] }
+        prix_min_eur: { type: ["integer", "null"] }
+        prix_max_eur: { type: ["integer", "null"] }
+        delai_moyen_mois: { type: ["integer", "null"] }
+        site_web: { type: ["string", "null"] }
+        demonstration: { type: boolean }
+        valide_par_artisan: { type: boolean }
+        correspondance: { type: integer }
+        points_correspondance:
+          type: array
+          items: { type: string }
+        points_vigilance:
+          type: array
+          items: { type: string }
+    RecommendationResponse:
+      type: object
+      required: [resume, origine_resume, resultats, avertissement]
+      properties:
+        resume: { type: string }
+        origine_resume: { type: string }
+        resultats:
+          type: array
+          items: { $ref: "#/components/schemas/Recommendation" }
+        avertissement: { type: string }
+    BriefReceipt:
+      type: object
+      required: [reference, recommandations]
+      properties:
+        reference: { type: string }
+        recommandations:
+          type: array
+          items: { $ref: "#/components/schemas/Recommendation" }
+    FichesMeta:
+      type: object
+      required: [total_publiees, total_fiches, pays, types]
+      properties:
+        total_publiees: { type: integer }
+        total_fiches: { type: integer }
+        pays:
+          type: array
+          items: { type: string }
+        types:
+          type: object
+          additionalProperties: { type: integer }
+    AdminSummary:
+      type: object
+      required: [compteurs, fiches, passerelle]
+      properties:
+        compteurs:
+          type: object
+          additionalProperties: { type: integer }
+        fiches:
+          type: array
+          items: { $ref: "#/components/schemas/Fiche" }
+        passerelle: { type: string }
+    StatusUpdate:
+      type: object
+      required: [statut]
+      properties:
+        statut:
+          type: string
+          enum: [candidate, a_verifier, a_suivre, trop_etablie, rejetee, publiee]
 
