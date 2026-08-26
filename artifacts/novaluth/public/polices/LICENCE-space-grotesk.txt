@@ -1,0 +1,10 @@
+Space Grotesk
+Auteur : Florian Karsten
+Licence : SIL Open Font License, Version 1.1
+Texte complet de la licence : https://openfontlicense.org/
+Source du projet : https://github.com/floriankarsten/space-grotesk
+
+Les deux fichiers .woff2 de ce dossier sont des sous-ensembles (latin et
+latin étendu) de la version variable de la fonte, redistribués tels quels.
+Cette licence autorise l'auto-hébergement et l'usage commercial, à condition
+de conserver la présente notice et de ne pas revendre la fonte seule.
