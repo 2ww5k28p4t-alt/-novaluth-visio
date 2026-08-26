@@ -53,7 +53,7 @@ paths:
           in: query
           required: false
           schema:
-            type: integer
+            type: number
             minimum: 0
             maximum: 10
             default: 0
@@ -212,8 +212,8 @@ components:
         bois_manche: { type: ["string", "null"] }
         touche: { type: ["string", "null"] }
         profil_manche: { type: ["string", "null"] }
-        diapason_mm: { type: ["integer", "null"] }
-        nombre_cases: { type: ["integer", "null"] }
+        diapason_mm: { type: ["number", "null"] }
+        nombre_cases: { type: ["number", "null"] }
         type_micros: { type: ["string", "null"] }
         configuration_micros: { type: ["string", "null"] }
         chevalet: { type: ["string", "null"] }
@@ -227,7 +227,7 @@ components:
           type: string
           enum: [electrique, acoustique, basse, autre]
         inspiration: { type: ["string", "null"] }
-        prix_base_eur: { type: ["integer", "null"] }
+        prix_base_eur: { type: ["number", "null"] }
         personnalisable: { type: boolean }
         specifications:
           $ref: "#/components/schemas/Specification"
@@ -238,9 +238,9 @@ components:
           type: array
           items: { type: string }
         niveau_sortie: { type: ["string", "null"] }
-        chaleur: { type: ["integer", "null"] }
-        brillance: { type: ["integer", "null"] }
-        dynamique: { type: ["integer", "null"] }
+        chaleur: { type: ["number", "null"] }
+        brillance: { type: ["number", "null"] }
+        dynamique: { type: ["number", "null"] }
         type_grain: { type: ["string", "null"] }
         description: { type: ["string", "null"] }
     Logistique:
@@ -250,12 +250,12 @@ components:
         expedie_europe: { type: boolean }
         expedie_monde: { type: boolean }
         transporteur: { type: ["string", "null"] }
-        garantie_annees: { type: ["integer", "null"] }
+        garantie_annees: { type: ["number", "null"] }
         politique_retour: { type: ["string", "null"] }
     Innovation:
       type: object
       properties:
-        niveau: { type: ["integer", "null"] }
+        niveau: { type: ["number", "null"] }
         materiaux_alternatifs:
           type: array
           items: { type: string }
@@ -286,7 +286,7 @@ components:
         type:
           type: string
           enum: [luthier, marque_emergente]
-        annee_creation: { type: ["integer", "null"] }
+        annee_creation: { type: ["number", "null"] }
         pays: { type: ["string", "null"] }
         ville: { type: ["string", "null"] }
         site_web: { type: ["string", "null"] }
@@ -294,13 +294,13 @@ components:
           type: object
           additionalProperties: { type: string }
         expedition_internationale: { type: boolean }
-        delai_moyen_mois: { type: ["integer", "null"] }
-        prix_min_eur: { type: ["integer", "null"] }
-        prix_max_eur: { type: ["integer", "null"] }
-        production_annuelle: { type: ["integer", "null"] }
+        delai_moyen_mois: { type: ["number", "null"] }
+        prix_min_eur: { type: ["number", "null"] }
+        prix_max_eur: { type: ["number", "null"] }
+        production_annuelle: { type: ["number", "null"] }
         approche_artisanale: { type: ["string", "null"] }
-        score_originalite: { type: ["integer", "null"] }
-        score_innovation: { type: ["integer", "null"] }
+        score_originalite: { type: ["number", "null"] }
+        score_innovation: { type: ["number", "null"] }
         modeles:
           type: array
           items: { $ref: "#/components/schemas/Modele" }
@@ -330,8 +330,8 @@ components:
         type_instrument:
           type: string
           enum: [electrique, acoustique, basse, autre]
-        budget_min_eur: { type: integer, minimum: 0, maximum: 200000 }
-        budget_max_eur: { type: integer, minimum: 0, maximum: 200000 }
+        budget_min_eur: { type: number, minimum: 0, maximum: 200000 }
+        budget_max_eur: { type: number, minimum: 0, maximum: 200000 }
         styles:
           type: array
           maxItems: 8
@@ -340,14 +340,14 @@ components:
           type: array
           maxItems: 8
           items: { type: string }
-        delai_max_mois: { type: ["integer", "null"], minimum: 0, maximum: 120 }
+        delai_max_mois: { type: ["number", "null"], minimum: 0, maximum: 120 }
         pays_livraison: { type: ["string", "null"], maxLength: 60 }
         zone_preferee:
           type: string
           enum: [france, europe, monde]
-        chaleur_souhaitee: { type: ["integer", "null"], minimum: 0, maximum: 10 }
-        brillance_souhaitee: { type: ["integer", "null"], minimum: 0, maximum: 10 }
-        innovation_recherchee: { type: ["integer", "null"], minimum: 0, maximum: 10 }
+        chaleur_souhaitee: { type: ["number", "null"], minimum: 0, maximum: 10 }
+        brillance_souhaitee: { type: ["number", "null"], minimum: 0, maximum: 10 }
+        innovation_recherchee: { type: ["number", "null"], minimum: 0, maximum: 10 }
         personnalisation: { type: boolean }
         description_libre: { type: string, maxLength: 1500 }
         email: { type: ["string", "null"], maxLength: 180 }
@@ -363,13 +363,13 @@ components:
           enum: [luthier, marque_emergente]
         ville: { type: ["string", "null"] }
         pays: { type: ["string", "null"] }
-        prix_min_eur: { type: ["integer", "null"] }
-        prix_max_eur: { type: ["integer", "null"] }
-        delai_moyen_mois: { type: ["integer", "null"] }
+        prix_min_eur: { type: ["number", "null"] }
+        prix_max_eur: { type: ["number", "null"] }
+        delai_moyen_mois: { type: ["number", "null"] }
         site_web: { type: ["string", "null"] }
         demonstration: { type: boolean }
         valide_par_artisan: { type: boolean }
-        correspondance: { type: integer }
+        correspondance: { type: number }
         points_correspondance:
           type: array
           items: { type: string }
@@ -398,21 +398,21 @@ components:
       type: object
       required: [total_publiees, total_fiches, pays, types]
       properties:
-        total_publiees: { type: integer }
-        total_fiches: { type: integer }
+        total_publiees: { type: number }
+        total_fiches: { type: number }
         pays:
           type: array
           items: { type: string }
         types:
           type: object
-          additionalProperties: { type: integer }
+          additionalProperties: { type: number }
     AdminSummary:
       type: object
       required: [compteurs, fiches, passerelle]
       properties:
         compteurs:
           type: object
-          additionalProperties: { type: integer }
+          additionalProperties: { type: number }
         fiches:
           type: array
           items: { $ref: "#/components/schemas/Fiche" }

@@ -1,0 +1,1 @@
+- [OpenAPI integer codegen](openapi-integer-codegen.md) — Use `number`, not `integer`, in API specs until the generated Zod validators support integers.
