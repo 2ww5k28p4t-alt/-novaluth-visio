@@ -5,8 +5,8 @@ export default function Legal() {
     <div className="container mx-auto px-4 py-16">
       <div className="max-w-3xl mx-auto space-y-16">
         
-        <div className="text-center space-y-4">
-          <h1 className="text-4xl md:text-5xl font-serif text-primary">Transparence & Mentions Légales</h1>
+        <div className="nv-page-intro space-y-4">
+          <h1 className="text-4xl md:text-5xl text-foreground">Transparence & Mentions Légales</h1>
           <p className="text-xl text-muted-foreground font-light">
             Notre engagement envers les artisans et les musiciens.
           </p>
@@ -56,6 +56,18 @@ export default function Legal() {
           <h2 className="text-2xl font-serif text-primary mt-8">4. Données personnelles</h2>
           <p>
             Les informations renseignées dans le formulaire "Trouver son instrument" (le Brief) sont utilisées uniquement pour le calcul de compatibilité. Si vous fournissez un email, il ne sera utilisé que pour vous envoyer les résultats de l'analyse, sauf si vous cochez explicitement la case de consentement pour la transmission à un artisan.
+          </p>
+
+          <h2 className="text-2xl font-serif text-primary mt-8">5. Identité visuelle et typographie</h2>
+          <p>
+            Le mot-symbole, le globe, la corde et la baseline NovaLuth constituent
+            une identité graphique indissociable. Leur reproduction, modification,
+            recoloration ou utilisation hors du service requiert une autorisation
+            écrite préalable.
+          </p>
+          <p>
+            La police Space Grotesk est hébergée directement par NovaLuth. Aucune
+            requête n'est adressée à un service de polices tiers lors de votre visite.
           </p>
         </div>
       </div>

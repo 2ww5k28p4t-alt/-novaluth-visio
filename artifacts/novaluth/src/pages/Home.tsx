@@ -1,9 +1,10 @@
 import { Link } from "wouter";
-import { ArrowRight, Sparkles, ShieldCheck, TreePine } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useListFiches } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { assetPath } from "@/lib/asset-path";
 
 export default function Home() {
   const { data: fiches, isLoading } = useListFiches({ statut: 'publiee' });
@@ -13,7 +14,7 @@ export default function Home() {
     <div className="flex flex-col w-full">
       {/* Hero Section */}
       <section className="nv-hero nv-halo nv-meridiens relative w-full overflow-hidden bg-background">
-        <img className="nv-globe-art" src="/novaluth-globe.png" alt="" aria-hidden="true" />
+        <img className="nv-globe-art" src={assetPath("novaluth-globe.png")} alt="" aria-hidden="true" />
         <div className="container mx-auto px-4 relative z-10">
           <div className="max-w-4xl mx-auto space-y-7">
             <p className="nv-baseline">L'avenir de l'instrument</p>
@@ -72,11 +73,6 @@ export default function Home() {
                 Vous contactez l'artisan directement, sans commission et sans transmission
                 de votre demande sans accord.
               </p>
-            </div>
-            <div className="hidden">
-              <TreePine />
-              <ShieldCheck />
-              <Sparkles />
             </div>
           </div>
         </div>

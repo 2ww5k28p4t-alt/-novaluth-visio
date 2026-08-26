@@ -1,0 +1,22 @@
+{
+  "name": "NovaLuth — L'avenir de l'instrument",
+  "short_name": "NovaLuth",
+  "description": "Annuaire de luthiers innovants et de marques émergentes. Trouvez l'artisan qui correspond à votre projet.",
+  "lang": "fr-FR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#131217",
+  "theme_color": "#131217",
+  "categories": ["music", "shopping", "utilities"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Décrire mon projet", "url": "/brief" },
+    { "name": "Parcourir l'annuaire", "url": "/annuaire" }
+  ]
+}

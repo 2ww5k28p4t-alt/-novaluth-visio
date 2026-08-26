@@ -1,6 +1,5 @@
 import { Link, useLocation } from "wouter";
 import { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
 import { useHealthCheck, getHealthCheckQueryKey } from "@workspace/api-client-react";
 import { assetPath } from "@/lib/asset-path";
 
@@ -33,15 +32,6 @@ export function Shell({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" asChild className="hidden sm:flex rounded-full border-primary/30 text-primary hover:bg-primary/10">
-              <Link href="/admin">Espace Artisan</Link>
-            </Button>
-            <Button size="sm" asChild className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90">
-              <Link href="/brief">Démarrer un projet</Link>
-            </Button>
-          </div>
         </div>
       </header>
 
