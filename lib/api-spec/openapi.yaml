@@ -67,6 +67,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: couleur_son
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [chaud, equilibre, clair]
         - name: zone
           in: query
           required: false
@@ -507,9 +513,15 @@ components:
           type: array
           items: { type: string }
         niveau_sortie: { type: ["string", "null"] }
-        chaleur: { type: ["number", "null"] }
-        brillance: { type: ["number", "null"] }
-        dynamique: { type: ["number", "null"] }
+        couleur:
+          type: ["string", "null"]
+          enum: [chaud, equilibre, clair, null]
+        attaque:
+          type: ["string", "null"]
+          enum: [douce, franche, percussive, null]
+        tenue:
+          type: ["string", "null"]
+          enum: [courte, moyenne, longue, null]
         type_grain: { type: ["string", "null"] }
         description: { type: ["string", "null"] }
     Logistique:
@@ -615,8 +627,15 @@ components:
         zone_preferee:
           type: string
           enum: [france, europe, monde]
-        chaleur_souhaitee: { type: ["number", "null"], minimum: 0, maximum: 10 }
-        brillance_souhaitee: { type: ["number", "null"], minimum: 0, maximum: 10 }
+        couleur_souhaitee:
+          type: ["string", "null"]
+          enum: [chaud, equilibre, clair, null]
+        attaque_souhaitee:
+          type: ["string", "null"]
+          enum: [douce, franche, percussive, null]
+        tenue_souhaitee:
+          type: ["string", "null"]
+          enum: [courte, moyenne, longue, null]
         facons_recherchees:
           type: array
           maxItems: 21
@@ -686,7 +705,7 @@ components:
           items: { $ref: "#/components/schemas/Facette" }
     FichesMeta:
       type: object
-      required: [total_publiees, total_fiches, pays, types, styles, facettes]
+      required: [total_publiees, total_fiches, pays, types, styles, facettes, couleurs_son]
       properties:
         total_publiees: { type: number }
         total_fiches: { type: number }
@@ -702,6 +721,14 @@ components:
         facettes:
           type: array
           items: { $ref: "#/components/schemas/FamilleFacettes" }
+        couleurs_son:
+          type: array
+          items:
+            type: object
+            required: [cle, libelle]
+            properties:
+              cle: { type: string }
+              libelle: { type: string }
     AdminSummary:
       type: object
       required: [compteurs, fiches, passerelle, acces]

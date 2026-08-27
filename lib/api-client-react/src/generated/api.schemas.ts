@@ -53,16 +53,52 @@ export interface Modele {
   specifications: Specification;
 }
 
+/**
+ * @nullable
+ */
+export type ProfilSonoreCouleur = typeof ProfilSonoreCouleur[keyof typeof ProfilSonoreCouleur] | null;
+
+
+export const ProfilSonoreCouleur = {
+  chaud: 'chaud',
+  equilibre: 'equilibre',
+  clair: 'clair',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ProfilSonoreAttaque = typeof ProfilSonoreAttaque[keyof typeof ProfilSonoreAttaque] | null;
+
+
+export const ProfilSonoreAttaque = {
+  douce: 'douce',
+  franche: 'franche',
+  percussive: 'percussive',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ProfilSonoreTenue = typeof ProfilSonoreTenue[keyof typeof ProfilSonoreTenue] | null;
+
+
+export const ProfilSonoreTenue = {
+  courte: 'courte',
+  moyenne: 'moyenne',
+  longue: 'longue',
+} as const;
+
 export interface ProfilSonore {
   styles?: string[];
   /** @nullable */
   niveau_sortie?: string | null;
   /** @nullable */
-  chaleur?: number | null;
+  couleur?: ProfilSonoreCouleur;
   /** @nullable */
-  brillance?: number | null;
+  attaque?: ProfilSonoreAttaque;
   /** @nullable */
-  dynamique?: number | null;
+  tenue?: ProfilSonoreTenue;
   /** @nullable */
   type_grain?: string | null;
   /** @nullable */
@@ -186,6 +222,42 @@ export const BriefInputZonePreferee = {
   monde: 'monde',
 } as const;
 
+/**
+ * @nullable
+ */
+export type BriefInputCouleurSouhaitee = typeof BriefInputCouleurSouhaitee[keyof typeof BriefInputCouleurSouhaitee] | null;
+
+
+export const BriefInputCouleurSouhaitee = {
+  chaud: 'chaud',
+  equilibre: 'equilibre',
+  clair: 'clair',
+} as const;
+
+/**
+ * @nullable
+ */
+export type BriefInputAttaqueSouhaitee = typeof BriefInputAttaqueSouhaitee[keyof typeof BriefInputAttaqueSouhaitee] | null;
+
+
+export const BriefInputAttaqueSouhaitee = {
+  douce: 'douce',
+  franche: 'franche',
+  percussive: 'percussive',
+} as const;
+
+/**
+ * @nullable
+ */
+export type BriefInputTenueSouhaitee = typeof BriefInputTenueSouhaitee[keyof typeof BriefInputTenueSouhaitee] | null;
+
+
+export const BriefInputTenueSouhaitee = {
+  courte: 'courte',
+  moyenne: 'moyenne',
+  longue: 'longue',
+} as const;
+
 export interface BriefInput {
   type_instrument: BriefInputTypeInstrument;
   /**
@@ -214,18 +286,12 @@ export interface BriefInput {
      */
   pays_livraison?: string | null;
   zone_preferee: BriefInputZonePreferee;
-  /**
-     * @minimum 0
-     * @maximum 10
-     * @nullable
-     */
-  chaleur_souhaitee?: number | null;
-  /**
-     * @minimum 0
-     * @maximum 10
-     * @nullable
-     */
-  brillance_souhaitee?: number | null;
+  /** @nullable */
+  couleur_souhaitee?: BriefInputCouleurSouhaitee;
+  /** @nullable */
+  attaque_souhaitee?: BriefInputAttaqueSouhaitee;
+  /** @nullable */
+  tenue_souhaitee?: BriefInputTenueSouhaitee;
   /** @maxItems 21 */
   facons_recherchees?: string[];
   personnalisation: boolean;
@@ -300,6 +366,11 @@ export interface FamilleFacettes {
 
 export type FichesMetaTypes = {[key: string]: number};
 
+export type FichesMetaCouleursSonItem = {
+  cle: string;
+  libelle: string;
+};
+
 export interface FichesMeta {
   total_publiees: number;
   total_fiches: number;
@@ -307,6 +378,7 @@ export interface FichesMeta {
   types: FichesMetaTypes;
   styles: string[];
   facettes: FamilleFacettes[];
+  couleurs_son: FichesMetaCouleursSonItem[];
 }
 
 export type AdminSummaryCompteurs = {[key: string]: number};
@@ -492,6 +564,7 @@ type?: ListFichesType;
 q?: string;
 instrument?: ListFichesInstrument;
 style?: string;
+couleur_son?: ListFichesCouleurSon;
 zone?: ListFichesZone;
 /**
  * @minimum 0
@@ -526,6 +599,15 @@ export const ListFichesInstrument = {
   acoustique: 'acoustique',
   basse: 'basse',
   autre: 'autre',
+} as const;
+
+export type ListFichesCouleurSon = typeof ListFichesCouleurSon[keyof typeof ListFichesCouleurSon];
+
+
+export const ListFichesCouleurSon = {
+  chaud: 'chaud',
+  equilibre: 'equilibre',
+  clair: 'clair',
 } as const;
 
 export type ListFichesZone = typeof ListFichesZone[keyof typeof ListFichesZone];

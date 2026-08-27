@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { FamilleFacettes } from './familleFacettes';
+import type { FichesMetaCouleursSonItem } from './fichesMetaCouleursSonItem';
 import type { FichesMetaTypes } from './fichesMetaTypes';
 
 export interface FichesMeta {
@@ -15,4 +16,5 @@ export interface FichesMeta {
   types: FichesMetaTypes;
   styles: string[];
   facettes: FamilleFacettes[];
+  couleurs_son: FichesMetaCouleursSonItem[];
 }

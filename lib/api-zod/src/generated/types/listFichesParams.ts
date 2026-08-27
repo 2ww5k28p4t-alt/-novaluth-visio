@@ -5,6 +5,7 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { ListFichesCouleurSon } from './listFichesCouleurSon';
 import type { ListFichesInstrument } from './listFichesInstrument';
 import type { ListFichesStatut } from './listFichesStatut';
 import type { ListFichesTri } from './listFichesTri';
@@ -17,6 +18,7 @@ type?: ListFichesType;
 q?: string;
 instrument?: ListFichesInstrument;
 style?: string;
+couleur_son?: ListFichesCouleurSon;
 zone?: ListFichesZone;
 /**
  * @minimum 0

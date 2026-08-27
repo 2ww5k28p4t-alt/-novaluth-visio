@@ -60,6 +60,9 @@ export const novaluthSeed = [
     profil_sonore: {
       styles: ["blues", "folk", "indie", "jazz"],
       niveau_sortie: "moyen",
+      couleur: "chaud",
+      attaque: "douce",
+      tenue: "moyenne",
       chaleur: 8,
       brillance: 5,
       dynamique: 7,
@@ -142,6 +145,9 @@ export const novaluthSeed = [
     profil_sonore: {
       styles: ["metal", "progressif", "fusion", "djent"],
       niveau_sortie: "eleve",
+      couleur: "clair",
+      attaque: "percussive",
+      tenue: "longue",
       chaleur: 4,
       brillance: 8,
       dynamique: 8,
@@ -223,6 +229,9 @@ export const novaluthSeed = [
     profil_sonore: {
       styles: ["jazz", "swing", "bossa"],
       niveau_sortie: "faible",
+      couleur: "chaud",
+      attaque: "franche",
+      tenue: "longue",
       chaleur: 9,
       brillance: 4,
       dynamique: 9,
@@ -305,6 +314,9 @@ export const novaluthSeed = [
     profil_sonore: {
       styles: ["punk", "indie", "surf", "pop"],
       niveau_sortie: "moyen",
+      couleur: "equilibre",
+      attaque: "percussive",
+      tenue: "courte",
       chaleur: 6,
       brillance: 7,
       dynamique: 6,
@@ -385,6 +397,9 @@ export const novaluthSeed = [
     profil_sonore: {
       styles: ["rock", "fusion", "expérimental", "studio"],
       niveau_sortie: "moyen",
+      couleur: "equilibre",
+      attaque: "franche",
+      tenue: "moyenne",
       chaleur: 6,
       brillance: 6,
       dynamique: 8,

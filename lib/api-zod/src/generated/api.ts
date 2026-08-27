@@ -32,6 +32,7 @@ export const ListFichesQueryParams = zod.object({
   "q": zod.coerce.string().optional(),
   "instrument": zod.enum(['electrique', 'acoustique', 'basse', 'autre']).optional(),
   "style": zod.coerce.string().optional(),
+  "couleur_son": zod.enum(['chaud', 'equilibre', 'clair']).optional(),
   "zone": zod.enum(['france', 'europe', 'monde']).optional(),
   "budget_eur": zod.coerce.number().min(listFichesQueryBudgetEurMin).optional(),
   "delai_max_mois": zod.coerce.number().min(listFichesQueryDelaiMaxMoisMin).optional(),
@@ -78,9 +79,9 @@ export const ListFichesResponseItem = zod.object({
   "profil_sonore": zod.object({
   "styles": zod.array(zod.string()).optional(),
   "niveau_sortie": zod.string().nullish(),
-  "chaleur": zod.number().nullish(),
-  "brillance": zod.number().nullish(),
-  "dynamique": zod.number().nullish(),
+  "couleur": zod.union([zod.literal('chaud'),zod.literal('equilibre'),zod.literal('clair'),zod.literal(null)]).nullish(),
+  "attaque": zod.union([zod.literal('douce'),zod.literal('franche'),zod.literal('percussive'),zod.literal(null)]).nullish(),
+  "tenue": zod.union([zod.literal('courte'),zod.literal('moyenne'),zod.literal('longue'),zod.literal(null)]).nullish(),
   "type_grain": zod.string().nullish(),
   "description": zod.string().nullish()
 }),
@@ -136,6 +137,10 @@ export const GetFichesMetaResponse = zod.object({
   "libelle": zod.string(),
   "aide": zod.string()
 }))
+})),
+  "couleurs_son": zod.array(zod.object({
+  "cle": zod.string(),
+  "libelle": zod.string()
 }))
 })
 
@@ -184,9 +189,9 @@ export const GetFicheResponse = zod.object({
   "profil_sonore": zod.object({
   "styles": zod.array(zod.string()).optional(),
   "niveau_sortie": zod.string().nullish(),
-  "chaleur": zod.number().nullish(),
-  "brillance": zod.number().nullish(),
-  "dynamique": zod.number().nullish(),
+  "couleur": zod.union([zod.literal('chaud'),zod.literal('equilibre'),zod.literal('clair'),zod.literal(null)]).nullish(),
+  "attaque": zod.union([zod.literal('douce'),zod.literal('franche'),zod.literal('percussive'),zod.literal(null)]).nullish(),
+  "tenue": zod.union([zod.literal('courte'),zod.literal('moyenne'),zod.literal('longue'),zod.literal(null)]).nullish(),
   "type_grain": zod.string().nullish(),
   "description": zod.string().nullish()
 }),
@@ -242,12 +247,6 @@ export const recommendBodyDelaiMaxMoisMax = 120;
 
 export const recommendBodyPaysLivraisonMax = 60;
 
-export const recommendBodyChaleurSouhaiteeMin = 0;
-export const recommendBodyChaleurSouhaiteeMax = 10;
-
-export const recommendBodyBrillanceSouhaiteeMin = 0;
-export const recommendBodyBrillanceSouhaiteeMax = 10;
-
 export const recommendBodyFaconsRechercheesMax = 21;
 
 export const recommendBodyDescriptionLibreMax = 1500;
@@ -265,8 +264,9 @@ export const RecommendBody = zod.object({
   "delai_max_mois": zod.number().min(recommendBodyDelaiMaxMoisMin).max(recommendBodyDelaiMaxMoisMax).nullish(),
   "pays_livraison": zod.string().max(recommendBodyPaysLivraisonMax).nullish(),
   "zone_preferee": zod.enum(['france', 'europe', 'monde']),
-  "chaleur_souhaitee": zod.number().min(recommendBodyChaleurSouhaiteeMin).max(recommendBodyChaleurSouhaiteeMax).nullish(),
-  "brillance_souhaitee": zod.number().min(recommendBodyBrillanceSouhaiteeMin).max(recommendBodyBrillanceSouhaiteeMax).nullish(),
+  "couleur_souhaitee": zod.union([zod.literal('chaud'),zod.literal('equilibre'),zod.literal('clair'),zod.literal(null)]).nullish(),
+  "attaque_souhaitee": zod.union([zod.literal('douce'),zod.literal('franche'),zod.literal('percussive'),zod.literal(null)]).nullish(),
+  "tenue_souhaitee": zod.union([zod.literal('courte'),zod.literal('moyenne'),zod.literal('longue'),zod.literal(null)]).nullish(),
   "facons_recherchees": zod.array(zod.string()).max(recommendBodyFaconsRechercheesMax).optional(),
   "personnalisation": zod.boolean(),
   "description_libre": zod.string().max(recommendBodyDescriptionLibreMax),
@@ -315,12 +315,6 @@ export const createBriefBodyDelaiMaxMoisMax = 120;
 
 export const createBriefBodyPaysLivraisonMax = 60;
 
-export const createBriefBodyChaleurSouhaiteeMin = 0;
-export const createBriefBodyChaleurSouhaiteeMax = 10;
-
-export const createBriefBodyBrillanceSouhaiteeMin = 0;
-export const createBriefBodyBrillanceSouhaiteeMax = 10;
-
 export const createBriefBodyFaconsRechercheesMax = 21;
 
 export const createBriefBodyDescriptionLibreMax = 1500;
@@ -338,8 +332,9 @@ export const CreateBriefBody = zod.object({
   "delai_max_mois": zod.number().min(createBriefBodyDelaiMaxMoisMin).max(createBriefBodyDelaiMaxMoisMax).nullish(),
   "pays_livraison": zod.string().max(createBriefBodyPaysLivraisonMax).nullish(),
   "zone_preferee": zod.enum(['france', 'europe', 'monde']),
-  "chaleur_souhaitee": zod.number().min(createBriefBodyChaleurSouhaiteeMin).max(createBriefBodyChaleurSouhaiteeMax).nullish(),
-  "brillance_souhaitee": zod.number().min(createBriefBodyBrillanceSouhaiteeMin).max(createBriefBodyBrillanceSouhaiteeMax).nullish(),
+  "couleur_souhaitee": zod.union([zod.literal('chaud'),zod.literal('equilibre'),zod.literal('clair'),zod.literal(null)]).nullish(),
+  "attaque_souhaitee": zod.union([zod.literal('douce'),zod.literal('franche'),zod.literal('percussive'),zod.literal(null)]).nullish(),
+  "tenue_souhaitee": zod.union([zod.literal('courte'),zod.literal('moyenne'),zod.literal('longue'),zod.literal(null)]).nullish(),
   "facons_recherchees": zod.array(zod.string()).max(createBriefBodyFaconsRechercheesMax).optional(),
   "personnalisation": zod.boolean(),
   "description_libre": zod.string().max(createBriefBodyDescriptionLibreMax),
@@ -763,9 +758,9 @@ export const GetAdminSummaryResponse = zod.object({
   "profil_sonore": zod.object({
   "styles": zod.array(zod.string()).optional(),
   "niveau_sortie": zod.string().nullish(),
-  "chaleur": zod.number().nullish(),
-  "brillance": zod.number().nullish(),
-  "dynamique": zod.number().nullish(),
+  "couleur": zod.union([zod.literal('chaud'),zod.literal('equilibre'),zod.literal('clair'),zod.literal(null)]).nullish(),
+  "attaque": zod.union([zod.literal('douce'),zod.literal('franche'),zod.literal('percussive'),zod.literal(null)]).nullish(),
+  "tenue": zod.union([zod.literal('courte'),zod.literal('moyenne'),zod.literal('longue'),zod.literal(null)]).nullish(),
   "type_grain": zod.string().nullish(),
   "description": zod.string().nullish()
 }),
@@ -860,9 +855,9 @@ export const UpdateFicheStatusResponse = zod.object({
   "profil_sonore": zod.object({
   "styles": zod.array(zod.string()).optional(),
   "niveau_sortie": zod.string().nullish(),
-  "chaleur": zod.number().nullish(),
-  "brillance": zod.number().nullish(),
-  "dynamique": zod.number().nullish(),
+  "couleur": zod.union([zod.literal('chaud'),zod.literal('equilibre'),zod.literal('clair'),zod.literal(null)]).nullish(),
+  "attaque": zod.union([zod.literal('douce'),zod.literal('franche'),zod.literal('percussive'),zod.literal(null)]).nullish(),
+  "tenue": zod.union([zod.literal('courte'),zod.literal('moyenne'),zod.literal('longue'),zod.literal(null)]).nullish(),
   "type_grain": zod.string().nullish(),
   "description": zod.string().nullish()
 }),

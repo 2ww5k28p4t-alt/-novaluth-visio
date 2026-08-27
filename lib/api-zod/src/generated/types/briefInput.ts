@@ -5,6 +5,9 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { BriefInputAttaqueSouhaitee } from './briefInputAttaqueSouhaitee';
+import type { BriefInputCouleurSouhaitee } from './briefInputCouleurSouhaitee';
+import type { BriefInputTenueSouhaitee } from './briefInputTenueSouhaitee';
 import type { BriefInputTypeInstrument } from './briefInputTypeInstrument';
 import type { BriefInputZonePreferee } from './briefInputZonePreferee';
 
@@ -36,18 +39,12 @@ export interface BriefInput {
      */
   pays_livraison?: string | null;
   zone_preferee: BriefInputZonePreferee;
-  /**
-     * @minimum 0
-     * @maximum 10
-     * @nullable
-     */
-  chaleur_souhaitee?: number | null;
-  /**
-     * @minimum 0
-     * @maximum 10
-     * @nullable
-     */
-  brillance_souhaitee?: number | null;
+  /** @nullable */
+  couleur_souhaitee?: BriefInputCouleurSouhaitee;
+  /** @nullable */
+  attaque_souhaitee?: BriefInputAttaqueSouhaitee;
+  /** @nullable */
+  tenue_souhaitee?: BriefInputTenueSouhaitee;
   /** @maxItems 21 */
   facons_recherchees?: string[];
   personnalisation: boolean;

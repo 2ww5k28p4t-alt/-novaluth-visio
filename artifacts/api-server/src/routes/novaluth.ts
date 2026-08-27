@@ -60,6 +60,7 @@ import {
   sortDirectory,
   type DirectorySort,
 } from "../lib/novaluth-facets";
+import { availableSoundColours, compareSound, soundFromLegacy } from "../lib/novaluth-sound";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -88,8 +89,9 @@ type Brief = {
   delai_max_mois?: number | null;
   pays_livraison?: string | null;
   zone_preferee: string;
-  chaleur_souhaitee?: number | null;
-  brillance_souhaitee?: number | null;
+  couleur_souhaitee?: string | null;
+  attaque_souhaitee?: string | null;
+  tenue_souhaitee?: string | null;
   facons_recherchees?: string[];
   personnalisation: boolean;
   description_libre: string;
@@ -124,8 +126,22 @@ function seedProfiles(): Promise<void> {
 }
 
 function getFiche(data: unknown): Fiche {
+  const raw = data as Record<string, unknown>;
+  const storedSound = raw.profil_sonore && typeof raw.profil_sonore === "object"
+    ? raw.profil_sonore as Record<string, unknown>
+    : {};
+  const demonstrationSource = raw.demonstration
+    ? novaluthSeed.find((fiche) => fiche.slug === raw.slug)?.profil_sonore
+    : undefined;
+  const rawSound = soundFromLegacy({
+    ...storedSound,
+    couleur: storedSound.couleur ?? demonstrationSource?.couleur,
+    attaque: storedSound.attaque ?? demonstrationSource?.attaque,
+    tenue: storedSound.tenue ?? demonstrationSource?.tenue,
+  });
   const core = GetFicheResponse.parse({
-    ...(data as Record<string, unknown>),
+    ...raw,
+    profil_sonore: rawSound,
     facons_travail: [],
     provenance_facons: "d’après ses pages publiques",
   });
@@ -203,18 +219,15 @@ function evaluateMatch(brief: Brief, fiche: Fiche) {
     points.push("Des essences de bois demandées sont documentées.");
   }
 
-  const soundDistances = [
-    brief.chaleur_souhaitee != null && fiche.profil_sonore.chaleur != null
-      ? Math.abs(brief.chaleur_souhaitee - fiche.profil_sonore.chaleur)
-      : null,
-    brief.brillance_souhaitee != null && fiche.profil_sonore.brillance != null
-      ? Math.abs(brief.brillance_souhaitee - fiche.profil_sonore.brillance)
-      : null,
-  ].filter((value): value is number => value !== null);
-  if (soundDistances.length) {
-    const proximity = 1 - soundDistances.reduce((total, value) => total + value, 0) / soundDistances.length / 10;
-    score += Math.round(8 * Math.max(0, proximity));
-    if (proximity >= 0.7) points.push("Le profil sonore est proche de ce que vous décrivez.");
+  const soundMatch = compareSound(fiche.profil_sonore, {
+    couleur: brief.couleur_souhaitee,
+    attaque: brief.attaque_souhaitee,
+    tenue: brief.tenue_souhaitee,
+  });
+  if (soundMatch.proximity != null) {
+    score += Math.round(8 * soundMatch.proximity);
+    points.push(...soundMatch.points);
+    warnings.push(...soundMatch.warnings);
   }
 
   const soughtFacets = normalizeFacetKeys(brief.facons_recherchees ?? []);
@@ -486,6 +499,7 @@ router.get("/fiches", async (req, res, next) => {
       query: parsed.q,
       instrument: parsed.instrument,
       style: parsed.style,
+      soundColour: parsed.couleur_son,
       zone: parsed.zone,
       budget: parsed.budget_eur,
       deadline: parsed.delai_max_mois,
@@ -519,6 +533,7 @@ router.get("/fiches/meta", async (_req, res, next) => {
         types,
         styles: availableStyles(published),
         facettes: availableFacetFamilies(published),
+        couleurs_son: availableSoundColours(published),
       }),
     );
   } catch (error) {

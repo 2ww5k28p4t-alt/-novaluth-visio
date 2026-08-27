@@ -7,7 +7,8 @@ import {
   ListFichesType,
   ListFichesInstrument,
   ListFichesZone,
-  ListFichesTri
+  ListFichesTri,
+  ListFichesCouleurSon
 } from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,18 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Search, MapPin, Info, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+
+const soundLabels: Record<string, string> = {
+  chaud: "chaud et rond",
+  equilibre: "équilibré",
+  clair: "clair et brillant",
+  douce: "douce et progressive",
+  franche: "franche",
+  percussive: "percussive et immédiate",
+  courte: "courte et nette",
+  moyenne: "moyenne",
+  longue: "longue et chantante",
+};
 
 export default function Annuaire() {
   const [q, setQ] = useState("");
@@ -33,6 +46,7 @@ export default function Annuaire() {
     instrument: "all",
     style: "all",
     zone: "all",
+    couleur_son: "all",
     budget_eur: "",
     delai_max_mois: "",
     relue_seulement: false,
@@ -50,6 +64,7 @@ export default function Annuaire() {
   if (filters.instrument !== "all") params.instrument = filters.instrument as ListFichesInstrument;
   if (filters.style !== "all") params.style = filters.style;
   if (filters.zone !== "all") params.zone = filters.zone as ListFichesZone;
+  if (filters.couleur_son !== "all") params.couleur_son = filters.couleur_son as ListFichesCouleurSon;
   if (filters.budget_eur) params.budget_eur = parseInt(filters.budget_eur, 10);
   if (filters.delai_max_mois) params.delai_max_mois = parseInt(filters.delai_max_mois, 10);
   if (filters.relue_seulement) params.relue_seulement = true;
@@ -67,6 +82,12 @@ export default function Annuaire() {
     return cle;
   };
 
+  const getCouleurSonLabel = (cle: string) => {
+    if (!meta || !meta.couleurs_son) return cle;
+    const found = meta.couleurs_son.find(c => c.cle === cle);
+    return found ? found.libelle : cle;
+  };
+
   const resetFilters = () => {
     setQ("");
     setFilters({
@@ -75,6 +96,7 @@ export default function Annuaire() {
       instrument: "all",
       style: "all",
       zone: "all",
+      couleur_son: "all",
       budget_eur: "",
       delai_max_mois: "",
       relue_seulement: false,
@@ -177,19 +199,33 @@ export default function Annuaire() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <label className="text-sm font-medium text-foreground">Zone d'expédition</label>
-              <Select value={filters.zone} onValueChange={v => setFilters({...filters, zone: v})}>
-                <SelectTrigger className="rounded-none bg-background">
-                  <SelectValue placeholder="Toutes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Toutes</SelectItem>
-                  <SelectItem value="france">France</SelectItem>
-                  <SelectItem value="europe">Europe</SelectItem>
-                  <SelectItem value="monde">Monde</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-foreground">Zone d'expédition</label>
+                <Select value={filters.zone} onValueChange={v => setFilters({...filters, zone: v})}>
+                  <SelectTrigger className="rounded-none bg-background">
+                    <SelectValue placeholder="Toutes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Toutes</SelectItem>
+                    <SelectItem value="france">France</SelectItem>
+                    <SelectItem value="europe">Europe</SelectItem>
+                    <SelectItem value="monde">Monde</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-foreground">Couleur du son annoncée</label>
+                <Select value={filters.couleur_son} onValueChange={v => setFilters({...filters, couleur_son: v})}>
+                  <SelectTrigger className="rounded-none bg-background">
+                    <SelectValue placeholder="Toutes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Toutes</SelectItem>
+                    {meta?.couleurs_son?.map(c => <SelectItem key={c.cle} value={c.cle}>{c.libelle}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -356,9 +392,20 @@ export default function Annuaire() {
                           </span>
                         ))}
                       </div>
-                        <p className="text-xs text-muted-foreground">
-                          Façons de travailler : {fiche.provenance_facons}
-                        </p>
+                      {fiche.profil_sonore && (fiche.profil_sonore.couleur || fiche.profil_sonore.attaque || fiche.profil_sonore.tenue) && (
+                        <div className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border/30">
+                          <span className="block font-medium text-foreground mb-1">Son annoncé</span>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1">
+                            {fiche.profil_sonore.couleur && <span>Couleur : <span className="text-foreground">{soundLabels[fiche.profil_sonore.couleur] ?? getCouleurSonLabel(fiche.profil_sonore.couleur)}</span></span>}
+                            {fiche.profil_sonore.attaque && <span>Attaque : <span className="text-foreground">{soundLabels[fiche.profil_sonore.attaque] ?? fiche.profil_sonore.attaque}</span></span>}
+                            {fiche.profil_sonore.tenue && <span>Tenue : <span className="text-foreground">{soundLabels[fiche.profil_sonore.tenue] ?? fiche.profil_sonore.tenue}</span></span>}
+                          </div>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border/30">
+                        Façons de travailler : {fiche.provenance_facons}
+                      </p>
                     </div>
                   </div>
                 </Link>

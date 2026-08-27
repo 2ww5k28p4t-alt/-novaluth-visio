@@ -5,17 +5,20 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { ProfilSonoreAttaque } from './profilSonoreAttaque';
+import type { ProfilSonoreCouleur } from './profilSonoreCouleur';
+import type { ProfilSonoreTenue } from './profilSonoreTenue';
 
 export interface ProfilSonore {
   styles?: string[];
   /** @nullable */
   niveau_sortie?: string | null;
   /** @nullable */
-  chaleur?: number | null;
+  couleur?: ProfilSonoreCouleur;
   /** @nullable */
-  brillance?: number | null;
+  attaque?: ProfilSonoreAttaque;
   /** @nullable */
-  dynamique?: number | null;
+  tenue?: ProfilSonoreTenue;
   /** @nullable */
   type_grain?: string | null;
   /** @nullable */

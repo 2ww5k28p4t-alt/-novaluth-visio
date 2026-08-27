@@ -2,13 +2,12 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useCreateBrief, useRecommend, useGetFichesMeta, BriefInputTypeInstrument, BriefInputZonePreferee } from "@workspace/api-client-react";
+import { useCreateBrief, useRecommend, useGetFichesMeta, BriefInputTypeInstrument, BriefInputZonePreferee, BriefInputCouleurSouhaitee, BriefInputAttaqueSouhaitee, BriefInputTenueSouhaitee } from "@workspace/api-client-react";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowRight, Sparkles, CheckCircle2, ChevronRight } from "lucide-react";
@@ -23,8 +22,9 @@ const briefSchema = z.object({
   delai_max_mois: z.coerce.number().min(0).max(120).optional(),
   pays_livraison: z.string().max(60).optional(),
   zone_preferee: z.nativeEnum(BriefInputZonePreferee),
-  chaleur_souhaitee: z.number().min(0).max(10).optional(),
-  brillance_souhaitee: z.number().min(0).max(10).optional(),
+  couleur_souhaitee: z.nativeEnum(BriefInputCouleurSouhaitee).optional(),
+  attaque_souhaitee: z.nativeEnum(BriefInputAttaqueSouhaitee).optional(),
+  tenue_souhaitee: z.nativeEnum(BriefInputTenueSouhaitee).optional(),
   facons_recherchees: z.array(z.string()).optional(),
   personnalisation: z.boolean().default(false),
   description_libre: z.string().max(1500),
@@ -50,8 +50,9 @@ export default function Brief() {
       delai_max_mois: 12,
       pays_livraison: "France",
       zone_preferee: BriefInputZonePreferee.france,
-      chaleur_souhaitee: 5,
-      brillance_souhaitee: 5,
+      couleur_souhaitee: undefined,
+      attaque_souhaitee: undefined,
+      tenue_souhaitee: undefined,
       facons_recherchees: [],
       personnalisation: false,
       description_libre: "",
@@ -329,29 +330,30 @@ export default function Brief() {
               <div className="space-y-6">
                 <h2 className="text-2xl font-serif text-primary border-b border-border/50 pb-2">2. Son & Approche</h2>
                 
-                <div className="space-y-8 pt-4">
+                <div className="grid md:grid-cols-3 gap-6 pt-4">
                   <FormField
                     control={form.control}
-                    name="chaleur_souhaitee"
+                    name="couleur_souhaitee"
                     render={({ field }) => (
                       <FormItem>
-                        <div className="flex justify-between items-center mb-4">
-                          <FormLabel className="text-base">Chaleur recherchée</FormLabel>
-                          <span className="text-sm font-medium text-accent">{field.value}/10</span>
-                        </div>
-                        <FormControl>
-                          <Slider
-                            value={[field.value || 5]}
-                            onValueChange={(v) => field.onChange(v[0])}
-                            max={10}
-                            step={1}
-                            className="[&_[role=slider]]:border-primary [&_[role=slider]]:bg-primary"
-                          />
-                        </FormControl>
-                        <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                          <span>Froid / Analytique</span>
-                          <span>Chaud / Rond</span>
-                        </div>
+                        <FormLabel>Couleur sonore</FormLabel>
+                        <Select
+                          value={field.value || "peu_importe"}
+                          onValueChange={(v) => field.onChange(v === "peu_importe" ? undefined : v)}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="rounded-none bg-background">
+                              <SelectValue placeholder="Peu importe" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="peu_importe">Peu importe</SelectItem>
+                            <SelectItem value={BriefInputCouleurSouhaitee.chaud}>Chaud / Rond</SelectItem>
+                            <SelectItem value={BriefInputCouleurSouhaitee.equilibre}>Équilibré</SelectItem>
+                            <SelectItem value={BriefInputCouleurSouhaitee.clair}>Clair / Brillant</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>Chaud, équilibré ou clair : la couleur générale du son.</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -359,26 +361,55 @@ export default function Brief() {
 
                   <FormField
                     control={form.control}
-                    name="brillance_souhaitee"
+                    name="attaque_souhaitee"
                     render={({ field }) => (
                       <FormItem>
-                        <div className="flex justify-between items-center mb-4">
-                          <FormLabel className="text-base">Brillance recherchée</FormLabel>
-                          <span className="text-sm font-medium text-accent">{field.value}/10</span>
-                        </div>
-                        <FormControl>
-                          <Slider
-                            value={[field.value || 5]}
-                            onValueChange={(v) => field.onChange(v[0])}
-                            max={10}
-                            step={1}
-                            className="[&_[role=slider]]:border-primary [&_[role=slider]]:bg-primary"
-                          />
-                        </FormControl>
-                        <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                          <span>Mat / Sombre</span>
-                          <span>Brillant / Tranchant</span>
-                        </div>
+                        <FormLabel>Attaque</FormLabel>
+                        <Select
+                          value={field.value || "peu_importe"}
+                          onValueChange={(v) => field.onChange(v === "peu_importe" ? undefined : v)}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="rounded-none bg-background">
+                              <SelectValue placeholder="Peu importe" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="peu_importe">Peu importe</SelectItem>
+                            <SelectItem value={BriefInputAttaqueSouhaitee.douce}>Douce / Moelleuse</SelectItem>
+                            <SelectItem value={BriefInputAttaqueSouhaitee.franche}>Franche / Articulée</SelectItem>
+                            <SelectItem value={BriefInputAttaqueSouhaitee.percussive}>Percussive / Claquante</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>La façon dont le son répond au départ de chaque note.</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="tenue_souhaitee"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tenue (Sustain)</FormLabel>
+                        <Select
+                          value={field.value || "peu_importe"}
+                          onValueChange={(v) => field.onChange(v === "peu_importe" ? undefined : v)}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="rounded-none bg-background">
+                              <SelectValue placeholder="Peu importe" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="peu_importe">Peu importe</SelectItem>
+                            <SelectItem value={BriefInputTenueSouhaitee.courte}>Courte</SelectItem>
+                            <SelectItem value={BriefInputTenueSouhaitee.moyenne}>Moyenne</SelectItem>
+                            <SelectItem value={BriefInputTenueSouhaitee.longue}>Longue</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>La durée pendant laquelle une note continue de résonner.</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

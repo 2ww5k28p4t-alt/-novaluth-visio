@@ -35,7 +35,10 @@ type DirectoryFiche = {
     mots_cles?: string[];
     resume_ia?: string | null;
   };
-  profil_sonore: { styles?: string[] };
+  profil_sonore: {
+    styles?: string[];
+    couleur?: string | null;
+  };
   logistique: {
     expedie_france?: boolean;
     expedie_europe?: boolean;
@@ -46,6 +49,7 @@ type DirectoryFilters = {
   query?: string;
   instrument?: string;
   style?: string;
+  soundColour?: string;
   zone?: string;
   budget?: number;
   deadline?: number;
@@ -201,6 +205,7 @@ export function filterDirectory(fiches: DirectoryFiche[], filters: DirectoryFilt
     if (normalizedQuery && !haystack.includes(normalizedQuery)) return false;
     if (filters.instrument && fiche.modeles.length && !fiche.modeles.some((model) => model.type === filters.instrument)) return false;
     if (filters.style && (fiche.profil_sonore.styles?.length ?? 0) > 0 && !fiche.profil_sonore.styles?.some((style) => normalize(style).includes(normalize(filters.style!)))) return false;
+    if (filters.soundColour && fiche.profil_sonore.couleur != null && fiche.profil_sonore.couleur !== filters.soundColour) return false;
     if (filters.zone) {
       const shipment = { france: fiche.logistique.expedie_france, europe: fiche.logistique.expedie_europe, monde: fiche.logistique.expedie_monde };
       if (shipment[filters.zone as keyof typeof shipment] === false) return false;

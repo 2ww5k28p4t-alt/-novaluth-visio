@@ -15,6 +15,24 @@ import {
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
+const soundValues: Record<string, { label: string; help: string }> = {
+  chaud: { label: "Chaud et rond", help: "Graves présents, aigus adoucis." },
+  equilibre: { label: "Équilibré", help: "Aucun registre ne domine." },
+  clair: { label: "Clair et brillant", help: "Aigus en avant, définition nette." },
+  douce: { label: "Douce et progressive", help: "Le son s’installe, agréable en accompagnement." },
+  franche: { label: "Franche", help: "Le son répond sans traîner ni claquer." },
+  percussive: { label: "Percussive et immédiate", help: "L’attaque est marquée et très lisible." },
+  courte: { label: "Courte et nette", help: "La note s’arrête vite, l’articulation ressort." },
+  moyenne: { label: "Moyenne", help: "Tenue habituelle, sans caractère particulier." },
+  longue: { label: "Longue et chantante", help: "La note se prolonge, utile pour les solos tenus." },
+};
+
+const soundAxes = [
+  { key: "couleur", title: "Couleur du son" },
+  { key: "attaque", title: "Réponse à l’attaque" },
+  { key: "tenue", title: "Tenue des notes" },
+] as const;
+
 export default function Fiche() {
   const [, params] = useRoute("/fiche/:slug");
   const slug = params?.slug || "";
@@ -197,9 +215,9 @@ export default function Fiche() {
           {/* Sidebar */}
           <div className="space-y-8">
             
-            {/* Sound Profile */}
+            {/* Son annoncé */}
             <div className="bg-card border border-border/50 p-6 space-y-6">
-              <h3 className="font-serif text-lg text-primary border-b border-border/50 pb-4">Profil Sonore</h3>
+              <h3 className="font-serif text-lg text-primary border-b border-border/50 pb-4">Son annoncé</h3>
               
               {fiche.profil_sonore.styles && fiche.profil_sonore.styles.length > 0 && (
                 <div>
@@ -212,27 +230,23 @@ export default function Fiche() {
                 </div>
               )}
               
-              <div className="space-y-3 pt-2">
-                {fiche.profil_sonore.chaleur !== undefined && fiche.profil_sonore.chaleur !== null && (
+              <div className="space-y-4 pt-2">
+                {soundAxes.map((axis) => {
+                  const value = fiche.profil_sonore[axis.key];
+                  const presentation = value ? soundValues[value] : undefined;
+                  return value ? (
+                    <div key={axis.key}>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">{axis.title}</span>
+                      <p className="text-sm font-medium text-foreground">{presentation?.label ?? value}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{presentation?.help}</p>
+                    </div>
+                  ) : null;
+                })}
+                {fiche.profil_sonore.type_grain && (
                   <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-muted-foreground">Chaleur</span>
-                      <span>{fiche.profil_sonore.chaleur}/10</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-muted overflow-hidden">
-                      <div className="h-full bg-accent" style={{ width: `${fiche.profil_sonore.chaleur * 10}%` }} />
-                    </div>
-                  </div>
-                )}
-                {fiche.profil_sonore.brillance !== undefined && fiche.profil_sonore.brillance !== null && (
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-muted-foreground">Brillance</span>
-                      <span>{fiche.profil_sonore.brillance}/10</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-muted overflow-hidden">
-                      <div className="h-full bg-accent" style={{ width: `${fiche.profil_sonore.brillance * 10}%` }} />
-                    </div>
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">Type de grain</span>
+                    <p className="text-sm font-medium text-foreground">{fiche.profil_sonore.type_grain}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Texture harmonique spécifique</p>
                   </div>
                 )}
               </div>
