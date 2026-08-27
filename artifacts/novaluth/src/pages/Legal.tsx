@@ -37,7 +37,7 @@ export default function Legal() {
             NovaLuth est une plateforme expérimentale d'information et de mise en relation algorithmique (ci-après "le Service"). 
             Ce service n'est pas une place de marché, un e-commerce, ou un intermédiaire de paiement.
           </p>
-          
+
           <h2 className="text-2xl font-serif text-primary mt-8">2. Statut des fiches artisans</h2>
           <p>
             Les fiches présentes dans l'annuaire sont créées à partir de données publiques (sites web des luthiers, réseaux sociaux, interviews) et d'un traitement algorithmique visant à extraire les spécificités de chaque artisan.
@@ -74,6 +74,11 @@ export default function Legal() {
           <h2 className="text-2xl font-serif text-primary mt-8">6. Classement et tri</h2>
           <p>
             Pour en savoir plus sur l'ordre d'affichage, la rotation quotidienne et l'absence de biais commercial sur l'annuaire, veuillez consulter notre <Link href="/legal/classement" className="text-primary hover:text-accent underline">page dédiée au classement</Link>.
+          </p>
+
+          <h2 className="text-2xl font-serif text-primary mt-8">7. Prestataires et sources</h2>
+          <p>
+            NovaLuth publie la liste de ses prestataires techniques, les sources déclarées, les tarifs observés et les limites appliquées à la lecture des pages. Consultez notre <Link href="/transparence" className="text-primary hover:text-accent underline">page de transparence des prestataires</Link>.
           </p>
         </div>
       </div>

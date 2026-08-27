@@ -33,12 +33,15 @@ import type {
   BriefReceipt,
   Fiche,
   FichesMeta,
+  GatewayHealth,
   HealthStatus,
   ListFichesParams,
   MusicianDecisionInput,
   MusicianProject,
+  ProviderState,
   RecommendationResponse,
-  StatusUpdate
+  StatusUpdate,
+  Transparency
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -134,6 +137,238 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getHealthCheckQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetGatewayHealthUrl = () => {
+
+
+
+
+  return `/api/sante`
+}
+
+/**
+ * Shows configuration presence and quotas without exposing keys.
+ * @summary Get the sanitized gateway health state
+ */
+export const getGatewayHealth = async ( options?: Parameters<typeof customFetch>[1]): Promise<GatewayHealth> => {
+
+  return customFetch<GatewayHealth>(getGetGatewayHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGatewayHealthQueryKey = () => {
+    return [
+    `/api/sante`
+    ] as const;
+    }
+
+
+export const getGetGatewayHealthQueryOptions = <TData = Awaited<ReturnType<typeof getGatewayHealth>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGatewayHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGatewayHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGatewayHealth>>> = ({ signal }) => getGatewayHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGatewayHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGatewayHealthQueryResult = NonNullable<Awaited<ReturnType<typeof getGatewayHealth>>>
+export type GetGatewayHealthQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the sanitized gateway health state
+ */
+
+export function useGetGatewayHealth<TData = Awaited<ReturnType<typeof getGatewayHealth>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGatewayHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGatewayHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTransparencyUrl = () => {
+
+
+
+
+  return `/api/transparence`
+}
+
+/**
+ * @summary Get public provider and source transparency
+ */
+export const getTransparency = async ( options?: Parameters<typeof customFetch>[1]): Promise<Transparency> => {
+
+  return customFetch<Transparency>(getGetTransparencyUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTransparencyQueryKey = () => {
+    return [
+    `/api/transparence`
+    ] as const;
+    }
+
+
+export const getGetTransparencyQueryOptions = <TData = Awaited<ReturnType<typeof getTransparency>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTransparency>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTransparencyQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTransparency>>> = ({ signal }) => getTransparency({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTransparency>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTransparencyQueryResult = NonNullable<Awaited<ReturnType<typeof getTransparency>>>
+export type GetTransparencyQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get public provider and source transparency
+ */
+
+export function useGetTransparency<TData = Awaited<ReturnType<typeof getTransparency>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTransparency>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTransparencyQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetProviderStateUrl = () => {
+
+
+
+
+  return `/api/v1/etat`
+}
+
+/**
+ * @summary Get the public provider registry state
+ */
+export const getProviderState = async ( options?: Parameters<typeof customFetch>[1]): Promise<ProviderState> => {
+
+  return customFetch<ProviderState>(getGetProviderStateUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProviderStateQueryKey = () => {
+    return [
+    `/api/v1/etat`
+    ] as const;
+    }
+
+
+export const getGetProviderStateQueryOptions = <TData = Awaited<ReturnType<typeof getProviderState>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProviderState>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProviderStateQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProviderState>>> = ({ signal }) => getProviderState({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProviderState>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProviderStateQueryResult = NonNullable<Awaited<ReturnType<typeof getProviderState>>>
+export type GetProviderStateQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the public provider registry state
+ */
+
+export function useGetProviderState<TData = Awaited<ReturnType<typeof getProviderState>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProviderState>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProviderStateQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

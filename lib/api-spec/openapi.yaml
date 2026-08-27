@@ -20,6 +20,8 @@ tags:
     description: Moderation and curation
   - name: atelier-access
     description: Atelier access requests and musician project decisions
+  - name: transparency
+    description: Public provider and data-processing transparency
 paths:
   /healthz:
     get:
@@ -34,6 +36,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /sante:
+    get:
+      operationId: getGatewayHealth
+      tags: [transparency]
+      summary: Get the sanitized gateway health state
+      description: Shows configuration presence and quotas without exposing keys.
+      responses:
+        "200":
+          description: Gateway health state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayHealth"
+  /transparence:
+    get:
+      operationId: getTransparency
+      tags: [transparency]
+      summary: Get public provider and source transparency
+      responses:
+        "200":
+          description: Named provider chains and privacy commitments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transparency"
+  /v1/etat:
+    get:
+      operationId: getProviderState
+      tags: [transparency]
+      summary: Get the public provider registry state
+      responses:
+        "200":
+          description: Sanitized provider registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderState"
   /fiches:
     get:
       operationId: listFiches
@@ -480,6 +519,92 @@ components:
           type: string
       required:
         - status
+    Provider:
+      type: object
+      required: [cle, nom, reseau, netuid, tarif, source, licence, reserve, configure, modeles]
+      properties:
+        cle: { type: string }
+        nom: { type: string }
+        reseau:
+          type: string
+          enum: [local, classique, bittensor]
+        netuid: { type: ["number", "null"] }
+        tarif: { type: string }
+        source: { type: string }
+        licence: { type: string }
+        reserve: { type: string }
+        configure: { type: boolean }
+        modeles:
+          type: array
+          items: { type: string }
+    ProviderChains:
+      type: object
+      required: [inference, recherche, lecture, collecte]
+      properties:
+        inference:
+          type: array
+          items: { $ref: "#/components/schemas/Provider" }
+        recherche:
+          type: array
+          items: { $ref: "#/components/schemas/Provider" }
+        lecture:
+          type: array
+          items: { $ref: "#/components/schemas/Provider" }
+        collecte:
+          type: array
+          items: { $ref: "#/components/schemas/Provider" }
+    ProviderState:
+      type: object
+      required: [besoins, hors_production, principes, modeles_autorises]
+      properties:
+        besoins:
+          $ref: "#/components/schemas/ProviderChains"
+        hors_production:
+          type: array
+          items: { type: string }
+        principes:
+          type: array
+          items: { type: string }
+        modeles_autorises:
+          type: array
+          items: { type: string }
+    GatewayHealth:
+      type: object
+      required: [service, secret_interne, cles_presentes, chaines_actives, modeles_autorises, plafonds]
+      properties:
+        service: { type: string }
+        secret_interne: { type: boolean }
+        cles_presentes:
+          type: object
+          additionalProperties: { type: boolean }
+        chaines_actives:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        modeles_autorises:
+          type: array
+          items: { type: string }
+        plafonds:
+          type: object
+          required: [ia_par_jour, collecte_par_jour, recherches_par_jour, pages_par_jour]
+          properties:
+            ia_par_jour: { type: number }
+            collecte_par_jour: { type: number }
+            recherches_par_jour: { type: number }
+            pages_par_jour: { type: number }
+    Transparency:
+      allOf:
+        - $ref: "#/components/schemas/ProviderState"
+        - type: object
+          required: [titre, mise_a_jour, engagement, donnees]
+          properties:
+            titre: { type: string }
+            mise_a_jour: { type: string }
+            engagement: { type: string }
+            donnees:
+              type: array
+              items: { type: string }
     Specification:
       type: object
       properties:

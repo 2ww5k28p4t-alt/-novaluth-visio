@@ -1,1 +1,2 @@
 - [OpenAPI codegen compatibility](openapi-integer-codegen.md) — Avoid `integer` and `format: email` until generated Zod validators support their emitted APIs.
+- [Gateway page-reading boundary](gateway-page-reading-boundary.md) — Public-page retrieval must pin validated DNS, fail closed on site policies, and share replay/quota state.

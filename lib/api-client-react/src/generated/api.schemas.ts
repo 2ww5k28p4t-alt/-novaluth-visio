@@ -9,6 +9,70 @@ export interface HealthStatus {
   status: string;
 }
 
+export type ProviderReseau = typeof ProviderReseau[keyof typeof ProviderReseau];
+
+
+export const ProviderReseau = {
+  local: 'local',
+  classique: 'classique',
+  bittensor: 'bittensor',
+} as const;
+
+export interface Provider {
+  cle: string;
+  nom: string;
+  reseau: ProviderReseau;
+  /** @nullable */
+  netuid: number | null;
+  tarif: string;
+  source: string;
+  licence: string;
+  reserve: string;
+  configure: boolean;
+  modeles: string[];
+}
+
+export interface ProviderChains {
+  inference: Provider[];
+  recherche: Provider[];
+  lecture: Provider[];
+  collecte: Provider[];
+}
+
+export interface ProviderState {
+  besoins: ProviderChains;
+  hors_production: string[];
+  principes: string[];
+  modeles_autorises: string[];
+}
+
+export type GatewayHealthClesPresentes = {[key: string]: boolean};
+
+export type GatewayHealthChainesActives = {[key: string]: string[]};
+
+export type GatewayHealthPlafonds = {
+  ia_par_jour: number;
+  collecte_par_jour: number;
+  recherches_par_jour: number;
+  pages_par_jour: number;
+};
+
+export interface GatewayHealth {
+  service: string;
+  secret_interne: boolean;
+  cles_presentes: GatewayHealthClesPresentes;
+  chaines_actives: GatewayHealthChainesActives;
+  modeles_autorises: string[];
+  plafonds: GatewayHealthPlafonds;
+}
+
+export type Transparency = ProviderState & {
+  titre: string;
+  mise_a_jour: string;
+  engagement: string;
+  donnees: string[];
+};
+
 export interface Specification {
   /** @nullable */
   bois_corps?: string | null;

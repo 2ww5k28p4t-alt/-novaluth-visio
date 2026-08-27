@@ -18,6 +18,150 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * Shows configuration presence and quotas without exposing keys.
+ * @summary Get the sanitized gateway health state
+ */
+export const GetGatewayHealthResponse = zod.object({
+  "service": zod.string(),
+  "secret_interne": zod.boolean(),
+  "cles_presentes": zod.record(zod.string(), zod.boolean()),
+  "chaines_actives": zod.record(zod.string(), zod.array(zod.string())),
+  "modeles_autorises": zod.array(zod.string()),
+  "plafonds": zod.object({
+  "ia_par_jour": zod.number(),
+  "collecte_par_jour": zod.number(),
+  "recherches_par_jour": zod.number(),
+  "pages_par_jour": zod.number()
+})
+})
+
+
+/**
+ * @summary Get public provider and source transparency
+ */
+export const GetTransparencyResponse = zod.object({
+  "besoins": zod.object({
+  "inference": zod.array(zod.object({
+  "cle": zod.string(),
+  "nom": zod.string(),
+  "reseau": zod.enum(['local', 'classique', 'bittensor']),
+  "netuid": zod.number().nullable(),
+  "tarif": zod.string(),
+  "source": zod.string(),
+  "licence": zod.string(),
+  "reserve": zod.string(),
+  "configure": zod.boolean(),
+  "modeles": zod.array(zod.string())
+})),
+  "recherche": zod.array(zod.object({
+  "cle": zod.string(),
+  "nom": zod.string(),
+  "reseau": zod.enum(['local', 'classique', 'bittensor']),
+  "netuid": zod.number().nullable(),
+  "tarif": zod.string(),
+  "source": zod.string(),
+  "licence": zod.string(),
+  "reserve": zod.string(),
+  "configure": zod.boolean(),
+  "modeles": zod.array(zod.string())
+})),
+  "lecture": zod.array(zod.object({
+  "cle": zod.string(),
+  "nom": zod.string(),
+  "reseau": zod.enum(['local', 'classique', 'bittensor']),
+  "netuid": zod.number().nullable(),
+  "tarif": zod.string(),
+  "source": zod.string(),
+  "licence": zod.string(),
+  "reserve": zod.string(),
+  "configure": zod.boolean(),
+  "modeles": zod.array(zod.string())
+})),
+  "collecte": zod.array(zod.object({
+  "cle": zod.string(),
+  "nom": zod.string(),
+  "reseau": zod.enum(['local', 'classique', 'bittensor']),
+  "netuid": zod.number().nullable(),
+  "tarif": zod.string(),
+  "source": zod.string(),
+  "licence": zod.string(),
+  "reserve": zod.string(),
+  "configure": zod.boolean(),
+  "modeles": zod.array(zod.string())
+}))
+}),
+  "hors_production": zod.array(zod.string()),
+  "principes": zod.array(zod.string()),
+  "modeles_autorises": zod.array(zod.string())
+}).and(zod.object({
+  "titre": zod.string(),
+  "mise_a_jour": zod.string(),
+  "engagement": zod.string(),
+  "donnees": zod.array(zod.string())
+}))
+
+
+/**
+ * @summary Get the public provider registry state
+ */
+export const GetProviderStateResponse = zod.object({
+  "besoins": zod.object({
+  "inference": zod.array(zod.object({
+  "cle": zod.string(),
+  "nom": zod.string(),
+  "reseau": zod.enum(['local', 'classique', 'bittensor']),
+  "netuid": zod.number().nullable(),
+  "tarif": zod.string(),
+  "source": zod.string(),
+  "licence": zod.string(),
+  "reserve": zod.string(),
+  "configure": zod.boolean(),
+  "modeles": zod.array(zod.string())
+})),
+  "recherche": zod.array(zod.object({
+  "cle": zod.string(),
+  "nom": zod.string(),
+  "reseau": zod.enum(['local', 'classique', 'bittensor']),
+  "netuid": zod.number().nullable(),
+  "tarif": zod.string(),
+  "source": zod.string(),
+  "licence": zod.string(),
+  "reserve": zod.string(),
+  "configure": zod.boolean(),
+  "modeles": zod.array(zod.string())
+})),
+  "lecture": zod.array(zod.object({
+  "cle": zod.string(),
+  "nom": zod.string(),
+  "reseau": zod.enum(['local', 'classique', 'bittensor']),
+  "netuid": zod.number().nullable(),
+  "tarif": zod.string(),
+  "source": zod.string(),
+  "licence": zod.string(),
+  "reserve": zod.string(),
+  "configure": zod.boolean(),
+  "modeles": zod.array(zod.string())
+})),
+  "collecte": zod.array(zod.object({
+  "cle": zod.string(),
+  "nom": zod.string(),
+  "reseau": zod.enum(['local', 'classique', 'bittensor']),
+  "netuid": zod.number().nullable(),
+  "tarif": zod.string(),
+  "source": zod.string(),
+  "licence": zod.string(),
+  "reserve": zod.string(),
+  "configure": zod.boolean(),
+  "modeles": zod.array(zod.string())
+}))
+}),
+  "hors_production": zod.array(zod.string()),
+  "principes": zod.array(zod.string()),
+  "modeles_autorises": zod.array(zod.string())
+})
+
+
+/**
  * @summary List published makers
  */
 export const listFichesQueryBudgetEurMin = 0;
