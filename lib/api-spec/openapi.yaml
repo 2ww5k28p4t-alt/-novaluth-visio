@@ -131,7 +131,7 @@ paths:
     post:
       operationId: createBrief
       tags: [briefs]
-      summary: Save a musician project brief
+      summary: Save a musician project brief without sharing it unless consent is explicit
       requestBody:
         required: true
         content:
@@ -147,6 +147,8 @@ paths:
                 $ref: "#/components/schemas/BriefReceipt"
         "422":
           description: Invalid brief
+        "400":
+          description: A consented project requires an email address for its private portal
   /projets/{reference}/portail/{token}:
     get:
       operationId: getMusicianProject
@@ -172,6 +174,9 @@ paths:
       operationId: decideMusicianAccessRequest
       tags: [atelier-access]
       summary: Accept or refuse an atelier access request
+      description: >
+        Only the musician holding the private portal link can decide. An accepted request
+        captures its preauthorization and opens a five-day access pass; a refusal releases it.
       parameters:
         - $ref: "#/components/parameters/ProjectReference"
         - name: token
@@ -197,6 +202,8 @@ paths:
                 $ref: "#/components/schemas/AtelierAccessRequest"
         "404":
           description: Project or request not found
+        "409":
+          description: Request was already decided
   /ateliers/{slug}/session:
     post:
       operationId: openAtelierSession
@@ -262,6 +269,10 @@ paths:
       operationId: createAtelierAccessRequest
       tags: [atelier-access]
       summary: Request access to a compatible musician project
+      description: >
+        Creates a pending request with a payment preauthorization only. Project details stay
+        hidden until the musician accepts. An atelier may hold at most three pending requests
+        or active access passes.
       parameters:
         - $ref: "#/components/parameters/AtelierSlug"
       requestBody:
@@ -307,7 +318,7 @@ paths:
     post:
       operationId: useAtelierFollowupCredit
       tags: [atelier-access]
-      summary: Use one follow-up credit on an active access pass
+      summary: Use one follow-up credit on an active, captured access pass
       parameters:
         - $ref: "#/components/parameters/AtelierSlug"
         - name: requestId
@@ -327,6 +338,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AtelierAccessRequest"
+        "400":
+          description: Access has expired, has not been accepted, or has no remaining credit
   /admin/summary:
     get:
       operationId: getAdminSummary
@@ -538,7 +551,7 @@ components:
         maj_le: { type: ["string", "null"] }
     BriefInput:
       type: object
-      required: [type_instrument, budget_min_eur, budget_max_eur, styles, bois_souhaites, zone_preferee, personnalisation, description_libre]
+      required: [type_instrument, budget_min_eur, budget_max_eur, styles, bois_souhaites, zone_preferee, personnalisation, description_libre, consentement_transmission]
       properties:
         type_instrument:
           type: string
@@ -563,8 +576,8 @@ components:
         innovation_recherchee: { type: ["number", "null"], minimum: 0, maximum: 10 }
         personnalisation: { type: boolean }
         description_libre: { type: string, maxLength: 1500 }
-        email: { type: ["string", "null"], maxLength: 180 }
-        consentement_transmission: { type: boolean }
+        email: { type: ["string", "null"], maxLength: 180, description: Required when consentement_transmission is true; otherwise it is not persisted. }
+        consentement_transmission: { type: boolean, default: false, description: Explicitly authorizes creation of a private musician portal and transmission after acceptance. }
     Recommendation:
       type: object
       required: [slug, nom, type, correspondance, points_correspondance, points_vigilance, demonstration, valide_par_artisan]
@@ -601,7 +614,7 @@ components:
         avertissement: { type: string }
     BriefReceipt:
       type: object
-      required: [reference, recommandations]
+      required: [reference, portail_musicien, recommandations]
       properties:
         reference: { type: string }
         portail_musicien: { type: ["string", "null"] }
@@ -643,6 +656,7 @@ components:
     AccessPlan:
       type: string
       enum: [essentiel, atelier, signature]
+      description: essentiel includes 1 follow-up credit, atelier 2, and signature 3.
     AtelierSessionInput:
       type: object
       properties:
@@ -653,7 +667,7 @@ components:
       properties:
         session: { type: string }
         atelier_slug: { type: string }
-        expire_le: { type: string }
+        expire_le: { type: string, format: date-time }
     AtelierActionInput:
       type: object
       required: [session]
@@ -704,11 +718,11 @@ components:
         statut_paiement:
           type: string
           enum: [preautorise, encaisse, annule]
-        cree_le: { type: string }
-        decide_le: { type: ["string", "null"] }
-        expire_le: { type: ["string", "null"] }
-        credits_relance: { type: number }
-        derniere_relance_le: { type: ["string", "null"] }
+        cree_le: { type: string, format: date-time }
+        decide_le: { type: ["string", "null"], format: date-time }
+        expire_le: { type: ["string", "null"], format: date-time }
+        credits_relance: { type: number, minimum: 0, maximum: 3 }
+        derniere_relance_le: { type: ["string", "null"], format: date-time }
         projet:
           $ref: "#/components/schemas/AtelierProject"
     AtelierDashboard:
@@ -717,7 +731,7 @@ components:
       properties:
         atelier_slug: { type: string }
         atelier_nom: { type: string }
-        places_restantes: { type: number }
+        places_restantes: { type: number, minimum: 0, maximum: 3 }
         demandes:
           type: array
           items:

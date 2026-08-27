@@ -239,7 +239,7 @@ export const recommendBodyDescriptionLibreMax = 1500;
 
 export const recommendBodyEmailMax = 180;
 
-
+export const recommendBodyConsentementTransmissionDefault = false;
 
 export const RecommendBody = zod.object({
   "type_instrument": zod.enum(['electrique', 'acoustique', 'basse', 'autre']),
@@ -255,8 +255,8 @@ export const RecommendBody = zod.object({
   "innovation_recherchee": zod.number().min(recommendBodyInnovationRechercheeMin).max(recommendBodyInnovationRechercheeMax).nullish(),
   "personnalisation": zod.boolean(),
   "description_libre": zod.string().max(recommendBodyDescriptionLibreMax),
-  "email": zod.string().max(recommendBodyEmailMax).nullish(),
-  "consentement_transmission": zod.boolean().optional()
+  "email": zod.string().max(recommendBodyEmailMax).nullish().describe('Required when consentement_transmission is true; otherwise it is not persisted.'),
+  "consentement_transmission": zod.boolean().default(recommendBodyConsentementTransmissionDefault).describe('Explicitly authorizes creation of a private musician portal and transmission after acceptance.')
 })
 
 export const RecommendResponse = zod.object({
@@ -283,7 +283,7 @@ export const RecommendResponse = zod.object({
 
 
 /**
- * @summary Save a musician project brief
+ * @summary Save a musician project brief without sharing it unless consent is explicit
  */
 export const createBriefBodyBudgetMinEurMin = 0;
 export const createBriefBodyBudgetMinEurMax = 200000;
@@ -313,7 +313,7 @@ export const createBriefBodyDescriptionLibreMax = 1500;
 
 export const createBriefBodyEmailMax = 180;
 
-
+export const createBriefBodyConsentementTransmissionDefault = false;
 
 export const CreateBriefBody = zod.object({
   "type_instrument": zod.enum(['electrique', 'acoustique', 'basse', 'autre']),
@@ -329,13 +329,13 @@ export const CreateBriefBody = zod.object({
   "innovation_recherchee": zod.number().min(createBriefBodyInnovationRechercheeMin).max(createBriefBodyInnovationRechercheeMax).nullish(),
   "personnalisation": zod.boolean(),
   "description_libre": zod.string().max(createBriefBodyDescriptionLibreMax),
-  "email": zod.string().max(createBriefBodyEmailMax).nullish(),
-  "consentement_transmission": zod.boolean().optional()
+  "email": zod.string().max(createBriefBodyEmailMax).nullish().describe('Required when consentement_transmission is true; otherwise it is not persisted.'),
+  "consentement_transmission": zod.boolean().default(createBriefBodyConsentementTransmissionDefault).describe('Explicitly authorizes creation of a private musician portal and transmission after acceptance.')
 })
 
 export const CreateBriefResponse = zod.object({
   "reference": zod.string(),
-  "portail_musicien": zod.string().nullish(),
+  "portail_musicien": zod.string().nullable(),
   "recommandations": zod.array(zod.object({
   "slug": zod.string(),
   "nom": zod.string(),
@@ -363,6 +363,11 @@ export const GetMusicianProjectParams = zod.object({
   "token": zod.coerce.string()
 })
 
+export const getMusicianProjectResponseDemandesItemCreditsRelanceMin = 0;
+export const getMusicianProjectResponseDemandesItemCreditsRelanceMax = 3;
+
+
+
 export const GetMusicianProjectResponse = zod.object({
   "reference": zod.string(),
   "statut": zod.enum(['actif', 'sommeil']),
@@ -378,15 +383,15 @@ export const GetMusicianProjectResponse = zod.object({
   "reference_projet": zod.string(),
   "atelier_slug": zod.string(),
   "atelier_nom": zod.string(),
-  "offre": zod.enum(['essentiel', 'atelier', 'signature']),
+  "offre": zod.enum(['essentiel', 'atelier', 'signature']).describe('essentiel includes 1 follow-up credit, atelier 2, and signature 3.'),
   "montant_eur": zod.number(),
   "statut": zod.enum(['en_attente', 'acceptee', 'refusee', 'annulee', 'expiree']),
   "statut_paiement": zod.enum(['preautorise', 'encaisse', 'annule']),
-  "cree_le": zod.string(),
-  "decide_le": zod.string().nullish(),
-  "expire_le": zod.string().nullish(),
-  "credits_relance": zod.number(),
-  "derniere_relance_le": zod.string().nullish(),
+  "cree_le": zod.coerce.date(),
+  "decide_le": zod.coerce.date().nullish(),
+  "expire_le": zod.coerce.date().nullish(),
+  "credits_relance": zod.number().min(getMusicianProjectResponseDemandesItemCreditsRelanceMin).max(getMusicianProjectResponseDemandesItemCreditsRelanceMax),
+  "derniere_relance_le": zod.coerce.date().nullish(),
   "projet": zod.object({
   "reference": zod.string(),
   "type_instrument": zod.string(),
@@ -401,6 +406,7 @@ export const GetMusicianProjectResponse = zod.object({
 
 
 /**
+ * Only the musician holding the private portal link can decide. An accepted request captures its preauthorization and opens a five-day access pass; a refusal releases it.
  * @summary Accept or refuse an atelier access request
  */
 export const DecideMusicianAccessRequestParams = zod.object({
@@ -413,20 +419,25 @@ export const DecideMusicianAccessRequestBody = zod.object({
   "decision": zod.enum(['accepter', 'refuser'])
 })
 
+export const decideMusicianAccessRequestResponseCreditsRelanceMin = 0;
+export const decideMusicianAccessRequestResponseCreditsRelanceMax = 3;
+
+
+
 export const DecideMusicianAccessRequestResponse = zod.object({
   "id": zod.number(),
   "reference_projet": zod.string(),
   "atelier_slug": zod.string(),
   "atelier_nom": zod.string(),
-  "offre": zod.enum(['essentiel', 'atelier', 'signature']),
+  "offre": zod.enum(['essentiel', 'atelier', 'signature']).describe('essentiel includes 1 follow-up credit, atelier 2, and signature 3.'),
   "montant_eur": zod.number(),
   "statut": zod.enum(['en_attente', 'acceptee', 'refusee', 'annulee', 'expiree']),
   "statut_paiement": zod.enum(['preautorise', 'encaisse', 'annule']),
-  "cree_le": zod.string(),
-  "decide_le": zod.string().nullish(),
-  "expire_le": zod.string().nullish(),
-  "credits_relance": zod.number(),
-  "derniere_relance_le": zod.string().nullish(),
+  "cree_le": zod.coerce.date(),
+  "decide_le": zod.coerce.date().nullish(),
+  "expire_le": zod.coerce.date().nullish(),
+  "credits_relance": zod.number().min(decideMusicianAccessRequestResponseCreditsRelanceMin).max(decideMusicianAccessRequestResponseCreditsRelanceMax),
+  "derniere_relance_le": zod.coerce.date().nullish(),
   "projet": zod.object({
   "reference": zod.string(),
   "type_instrument": zod.string(),
@@ -457,7 +468,7 @@ export const OpenAtelierSessionBody = zod.object({
 export const OpenAtelierSessionResponse = zod.object({
   "session": zod.string(),
   "atelier_slug": zod.string(),
-  "expire_le": zod.string()
+  "expire_le": zod.coerce.date()
 })
 
 
@@ -468,24 +479,35 @@ export const GetAtelierDashboardParams = zod.object({
   "slug": zod.coerce.string()
 })
 
+export const getAtelierDashboardResponsePlacesRestantesMin = 0;
+export const getAtelierDashboardResponsePlacesRestantesMax = 3;
+
+export const getAtelierDashboardResponseDemandesItemCreditsRelanceMin = 0;
+export const getAtelierDashboardResponseDemandesItemCreditsRelanceMax = 3;
+
+export const getAtelierDashboardResponseCarnetsItemCreditsRelanceMin = 0;
+export const getAtelierDashboardResponseCarnetsItemCreditsRelanceMax = 3;
+
+
+
 export const GetAtelierDashboardResponse = zod.object({
   "atelier_slug": zod.string(),
   "atelier_nom": zod.string(),
-  "places_restantes": zod.number(),
+  "places_restantes": zod.number().min(getAtelierDashboardResponsePlacesRestantesMin).max(getAtelierDashboardResponsePlacesRestantesMax),
   "demandes": zod.array(zod.object({
   "id": zod.number(),
   "reference_projet": zod.string(),
   "atelier_slug": zod.string(),
   "atelier_nom": zod.string(),
-  "offre": zod.enum(['essentiel', 'atelier', 'signature']),
+  "offre": zod.enum(['essentiel', 'atelier', 'signature']).describe('essentiel includes 1 follow-up credit, atelier 2, and signature 3.'),
   "montant_eur": zod.number(),
   "statut": zod.enum(['en_attente', 'acceptee', 'refusee', 'annulee', 'expiree']),
   "statut_paiement": zod.enum(['preautorise', 'encaisse', 'annule']),
-  "cree_le": zod.string(),
-  "decide_le": zod.string().nullish(),
-  "expire_le": zod.string().nullish(),
-  "credits_relance": zod.number(),
-  "derniere_relance_le": zod.string().nullish(),
+  "cree_le": zod.coerce.date(),
+  "decide_le": zod.coerce.date().nullish(),
+  "expire_le": zod.coerce.date().nullish(),
+  "credits_relance": zod.number().min(getAtelierDashboardResponseDemandesItemCreditsRelanceMin).max(getAtelierDashboardResponseDemandesItemCreditsRelanceMax),
+  "derniere_relance_le": zod.coerce.date().nullish(),
   "projet": zod.object({
   "reference": zod.string(),
   "type_instrument": zod.string(),
@@ -501,15 +523,15 @@ export const GetAtelierDashboardResponse = zod.object({
   "reference_projet": zod.string(),
   "atelier_slug": zod.string(),
   "atelier_nom": zod.string(),
-  "offre": zod.enum(['essentiel', 'atelier', 'signature']),
+  "offre": zod.enum(['essentiel', 'atelier', 'signature']).describe('essentiel includes 1 follow-up credit, atelier 2, and signature 3.'),
   "montant_eur": zod.number(),
   "statut": zod.enum(['en_attente', 'acceptee', 'refusee', 'annulee', 'expiree']),
   "statut_paiement": zod.enum(['preautorise', 'encaisse', 'annule']),
-  "cree_le": zod.string(),
-  "decide_le": zod.string().nullish(),
-  "expire_le": zod.string().nullish(),
-  "credits_relance": zod.number(),
-  "derniere_relance_le": zod.string().nullish(),
+  "cree_le": zod.coerce.date(),
+  "decide_le": zod.coerce.date().nullish(),
+  "expire_le": zod.coerce.date().nullish(),
+  "credits_relance": zod.number().min(getAtelierDashboardResponseCarnetsItemCreditsRelanceMin).max(getAtelierDashboardResponseCarnetsItemCreditsRelanceMax),
+  "derniere_relance_le": zod.coerce.date().nullish(),
   "projet": zod.object({
   "reference": zod.string(),
   "type_instrument": zod.string(),
@@ -543,6 +565,7 @@ export const ListAtelierProjectsResponse = zod.array(ListAtelierProjectsResponse
 
 
 /**
+ * Creates a pending request with a payment preauthorization only. Project details stay hidden until the musician accepts. An atelier may hold at most three pending requests or active access passes.
  * @summary Request access to a compatible musician project
  */
 export const CreateAtelierAccessRequestParams = zod.object({
@@ -556,23 +579,28 @@ export const createAtelierAccessRequestBodySessionMin = 20;
 export const CreateAtelierAccessRequestBody = zod.object({
   "session": zod.string().min(createAtelierAccessRequestBodySessionMin),
   "reference_projet": zod.string(),
-  "offre": zod.enum(['essentiel', 'atelier', 'signature'])
+  "offre": zod.enum(['essentiel', 'atelier', 'signature']).describe('essentiel includes 1 follow-up credit, atelier 2, and signature 3.')
 })
+
+export const createAtelierAccessRequestResponseCreditsRelanceMin = 0;
+export const createAtelierAccessRequestResponseCreditsRelanceMax = 3;
+
+
 
 export const CreateAtelierAccessRequestResponse = zod.object({
   "id": zod.number(),
   "reference_projet": zod.string(),
   "atelier_slug": zod.string(),
   "atelier_nom": zod.string(),
-  "offre": zod.enum(['essentiel', 'atelier', 'signature']),
+  "offre": zod.enum(['essentiel', 'atelier', 'signature']).describe('essentiel includes 1 follow-up credit, atelier 2, and signature 3.'),
   "montant_eur": zod.number(),
   "statut": zod.enum(['en_attente', 'acceptee', 'refusee', 'annulee', 'expiree']),
   "statut_paiement": zod.enum(['preautorise', 'encaisse', 'annule']),
-  "cree_le": zod.string(),
-  "decide_le": zod.string().nullish(),
-  "expire_le": zod.string().nullish(),
-  "credits_relance": zod.number(),
-  "derniere_relance_le": zod.string().nullish(),
+  "cree_le": zod.coerce.date(),
+  "decide_le": zod.coerce.date().nullish(),
+  "expire_le": zod.coerce.date().nullish(),
+  "credits_relance": zod.number().min(createAtelierAccessRequestResponseCreditsRelanceMin).max(createAtelierAccessRequestResponseCreditsRelanceMax),
+  "derniere_relance_le": zod.coerce.date().nullish(),
   "projet": zod.object({
   "reference": zod.string(),
   "type_instrument": zod.string(),
@@ -601,20 +629,25 @@ export const CancelAtelierAccessRequestBody = zod.object({
   "session": zod.string().min(cancelAtelierAccessRequestBodySessionMin)
 })
 
+export const cancelAtelierAccessRequestResponseCreditsRelanceMin = 0;
+export const cancelAtelierAccessRequestResponseCreditsRelanceMax = 3;
+
+
+
 export const CancelAtelierAccessRequestResponse = zod.object({
   "id": zod.number(),
   "reference_projet": zod.string(),
   "atelier_slug": zod.string(),
   "atelier_nom": zod.string(),
-  "offre": zod.enum(['essentiel', 'atelier', 'signature']),
+  "offre": zod.enum(['essentiel', 'atelier', 'signature']).describe('essentiel includes 1 follow-up credit, atelier 2, and signature 3.'),
   "montant_eur": zod.number(),
   "statut": zod.enum(['en_attente', 'acceptee', 'refusee', 'annulee', 'expiree']),
   "statut_paiement": zod.enum(['preautorise', 'encaisse', 'annule']),
-  "cree_le": zod.string(),
-  "decide_le": zod.string().nullish(),
-  "expire_le": zod.string().nullish(),
-  "credits_relance": zod.number(),
-  "derniere_relance_le": zod.string().nullish(),
+  "cree_le": zod.coerce.date(),
+  "decide_le": zod.coerce.date().nullish(),
+  "expire_le": zod.coerce.date().nullish(),
+  "credits_relance": zod.number().min(cancelAtelierAccessRequestResponseCreditsRelanceMin).max(cancelAtelierAccessRequestResponseCreditsRelanceMax),
+  "derniere_relance_le": zod.coerce.date().nullish(),
   "projet": zod.object({
   "reference": zod.string(),
   "type_instrument": zod.string(),
@@ -628,7 +661,7 @@ export const CancelAtelierAccessRequestResponse = zod.object({
 
 
 /**
- * @summary Use one follow-up credit on an active access pass
+ * @summary Use one follow-up credit on an active, captured access pass
  */
 export const UseAtelierFollowupCreditParams = zod.object({
   "slug": zod.coerce.string(),
@@ -643,20 +676,25 @@ export const UseAtelierFollowupCreditBody = zod.object({
   "session": zod.string().min(useAtelierFollowupCreditBodySessionMin)
 })
 
+export const useAtelierFollowupCreditResponseCreditsRelanceMin = 0;
+export const useAtelierFollowupCreditResponseCreditsRelanceMax = 3;
+
+
+
 export const UseAtelierFollowupCreditResponse = zod.object({
   "id": zod.number(),
   "reference_projet": zod.string(),
   "atelier_slug": zod.string(),
   "atelier_nom": zod.string(),
-  "offre": zod.enum(['essentiel', 'atelier', 'signature']),
+  "offre": zod.enum(['essentiel', 'atelier', 'signature']).describe('essentiel includes 1 follow-up credit, atelier 2, and signature 3.'),
   "montant_eur": zod.number(),
   "statut": zod.enum(['en_attente', 'acceptee', 'refusee', 'annulee', 'expiree']),
   "statut_paiement": zod.enum(['preautorise', 'encaisse', 'annule']),
-  "cree_le": zod.string(),
-  "decide_le": zod.string().nullish(),
-  "expire_le": zod.string().nullish(),
-  "credits_relance": zod.number(),
-  "derniere_relance_le": zod.string().nullish(),
+  "cree_le": zod.coerce.date(),
+  "decide_le": zod.coerce.date().nullish(),
+  "expire_le": zod.coerce.date().nullish(),
+  "credits_relance": zod.number().min(useAtelierFollowupCreditResponseCreditsRelanceMin).max(useAtelierFollowupCreditResponseCreditsRelanceMax),
+  "derniere_relance_le": zod.coerce.date().nullish(),
   "projet": zod.object({
   "reference": zod.string(),
   "type_instrument": zod.string(),

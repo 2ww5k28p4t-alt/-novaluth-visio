@@ -464,7 +464,7 @@ export const getCreateBriefUrl = () => {
 }
 
 /**
- * @summary Save a musician project brief
+ * @summary Save a musician project brief without sharing it unless consent is explicit
  */
 export const createBrief = async (briefInput: BriefInput, options?: Parameters<typeof customFetch>[1]): Promise<BriefReceipt> => {
 
@@ -513,7 +513,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateBriefMutationError = ErrorType<void>
 
     /**
- * @summary Save a musician project brief
+ * @summary Save a musician project brief without sharing it unless consent is explicit
  */
 export const useCreateBrief = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrief>>, TError,{data: BodyType<BriefInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -619,6 +619,7 @@ export const getDecideMusicianAccessRequestUrl = (reference: string,
 }
 
 /**
+ * Only the musician holding the private portal link can decide. An accepted request captures its preauthorization and opens a five-day access pass; a refusal releases it.
  * @summary Accept or refuse an atelier access request
  */
 export const decideMusicianAccessRequest = async (reference: string,
@@ -919,6 +920,7 @@ export const getCreateAtelierAccessRequestUrl = (slug: string,) => {
 }
 
 /**
+ * Creates a pending request with a payment preauthorization only. Project details stay hidden until the musician accepts. An atelier may hold at most three pending requests or active access passes.
  * @summary Request access to a compatible musician project
  */
 export const createAtelierAccessRequest = async (slug: string,
@@ -1066,7 +1068,7 @@ export const getUseAtelierFollowupCreditUrl = (slug: string,
 }
 
 /**
- * @summary Use one follow-up credit on an active access pass
+ * @summary Use one follow-up credit on an active, captured access pass
  */
 export const useAtelierFollowupCredit = async (slug: string,
     requestId: number,
@@ -1085,7 +1087,7 @@ export const useAtelierFollowupCredit = async (slug: string,
 
 
 
-export const getUseAtelierFollowupCreditMutationOptions = <TError = ErrorType<unknown>,
+export const getUseAtelierFollowupCreditMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useAtelierFollowupCredit>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof useAtelierFollowupCredit>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext> => {
 
@@ -1114,12 +1116,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UseAtelierFollowupCreditMutationResult = NonNullable<Awaited<ReturnType<typeof useAtelierFollowupCredit>>>
     export type UseAtelierFollowupCreditMutationBody = BodyType<AtelierActionInput>
-    export type UseAtelierFollowupCreditMutationError = ErrorType<unknown>
+    export type UseAtelierFollowupCreditMutationError = ErrorType<void>
 
     /**
- * @summary Use one follow-up credit on an active access pass
+ * @summary Use one follow-up credit on an active, captured access pass
  */
-export const useUseAtelierFollowupCredit = <TError = ErrorType<unknown>,
+export const useUseAtelierFollowupCredit = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useAtelierFollowupCredit>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof useAtelierFollowupCredit>>,

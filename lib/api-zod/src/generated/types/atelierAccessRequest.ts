@@ -19,13 +19,17 @@ export interface AtelierAccessRequest {
   montant_eur: number;
   statut: AtelierAccessRequestStatut;
   statut_paiement: AtelierAccessRequestStatutPaiement;
-  cree_le: string;
+  cree_le: Date;
   /** @nullable */
-  decide_le?: string | null;
+  decide_le?: Date | null;
   /** @nullable */
-  expire_le?: string | null;
+  expire_le?: Date | null;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
   credits_relance: number;
   /** @nullable */
-  derniere_relance_le?: string | null;
+  derniere_relance_le?: Date | null;
   projet?: AtelierProject;
 }

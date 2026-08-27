@@ -9,5 +9,5 @@
 export interface AtelierSession {
   session: string;
   atelier_slug: string;
-  expire_le: string;
+  expire_le: Date;
 }

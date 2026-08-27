@@ -58,9 +58,11 @@ export interface BriefInput {
   /** @maxLength 1500 */
   description_libre: string;
   /**
+     * Required when consentement_transmission is true; otherwise it is not persisted.
      * @maxLength 180
      * @nullable
      */
   email?: string | null;
-  consentement_transmission?: boolean;
+  /** Explicitly authorizes creation of a private musician portal and transmission after acceptance. */
+  consentement_transmission: boolean;
 }

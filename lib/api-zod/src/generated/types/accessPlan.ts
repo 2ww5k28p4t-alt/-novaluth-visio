@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * essentiel includes 1 follow-up credit, atelier 2, and signature 3.
+ */
 export type AccessPlan = typeof AccessPlan[keyof typeof AccessPlan];
 
 

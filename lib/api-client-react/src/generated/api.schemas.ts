@@ -240,11 +240,13 @@ export interface BriefInput {
   /** @maxLength 1500 */
   description_libre: string;
   /**
+     * Required when consentement_transmission is true; otherwise it is not persisted.
      * @maxLength 180
      * @nullable
      */
   email?: string | null;
-  consentement_transmission?: boolean;
+  /** Explicitly authorizes creation of a private musician portal and transmission after acceptance. */
+  consentement_transmission: boolean;
 }
 
 export type RecommendationType = typeof RecommendationType[keyof typeof RecommendationType];
@@ -288,7 +290,7 @@ export interface RecommendationResponse {
 export interface BriefReceipt {
   reference: string;
   /** @nullable */
-  portail_musicien?: string | null;
+  portail_musicien: string | null;
   recommandations: Recommendation[];
 }
 
@@ -334,6 +336,9 @@ export interface StatusUpdate {
   statut: StatusUpdateStatut;
 }
 
+/**
+ * essentiel includes 1 follow-up credit, atelier 2, and signature 3.
+ */
 export type AccessPlan = typeof AccessPlan[keyof typeof AccessPlan];
 
 
@@ -423,6 +428,10 @@ export interface AtelierAccessRequest {
   decide_le?: string | null;
   /** @nullable */
   expire_le?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
   credits_relance: number;
   /** @nullable */
   derniere_relance_le?: string | null;
@@ -432,6 +441,10 @@ export interface AtelierAccessRequest {
 export interface AtelierDashboard {
   atelier_slug: string;
   atelier_nom: string;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
   places_restantes: number;
   demandes: AtelierAccessRequest[];
   carnets: AtelierAccessRequest[];

@@ -10,6 +10,6 @@ import type { Recommendation } from './recommendation';
 export interface BriefReceipt {
   reference: string;
   /** @nullable */
-  portail_musicien?: string | null;
+  portail_musicien: string | null;
   recommandations: Recommendation[];
 }

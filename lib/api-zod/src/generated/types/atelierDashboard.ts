@@ -10,6 +10,10 @@ import type { AtelierAccessRequest } from './atelierAccessRequest';
 export interface AtelierDashboard {
   atelier_slug: string;
   atelier_nom: string;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
   places_restantes: number;
   demandes: AtelierAccessRequest[];
   carnets: AtelierAccessRequest[];

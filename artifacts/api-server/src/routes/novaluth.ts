@@ -1,4 +1,4 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gt, gte, lte, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import {
@@ -311,7 +311,7 @@ async function requireAtelierSession(slug: string, token: string | undefined) {
       and(
         eq(novaluthAtelierSessionsTable.token, token),
         eq(novaluthAtelierSessionsTable.atelierSlug, slug),
-        gte(novaluthAtelierSessionsTable.expiresAt, new Date()),
+        gt(novaluthAtelierSessionsTable.expiresAt, new Date()),
       ),
     );
   if (!session) return null;
@@ -519,6 +519,12 @@ router.post("/recommend", async (req, res, next) => {
 router.post("/briefs", async (req, res, next) => {
   try {
     const brief = CreateBriefBody.parse(req.body) as Brief;
+    if (brief.consentement_transmission === true && !brief.email) {
+      res.status(400).json({
+        error: "Une adresse e-mail est nécessaire pour ouvrir un portail de suivi partagé.",
+      });
+      return;
+    }
     const resultats = await recommendations(brief);
     const [saved] = await db
       .insert(novaluthBriefsTable)
@@ -694,8 +700,18 @@ router.post("/projets/:reference/portail/:token/demandes/:requestId/decision", a
         decidedAt: now,
         accessEndsAt: accepted ? new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000) : null,
       })
-      .where(eq(novaluthAccessRequestsTable.id, request.id))
+      .where(
+        and(
+          eq(novaluthAccessRequestsTable.id, request.id),
+          eq(novaluthAccessRequestsTable.status, "en_attente"),
+          eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
+        ),
+      )
       .returning();
+    if (!updated) {
+      res.status(409).json({ error: "Cette demande a reçu une décision entre-temps." });
+      return;
+    }
     await db
       .update(novaluthProjectsTable)
       .set({ lastActivityAt: now, status: "actif" })
@@ -814,47 +830,61 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
       res.status(401).json({ error: "Session atelier invalide ou expirée." });
       return;
     }
-    const [project, activeRequests] = await Promise.all([
-      db.select().from(novaluthProjectsTable).where(eq(novaluthProjectsTable.reference, input.reference_projet)),
-      db
-        .select()
-        .from(novaluthAccessRequestsTable)
-        .where(eq(novaluthAccessRequestsTable.atelierSlug, slug)),
-    ]);
-    const current = activeRequests.filter((request) =>
-      activeRequestStatuses.includes(request.status as (typeof activeRequestStatuses)[number]),
-    );
-    if (current.length >= 3) {
-      res.status(400).json({ error: "Votre atelier dispose déjà de trois demandes ou carnets actifs." });
+    const created = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${slug}))`);
+      const [[target], activeRequests] = await Promise.all([
+        tx
+          .select()
+          .from(novaluthProjectsTable)
+          .where(eq(novaluthProjectsTable.reference, input.reference_projet)),
+        tx
+          .select()
+          .from(novaluthAccessRequestsTable)
+          .where(eq(novaluthAccessRequestsTable.atelierSlug, slug)),
+      ]);
+      const current = activeRequests.filter((request) =>
+        activeRequestStatuses.includes(request.status as (typeof activeRequestStatuses)[number]),
+      );
+      if (current.length >= 3) {
+        return { error: "Votre atelier dispose déjà de trois demandes ou carnets actifs." };
+      }
+      if (
+        !target ||
+        target.status !== "actif" ||
+        !(target.recommendedAteliers as string[]).includes(slug)
+      ) {
+        return { error: "Ce projet n’est pas disponible pour votre atelier." };
+      }
+      if (current.some((request) => request.projectReference === target.reference)) {
+        return { error: "Une demande active existe déjà pour ce projet." };
+      }
+      const plan = accessPlans[input.offre];
+      const [request] = await tx
+        .insert(novaluthAccessRequestsTable)
+        .values({
+          projectReference: target.reference,
+          atelierSlug: slug,
+          plan: input.offre,
+          amountCents: plan.amountCents,
+          status: "en_attente",
+          paymentStatus: "preautorise",
+          followupCredits: plan.followupCredits,
+          paymentReference: `sim_${randomUUID()}`,
+        })
+        .returning();
+      return { request };
+    });
+    if ("error" in created) {
+      res.status(400).json({ error: created.error });
       return;
     }
-    const target = project[0];
-    if (!target || target.status !== "actif" || !(target.recommendedAteliers as string[]).includes(slug)) {
-      res.status(400).json({ error: "Ce projet n’est pas disponible pour votre atelier." });
-      return;
-    }
-    if (current.some((request) => request.projectReference === target.reference)) {
-      res.status(400).json({ error: "Une demande active existe déjà pour ce projet." });
-      return;
-    }
-    const plan = accessPlans[input.offre];
-    const [created] = await db
-      .insert(novaluthAccessRequestsTable)
-      .values({
-        projectReference: target.reference,
-        atelierSlug: slug,
-        plan: input.offre,
-        amountCents: plan.amountCents,
-        followupCredits: plan.followupCredits,
-        paymentReference: `sim_${randomUUID()}`,
-      })
-      .returning();
+    const request = created.request;
     await db
       .update(novaluthProjectsTable)
       .set({ lastActivityAt: new Date() })
-      .where(eq(novaluthProjectsTable.reference, target.reference));
-    req.log.info({ requestId: created.id, atelier: slug, plan: input.offre }, "NovaLuth payment preauthorized");
-    res.status(201).json(CreateAtelierAccessRequestResponse.parse(await requestForDisplay(created)));
+      .where(eq(novaluthProjectsTable.reference, request.projectReference));
+    req.log.info({ requestId: request.id, atelier: slug, plan: input.offre }, "NovaLuth payment preauthorized");
+    res.status(201).json(CreateAtelierAccessRequestResponse.parse(await requestForDisplay(request)));
   } catch (error) {
     next(error);
   }
@@ -862,25 +892,29 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
 
 router.post("/ateliers/:slug/demandes/:requestId/annulation", async (req, res, next) => {
   try {
+    await runMaintenance();
     const { slug, requestId } = CancelAtelierAccessRequestParams.parse(req.params);
     const { session: token } = CancelAtelierAccessRequestBody.parse(req.body);
     if (!(await requireAtelierSession(slug, token))) {
       res.status(401).json({ error: "Session atelier invalide ou expirée." });
       return;
     }
-    const [request] = await db
-      .select()
-      .from(novaluthAccessRequestsTable)
-      .where(and(eq(novaluthAccessRequestsTable.id, requestId), eq(novaluthAccessRequestsTable.atelierSlug, slug)));
-    if (!request || request.status !== "en_attente") {
-      res.status(400).json({ error: "Cette demande ne peut plus être annulée." });
-      return;
-    }
     const [updated] = await db
       .update(novaluthAccessRequestsTable)
       .set({ status: "annulee", paymentStatus: "annule", decidedAt: new Date() })
-      .where(eq(novaluthAccessRequestsTable.id, requestId))
+      .where(
+        and(
+          eq(novaluthAccessRequestsTable.id, requestId),
+          eq(novaluthAccessRequestsTable.atelierSlug, slug),
+          eq(novaluthAccessRequestsTable.status, "en_attente"),
+          eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
+        ),
+      )
       .returning();
+    if (!updated) {
+      res.status(400).json({ error: "Cette demande ne peut plus être annulée." });
+      return;
+    }
     res.json(CancelAtelierAccessRequestResponse.parse(await requestForDisplay(updated)));
   } catch (error) {
     next(error);
@@ -889,30 +923,39 @@ router.post("/ateliers/:slug/demandes/:requestId/annulation", async (req, res, n
 
 router.post("/ateliers/:slug/carnets/:requestId/relance", async (req, res, next) => {
   try {
+    await runMaintenance();
     const { slug, requestId } = UseAtelierFollowupCreditParams.parse(req.params);
     const { session: token } = UseAtelierFollowupCreditBody.parse(req.body);
     if (!(await requireAtelierSession(slug, token))) {
       res.status(401).json({ error: "Session atelier invalide ou expirée." });
       return;
     }
-    const [request] = await db
-      .select()
-      .from(novaluthAccessRequestsTable)
-      .where(and(eq(novaluthAccessRequestsTable.id, requestId), eq(novaluthAccessRequestsTable.atelierSlug, slug)));
-    if (!request || request.status !== "acceptee" || request.followupCredits < 1) {
-      res.status(400).json({ error: "Aucun crédit de relance disponible pour ce carnet." });
-      return;
-    }
     const now = new Date();
     const [updated] = await db
       .update(novaluthAccessRequestsTable)
-      .set({ followupCredits: request.followupCredits - 1, lastFollowupAt: now })
-      .where(eq(novaluthAccessRequestsTable.id, requestId))
+      .set({
+        followupCredits: sql`${novaluthAccessRequestsTable.followupCredits} - 1`,
+        lastFollowupAt: now,
+      })
+      .where(
+        and(
+          eq(novaluthAccessRequestsTable.id, requestId),
+          eq(novaluthAccessRequestsTable.atelierSlug, slug),
+          eq(novaluthAccessRequestsTable.status, "acceptee"),
+          eq(novaluthAccessRequestsTable.paymentStatus, "encaisse"),
+          gt(novaluthAccessRequestsTable.followupCredits, 0),
+          gt(novaluthAccessRequestsTable.accessEndsAt, now),
+        ),
+      )
       .returning();
+    if (!updated) {
+      res.status(400).json({ error: "Aucun crédit de relance disponible pour ce carnet actif." });
+      return;
+    }
     await db
       .update(novaluthProjectsTable)
       .set({ lastActivityAt: now, status: "actif" })
-      .where(eq(novaluthProjectsTable.reference, request.projectReference));
+      .where(eq(novaluthProjectsTable.reference, updated.projectReference));
     res.json(UseAtelierFollowupCreditResponse.parse(await requestForDisplay(updated, true)));
   } catch (error) {
     next(error);
