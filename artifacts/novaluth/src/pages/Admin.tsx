@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useGetAdminSummary, useUpdateFicheStatus, StatusUpdateStatut, getGetAdminSummaryQueryKey } from "@workspace/api-client-react";
+import { useGetAdminSummary, useRunAccessMaintenance, useUpdateFicheStatus, StatusUpdateStatut, getGetAdminSummaryQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +86,9 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
   const updateStatus = useUpdateFicheStatus({
     request: { headers: { 'X-Admin-Token': token } }
   });
+  const maintenance = useRunAccessMaintenance({
+    request: { headers: { 'X-Admin-Token': token } }
+  });
 
   // Handle auth error (401/403)
   useEffect(() => {
@@ -122,6 +125,26 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
     );
   };
 
+  const handleMaintenance = () => {
+    maintenance.mutate(undefined, {
+      onSuccess: (result) => {
+        toast({
+          title: "Entretien terminé",
+          description: `${result.annulations} annulation(s), ${result.expirations} expiration(s) et ${result.relances} relance(s) traitées.`,
+        });
+        queryClient.invalidateQueries({ queryKey: getGetAdminSummaryQueryKey() });
+        refetch();
+      },
+      onError: () => {
+        toast({
+          variant: "destructive",
+          title: "Entretien indisponible",
+          description: "Impossible d'exécuter l'entretien des accès pour le moment.",
+        });
+      },
+    });
+  };
+
   if (isLoading) {
     return <div className="container mx-auto px-4 py-16 text-center">Chargement des données administrateur...</div>;
   }
@@ -155,6 +178,35 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
           </div>
         ))}
       </div>
+
+        <section className="bg-card border border-border/50 p-6 mb-12">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5 mb-6">
+            <div>
+              <h2 className="text-xl font-serif text-primary">Accès ateliers</h2>
+              <p className="text-sm text-muted-foreground">
+                Préautorisations simulées, carnets actifs et entretien quotidien.
+              </p>
+            </div>
+            <Button variant="outline" onClick={handleMaintenance} disabled={maintenance.isPending}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${maintenance.isPending ? "animate-spin" : ""}`} />
+              Exécuter l'entretien
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[
+              ["En attente", summary.acces.en_attente],
+              ["Carnets actifs", summary.acces.acceptees],
+              ["Expirés", summary.acces.expirees],
+              ["Préautorisés", summary.acces.preautorisations],
+              ["Encaissements", summary.acces.encaissements],
+            ].map(([label, count]) => (
+              <div key={String(label)} className="border border-border/50 bg-background p-3">
+                <span className="block text-2xl font-serif text-primary">{count}</span>
+                <span className="text-[0.68rem] uppercase tracking-wider text-muted-foreground">{label}</span>
+              </div>
+            ))}
+          </div>
+        </section>
 
       <div className="bg-card border border-border/50">
         <div className="p-6 border-b border-border/50 flex justify-between items-center">

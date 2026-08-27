@@ -59,6 +59,10 @@ export function Shell({ children }: { children: ReactNode }) {
             <Link href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
               Administration
             </Link>
+            <div className="text-muted-foreground mx-2">•</div>
+            <Link href="/annuaire" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+              Espace Artisan
+            </Link>
           </nav>
         </div>
       </footer>

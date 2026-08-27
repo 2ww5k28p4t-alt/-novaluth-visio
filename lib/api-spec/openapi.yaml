@@ -18,6 +18,8 @@ tags:
     description: Musician project briefs
   - name: admin
     description: Moderation and curation
+  - name: atelier-access
+    description: Atelier access requests and musician project decisions
 paths:
   /healthz:
     get:
@@ -145,6 +147,186 @@ paths:
                 $ref: "#/components/schemas/BriefReceipt"
         "422":
           description: Invalid brief
+  /projets/{reference}/portail/{token}:
+    get:
+      operationId: getMusicianProject
+      tags: [atelier-access]
+      summary: Get a musician project using its private portal link
+      parameters:
+        - $ref: "#/components/parameters/ProjectReference"
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Musician project and access requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicianProject"
+        "404":
+          description: Project or private link not found
+  /projets/{reference}/portail/{token}/demandes/{requestId}/decision:
+    post:
+      operationId: decideMusicianAccessRequest
+      tags: [atelier-access]
+      summary: Accept or refuse an atelier access request
+      parameters:
+        - $ref: "#/components/parameters/ProjectReference"
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MusicianDecisionInput"
+      responses:
+        "200":
+          description: Updated request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtelierAccessRequest"
+        "404":
+          description: Project or request not found
+  /ateliers/{slug}/session:
+    post:
+      operationId: openAtelierSession
+      tags: [atelier-access]
+      summary: Open a limited demonstration session for an atelier
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AtelierSessionInput"
+      responses:
+        "200":
+          description: Limited atelier session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtelierSession"
+        "404":
+          description: Atelier not found
+  /ateliers/{slug}/tableau-de-bord:
+    get:
+      operationId: getAtelierDashboard
+      tags: [atelier-access]
+      summary: Get atelier requests, credits and access passes
+      security:
+        - atelierSession: []
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+      responses:
+        "200":
+          description: Atelier dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtelierDashboard"
+        "401":
+          description: Invalid session
+  /ateliers/{slug}/projets:
+    get:
+      operationId: listAtelierProjects
+      tags: [atelier-access]
+      summary: List compatible projects available to an atelier
+      security:
+        - atelierSession: []
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+      responses:
+        "200":
+          description: Compatible musician projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AtelierProject"
+        "401":
+          description: Invalid session
+  /ateliers/{slug}/demandes:
+    post:
+      operationId: createAtelierAccessRequest
+      tags: [atelier-access]
+      summary: Request access to a compatible musician project
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AtelierAccessRequestInput"
+      responses:
+        "201":
+          description: Preauthorized access request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtelierAccessRequest"
+        "400":
+          description: Request cannot be created
+  /ateliers/{slug}/demandes/{requestId}/annulation:
+    post:
+      operationId: cancelAtelierAccessRequest
+      tags: [atelier-access]
+      summary: Cancel a pending request and release its authorization
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AtelierActionInput"
+      responses:
+        "200":
+          description: Cancelled request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtelierAccessRequest"
+  /ateliers/{slug}/carnets/{requestId}/relance:
+    post:
+      operationId: useAtelierFollowupCredit
+      tags: [atelier-access]
+      summary: Use one follow-up credit on an active access pass
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AtelierActionInput"
+      responses:
+        "200":
+          description: Updated access pass
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AtelierAccessRequest"
   /admin/summary:
     get:
       operationId: getAdminSummary
@@ -191,12 +373,43 @@ paths:
           description: Missing or invalid admin token
         "404":
           description: Maker not found
+  /admin/acces/entretien:
+    post:
+      operationId: runAccessMaintenance
+      tags: [admin]
+      summary: Run the daily access expiration and reminder maintenance
+      security:
+        - adminToken: []
+      responses:
+        "200":
+          description: Maintenance results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessMaintenanceResult"
+        "401":
+          description: Missing or invalid admin token
 components:
+  parameters:
+    AtelierSlug:
+      name: slug
+      in: path
+      required: true
+      schema: { type: string }
+    ProjectReference:
+      name: reference
+      in: path
+      required: true
+      schema: { type: string }
   securitySchemes:
     adminToken:
       type: apiKey
       in: header
       name: X-Admin-Token
+    atelierSession:
+      type: apiKey
+      in: header
+      name: X-NovaLuth-Atelier-Session
   schemas:
     HealthStatus:
       type: object
@@ -391,6 +604,7 @@ components:
       required: [reference, recommandations]
       properties:
         reference: { type: string }
+        portail_musicien: { type: ["string", "null"] }
         recommandations:
           type: array
           items: { $ref: "#/components/schemas/Recommendation" }
@@ -408,7 +622,7 @@ components:
           additionalProperties: { type: number }
     AdminSummary:
       type: object
-      required: [compteurs, fiches, passerelle]
+      required: [compteurs, fiches, passerelle, acces]
       properties:
         compteurs:
           type: object
@@ -417,6 +631,8 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Fiche" }
         passerelle: { type: string }
+        acces:
+          $ref: "#/components/schemas/AccessAdminSummary"
     StatusUpdate:
       type: object
       required: [statut]
@@ -424,4 +640,129 @@ components:
         statut:
           type: string
           enum: [candidate, a_verifier, a_suivre, trop_etablie, rejetee, publiee]
+    AccessPlan:
+      type: string
+      enum: [essentiel, atelier, signature]
+    AtelierSessionInput:
+      type: object
+      properties:
+        code_demo: { type: string, maxLength: 80 }
+    AtelierSession:
+      type: object
+      required: [session, atelier_slug, expire_le]
+      properties:
+        session: { type: string }
+        atelier_slug: { type: string }
+        expire_le: { type: string }
+    AtelierActionInput:
+      type: object
+      required: [session]
+      properties:
+        session: { type: string, minLength: 20 }
+    AtelierAccessRequestInput:
+      type: object
+      required: [session, reference_projet, offre]
+      properties:
+        session: { type: string, minLength: 20 }
+        reference_projet: { type: string }
+        offre:
+          $ref: "#/components/schemas/AccessPlan"
+    MusicianDecisionInput:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [accepter, refuser]
+    AtelierProject:
+      type: object
+      required: [reference, type_instrument, budget_min_eur, budget_max_eur, styles, cree_le]
+      properties:
+        reference: { type: string }
+        type_instrument: { type: string }
+        budget_min_eur: { type: number }
+        budget_max_eur: { type: number }
+        styles:
+          type: array
+          items: { type: string }
+        description: { type: ["string", "null"] }
+        cree_le: { type: string }
+    AtelierAccessRequest:
+      type: object
+      required: [id, reference_projet, atelier_slug, atelier_nom, offre, montant_eur, statut, statut_paiement, cree_le, credits_relance]
+      properties:
+        id: { type: number }
+        reference_projet: { type: string }
+        atelier_slug: { type: string }
+        atelier_nom: { type: string }
+        offre:
+          $ref: "#/components/schemas/AccessPlan"
+        montant_eur: { type: number }
+        statut:
+          type: string
+          enum: [en_attente, acceptee, refusee, annulee, expiree]
+        statut_paiement:
+          type: string
+          enum: [preautorise, encaisse, annule]
+        cree_le: { type: string }
+        decide_le: { type: ["string", "null"] }
+        expire_le: { type: ["string", "null"] }
+        credits_relance: { type: number }
+        derniere_relance_le: { type: ["string", "null"] }
+        projet:
+          $ref: "#/components/schemas/AtelierProject"
+    AtelierDashboard:
+      type: object
+      required: [atelier_slug, atelier_nom, places_restantes, demandes, carnets]
+      properties:
+        atelier_slug: { type: string }
+        atelier_nom: { type: string }
+        places_restantes: { type: number }
+        demandes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AtelierAccessRequest"
+        carnets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AtelierAccessRequest"
+    MusicianProject:
+      type: object
+      required: [reference, statut, type_instrument, budget_min_eur, budget_max_eur, styles, cree_le, demandes, courriel_confirmation]
+      properties:
+        reference: { type: string }
+        statut:
+          type: string
+          enum: [actif, sommeil]
+        type_instrument: { type: string }
+        budget_min_eur: { type: number }
+        budget_max_eur: { type: number }
+        styles:
+          type: array
+          items: { type: string }
+        description: { type: ["string", "null"] }
+        cree_le: { type: string }
+        courriel_confirmation: { type: string }
+        demandes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AtelierAccessRequest"
+    AccessAdminSummary:
+      type: object
+      required: [en_attente, acceptees, expirees, preautorisations, encaissements]
+      properties:
+        en_attente: { type: number }
+        acceptees: { type: number }
+        expirees: { type: number }
+        preautorisations: { type: number }
+        encaissements: { type: number }
+    AccessMaintenanceResult:
+      type: object
+      required: [annulations, expirations, relances, projets_sommeil, execute_le]
+      properties:
+        annulations: { type: number }
+        expirations: { type: number }
+        relances: { type: number }
+        projets_sommeil: { type: number }
+        execute_le: { type: string }
 

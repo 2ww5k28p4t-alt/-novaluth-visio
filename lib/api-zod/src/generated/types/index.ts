@@ -6,8 +6,20 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './accessAdminSummary';
+export * from './accessMaintenanceResult';
+export * from './accessPlan';
 export * from './adminSummary';
 export * from './adminSummaryCompteurs';
+export * from './atelierAccessRequest';
+export * from './atelierAccessRequestInput';
+export * from './atelierAccessRequestStatut';
+export * from './atelierAccessRequestStatutPaiement';
+export * from './atelierActionInput';
+export * from './atelierDashboard';
+export * from './atelierProject';
+export * from './atelierSession';
+export * from './atelierSessionInput';
 export * from './briefInput';
 export * from './briefInputTypeInstrument';
 export * from './briefInputZonePreferee';
@@ -27,6 +39,10 @@ export * from './listFichesType';
 export * from './logistique';
 export * from './modele';
 export * from './modeleType';
+export * from './musicianDecisionInput';
+export * from './musicianDecisionInputDecision';
+export * from './musicianProject';
+export * from './musicianProjectStatut';
 export * from './profilSonore';
 export * from './recommendation';
 export * from './recommendationResponse';

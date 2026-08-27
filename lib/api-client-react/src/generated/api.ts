@@ -20,13 +20,23 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AccessMaintenanceResult,
   AdminSummary,
+  AtelierAccessRequest,
+  AtelierAccessRequestInput,
+  AtelierActionInput,
+  AtelierDashboard,
+  AtelierProject,
+  AtelierSession,
+  AtelierSessionInput,
   BriefInput,
   BriefReceipt,
   Fiche,
   FichesMeta,
   HealthStatus,
   ListFichesParams,
+  MusicianDecisionInput,
+  MusicianProject,
   RecommendationResponse,
   StatusUpdate
 } from './api.schemas';
@@ -516,6 +526,610 @@ export const useCreateBrief = <TError = ErrorType<void>,
       return useMutation(getCreateBriefMutationOptions(options));
     }
 
+export const getGetMusicianProjectUrl = (reference: string,
+    token: string,) => {
+
+
+
+
+  return `/api/projets/${reference}/portail/${token}`
+}
+
+/**
+ * @summary Get a musician project using its private portal link
+ */
+export const getMusicianProject = async (reference: string,
+    token: string, options?: Parameters<typeof customFetch>[1]): Promise<MusicianProject> => {
+
+  return customFetch<MusicianProject>(getGetMusicianProjectUrl(reference,token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMusicianProjectQueryKey = (reference: string,
+    token: string,) => {
+    return [
+    `/api/projets/${reference}/portail/${token}`
+    ] as const;
+    }
+
+
+export const getGetMusicianProjectQueryOptions = <TData = Awaited<ReturnType<typeof getMusicianProject>>, TError = ErrorType<void>>(reference: string,
+    token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMusicianProject>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMusicianProjectQueryKey(reference,token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMusicianProject>>> = ({ signal }) => getMusicianProject(reference,token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: reference !== null && reference !== undefined && token !== null && token !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMusicianProject>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMusicianProjectQueryResult = NonNullable<Awaited<ReturnType<typeof getMusicianProject>>>
+export type GetMusicianProjectQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a musician project using its private portal link
+ */
+
+export function useGetMusicianProject<TData = Awaited<ReturnType<typeof getMusicianProject>>, TError = ErrorType<void>>(
+ reference: string,
+    token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMusicianProject>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMusicianProjectQueryOptions(reference,token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDecideMusicianAccessRequestUrl = (reference: string,
+    token: string,
+    requestId: number,) => {
+
+
+
+
+  return `/api/projets/${reference}/portail/${token}/demandes/${requestId}/decision`
+}
+
+/**
+ * @summary Accept or refuse an atelier access request
+ */
+export const decideMusicianAccessRequest = async (reference: string,
+    token: string,
+    requestId: number,
+    musicianDecisionInput: MusicianDecisionInput, options?: Parameters<typeof customFetch>[1]): Promise<AtelierAccessRequest> => {
+
+  return customFetch<AtelierAccessRequest>(getDecideMusicianAccessRequestUrl(reference,token,requestId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(musicianDecisionInput)
+  }
+);}
+
+
+
+
+
+export const getDecideMusicianAccessRequestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof decideMusicianAccessRequest>>, TError,{reference: string;token: string;requestId: number;data: BodyType<MusicianDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof decideMusicianAccessRequest>>, TError,{reference: string;token: string;requestId: number;data: BodyType<MusicianDecisionInput>}, TContext> => {
+
+const mutationKey = ['decideMusicianAccessRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof decideMusicianAccessRequest>>, {reference: string;token: string;requestId: number;data: BodyType<MusicianDecisionInput>}> = (props) => {
+          const {reference,token,requestId,data} = props ?? {};
+
+          return  decideMusicianAccessRequest(reference,token,requestId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DecideMusicianAccessRequestMutationResult = NonNullable<Awaited<ReturnType<typeof decideMusicianAccessRequest>>>
+    export type DecideMusicianAccessRequestMutationBody = BodyType<MusicianDecisionInput>
+    export type DecideMusicianAccessRequestMutationError = ErrorType<void>
+
+    /**
+ * @summary Accept or refuse an atelier access request
+ */
+export const useDecideMusicianAccessRequest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof decideMusicianAccessRequest>>, TError,{reference: string;token: string;requestId: number;data: BodyType<MusicianDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof decideMusicianAccessRequest>>,
+        TError,
+        {reference: string;token: string;requestId: number;data: BodyType<MusicianDecisionInput>},
+        TContext
+      > => {
+      return useMutation(getDecideMusicianAccessRequestMutationOptions(options));
+    }
+
+export const getOpenAtelierSessionUrl = (slug: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/session`
+}
+
+/**
+ * @summary Open a limited demonstration session for an atelier
+ */
+export const openAtelierSession = async (slug: string,
+    atelierSessionInput: AtelierSessionInput, options?: Parameters<typeof customFetch>[1]): Promise<AtelierSession> => {
+
+  return customFetch<AtelierSession>(getOpenAtelierSessionUrl(slug),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(atelierSessionInput)
+  }
+);}
+
+
+
+
+
+export const getOpenAtelierSessionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openAtelierSession>>, TError,{slug: string;data: BodyType<AtelierSessionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof openAtelierSession>>, TError,{slug: string;data: BodyType<AtelierSessionInput>}, TContext> => {
+
+const mutationKey = ['openAtelierSession'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof openAtelierSession>>, {slug: string;data: BodyType<AtelierSessionInput>}> = (props) => {
+          const {slug,data} = props ?? {};
+
+          return  openAtelierSession(slug,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OpenAtelierSessionMutationResult = NonNullable<Awaited<ReturnType<typeof openAtelierSession>>>
+    export type OpenAtelierSessionMutationBody = BodyType<AtelierSessionInput>
+    export type OpenAtelierSessionMutationError = ErrorType<void>
+
+    /**
+ * @summary Open a limited demonstration session for an atelier
+ */
+export const useOpenAtelierSession = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openAtelierSession>>, TError,{slug: string;data: BodyType<AtelierSessionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof openAtelierSession>>,
+        TError,
+        {slug: string;data: BodyType<AtelierSessionInput>},
+        TContext
+      > => {
+      return useMutation(getOpenAtelierSessionMutationOptions(options));
+    }
+
+export const getGetAtelierDashboardUrl = (slug: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/tableau-de-bord`
+}
+
+/**
+ * @summary Get atelier requests, credits and access passes
+ */
+export const getAtelierDashboard = async (slug: string, options?: Parameters<typeof customFetch>[1]): Promise<AtelierDashboard> => {
+
+  return customFetch<AtelierDashboard>(getGetAtelierDashboardUrl(slug),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAtelierDashboardQueryKey = (slug: string,) => {
+    return [
+    `/api/ateliers/${slug}/tableau-de-bord`
+    ] as const;
+    }
+
+
+export const getGetAtelierDashboardQueryOptions = <TData = Awaited<ReturnType<typeof getAtelierDashboard>>, TError = ErrorType<void>>(slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAtelierDashboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAtelierDashboardQueryKey(slug);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAtelierDashboard>>> = ({ signal }) => getAtelierDashboard(slug, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: slug !== null && slug !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAtelierDashboard>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAtelierDashboardQueryResult = NonNullable<Awaited<ReturnType<typeof getAtelierDashboard>>>
+export type GetAtelierDashboardQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get atelier requests, credits and access passes
+ */
+
+export function useGetAtelierDashboard<TData = Awaited<ReturnType<typeof getAtelierDashboard>>, TError = ErrorType<void>>(
+ slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAtelierDashboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAtelierDashboardQueryOptions(slug,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAtelierProjectsUrl = (slug: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/projets`
+}
+
+/**
+ * @summary List compatible projects available to an atelier
+ */
+export const listAtelierProjects = async (slug: string, options?: Parameters<typeof customFetch>[1]): Promise<AtelierProject[]> => {
+
+  return customFetch<AtelierProject[]>(getListAtelierProjectsUrl(slug),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAtelierProjectsQueryKey = (slug: string,) => {
+    return [
+    `/api/ateliers/${slug}/projets`
+    ] as const;
+    }
+
+
+export const getListAtelierProjectsQueryOptions = <TData = Awaited<ReturnType<typeof listAtelierProjects>>, TError = ErrorType<void>>(slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAtelierProjects>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAtelierProjectsQueryKey(slug);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAtelierProjects>>> = ({ signal }) => listAtelierProjects(slug, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: slug !== null && slug !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAtelierProjects>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAtelierProjectsQueryResult = NonNullable<Awaited<ReturnType<typeof listAtelierProjects>>>
+export type ListAtelierProjectsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List compatible projects available to an atelier
+ */
+
+export function useListAtelierProjects<TData = Awaited<ReturnType<typeof listAtelierProjects>>, TError = ErrorType<void>>(
+ slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAtelierProjects>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAtelierProjectsQueryOptions(slug,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAtelierAccessRequestUrl = (slug: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/demandes`
+}
+
+/**
+ * @summary Request access to a compatible musician project
+ */
+export const createAtelierAccessRequest = async (slug: string,
+    atelierAccessRequestInput: AtelierAccessRequestInput, options?: Parameters<typeof customFetch>[1]): Promise<AtelierAccessRequest> => {
+
+  return customFetch<AtelierAccessRequest>(getCreateAtelierAccessRequestUrl(slug),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(atelierAccessRequestInput)
+  }
+);}
+
+
+
+
+
+export const getCreateAtelierAccessRequestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAtelierAccessRequest>>, TError,{slug: string;data: BodyType<AtelierAccessRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAtelierAccessRequest>>, TError,{slug: string;data: BodyType<AtelierAccessRequestInput>}, TContext> => {
+
+const mutationKey = ['createAtelierAccessRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAtelierAccessRequest>>, {slug: string;data: BodyType<AtelierAccessRequestInput>}> = (props) => {
+          const {slug,data} = props ?? {};
+
+          return  createAtelierAccessRequest(slug,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAtelierAccessRequestMutationResult = NonNullable<Awaited<ReturnType<typeof createAtelierAccessRequest>>>
+    export type CreateAtelierAccessRequestMutationBody = BodyType<AtelierAccessRequestInput>
+    export type CreateAtelierAccessRequestMutationError = ErrorType<void>
+
+    /**
+ * @summary Request access to a compatible musician project
+ */
+export const useCreateAtelierAccessRequest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAtelierAccessRequest>>, TError,{slug: string;data: BodyType<AtelierAccessRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAtelierAccessRequest>>,
+        TError,
+        {slug: string;data: BodyType<AtelierAccessRequestInput>},
+        TContext
+      > => {
+      return useMutation(getCreateAtelierAccessRequestMutationOptions(options));
+    }
+
+export const getCancelAtelierAccessRequestUrl = (slug: string,
+    requestId: number,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/demandes/${requestId}/annulation`
+}
+
+/**
+ * @summary Cancel a pending request and release its authorization
+ */
+export const cancelAtelierAccessRequest = async (slug: string,
+    requestId: number,
+    atelierActionInput: AtelierActionInput, options?: Parameters<typeof customFetch>[1]): Promise<AtelierAccessRequest> => {
+
+  return customFetch<AtelierAccessRequest>(getCancelAtelierAccessRequestUrl(slug,requestId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(atelierActionInput)
+  }
+);}
+
+
+
+
+
+export const getCancelAtelierAccessRequestMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelAtelierAccessRequest>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelAtelierAccessRequest>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext> => {
+
+const mutationKey = ['cancelAtelierAccessRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelAtelierAccessRequest>>, {slug: string;requestId: number;data: BodyType<AtelierActionInput>}> = (props) => {
+          const {slug,requestId,data} = props ?? {};
+
+          return  cancelAtelierAccessRequest(slug,requestId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelAtelierAccessRequestMutationResult = NonNullable<Awaited<ReturnType<typeof cancelAtelierAccessRequest>>>
+    export type CancelAtelierAccessRequestMutationBody = BodyType<AtelierActionInput>
+    export type CancelAtelierAccessRequestMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Cancel a pending request and release its authorization
+ */
+export const useCancelAtelierAccessRequest = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelAtelierAccessRequest>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelAtelierAccessRequest>>,
+        TError,
+        {slug: string;requestId: number;data: BodyType<AtelierActionInput>},
+        TContext
+      > => {
+      return useMutation(getCancelAtelierAccessRequestMutationOptions(options));
+    }
+
+export const getUseAtelierFollowupCreditUrl = (slug: string,
+    requestId: number,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/carnets/${requestId}/relance`
+}
+
+/**
+ * @summary Use one follow-up credit on an active access pass
+ */
+export const useAtelierFollowupCredit = async (slug: string,
+    requestId: number,
+    atelierActionInput: AtelierActionInput, options?: Parameters<typeof customFetch>[1]): Promise<AtelierAccessRequest> => {
+
+  return customFetch<AtelierAccessRequest>(getUseAtelierFollowupCreditUrl(slug,requestId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(atelierActionInput)
+  }
+);}
+
+
+
+
+
+export const getUseAtelierFollowupCreditMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useAtelierFollowupCredit>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof useAtelierFollowupCredit>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext> => {
+
+const mutationKey = ['useAtelierFollowupCredit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof useAtelierFollowupCredit>>, {slug: string;requestId: number;data: BodyType<AtelierActionInput>}> = (props) => {
+          const {slug,requestId,data} = props ?? {};
+
+          return  useAtelierFollowupCredit(slug,requestId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UseAtelierFollowupCreditMutationResult = NonNullable<Awaited<ReturnType<typeof useAtelierFollowupCredit>>>
+    export type UseAtelierFollowupCreditMutationBody = BodyType<AtelierActionInput>
+    export type UseAtelierFollowupCreditMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Use one follow-up credit on an active access pass
+ */
+export const useUseAtelierFollowupCredit = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useAtelierFollowupCredit>>, TError,{slug: string;requestId: number;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof useAtelierFollowupCredit>>,
+        TError,
+        {slug: string;requestId: number;data: BodyType<AtelierActionInput>},
+        TContext
+      > => {
+      return useMutation(getUseAtelierFollowupCreditMutationOptions(options));
+    }
+
 export const getGetAdminSummaryUrl = () => {
 
 
@@ -663,5 +1277,76 @@ export const useUpdateFicheStatus = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getUpdateFicheStatusMutationOptions(options));
+    }
+
+export const getRunAccessMaintenanceUrl = () => {
+
+
+
+
+  return `/api/admin/acces/entretien`
+}
+
+/**
+ * @summary Run the daily access expiration and reminder maintenance
+ */
+export const runAccessMaintenance = async ( options?: Parameters<typeof customFetch>[1]): Promise<AccessMaintenanceResult> => {
+
+  return customFetch<AccessMaintenanceResult>(getRunAccessMaintenanceUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRunAccessMaintenanceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runAccessMaintenance>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runAccessMaintenance>>, TError,void, TContext> => {
+
+const mutationKey = ['runAccessMaintenance'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runAccessMaintenance>>, void> = () => {
+
+
+          return  runAccessMaintenance(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunAccessMaintenanceMutationResult = NonNullable<Awaited<ReturnType<typeof runAccessMaintenance>>>
+
+    export type RunAccessMaintenanceMutationError = ErrorType<void>
+
+    /**
+ * @summary Run the daily access expiration and reminder maintenance
+ */
+export const useRunAccessMaintenance = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runAccessMaintenance>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runAccessMaintenance>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRunAccessMaintenanceMutationOptions(options));
     }
 

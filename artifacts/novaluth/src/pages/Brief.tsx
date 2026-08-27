@@ -71,6 +71,7 @@ export default function Brief() {
         onSuccess: (res) => {
           setReceipt({
             reference: res.reference,
+            portail_musicien: res.portail_musicien,
             recommandations: res.recommandations,
             isSaved: true
           });
@@ -104,6 +105,29 @@ export default function Brief() {
             <p className="text-xl text-muted-foreground font-light max-w-2xl mx-auto">
               Notre intelligence artificielle a analysé votre brief (Réf: {receipt.reference}). Voici les artisans qui correspondent le mieux à votre projet.
             </p>
+            {receipt.portail_musicien && (
+              <div className="mt-6 inline-block bg-primary/10 border border-primary/20 rounded-md p-4 max-w-lg mx-auto text-left">
+                <p className="text-sm text-primary mb-2 font-medium">Conservez ce lien précieux :</p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Ce lien vous donne accès à votre portail personnel. Il vous permettra de suivre et d'accepter les propositions des artisans.
+                </p>
+                <div className="flex items-center justify-between bg-background border border-border p-2 rounded">
+                  <code className="text-xs text-foreground truncate block w-full">{window.location.origin}{receipt.portail_musicien}</code>
+                  <Button variant="ghost" size="sm" className="ml-2 h-8 px-2 shrink-0" onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}${receipt.portail_musicien}`);
+                  }}>
+                    Copier
+                  </Button>
+                </div>
+                <div className="mt-4 text-center">
+                  <Button asChild variant="outline" size="sm" className="w-full">
+                    <Link href={receipt.portail_musicien}>
+                      Ouvrir mon portail
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-8 mt-12">

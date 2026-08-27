@@ -287,6 +287,8 @@ export interface RecommendationResponse {
 
 export interface BriefReceipt {
   reference: string;
+  /** @nullable */
+  portail_musicien?: string | null;
   recommandations: Recommendation[];
 }
 
@@ -301,10 +303,19 @@ export interface FichesMeta {
 
 export type AdminSummaryCompteurs = {[key: string]: number};
 
+export interface AccessAdminSummary {
+  en_attente: number;
+  acceptees: number;
+  expirees: number;
+  preautorisations: number;
+  encaissements: number;
+}
+
 export interface AdminSummary {
   compteurs: AdminSummaryCompteurs;
   fiches: Fiche[];
   passerelle: string;
+  acces: AccessAdminSummary;
 }
 
 export type StatusUpdateStatut = typeof StatusUpdateStatut[keyof typeof StatusUpdateStatut];
@@ -321,6 +332,139 @@ export const StatusUpdateStatut = {
 
 export interface StatusUpdate {
   statut: StatusUpdateStatut;
+}
+
+export type AccessPlan = typeof AccessPlan[keyof typeof AccessPlan];
+
+
+export const AccessPlan = {
+  essentiel: 'essentiel',
+  atelier: 'atelier',
+  signature: 'signature',
+} as const;
+
+export interface AtelierSessionInput {
+  /** @maxLength 80 */
+  code_demo?: string;
+}
+
+export interface AtelierSession {
+  session: string;
+  atelier_slug: string;
+  expire_le: string;
+}
+
+export interface AtelierActionInput {
+  /** @minLength 20 */
+  session: string;
+}
+
+export interface AtelierAccessRequestInput {
+  /** @minLength 20 */
+  session: string;
+  reference_projet: string;
+  offre: AccessPlan;
+}
+
+export type MusicianDecisionInputDecision = typeof MusicianDecisionInputDecision[keyof typeof MusicianDecisionInputDecision];
+
+
+export const MusicianDecisionInputDecision = {
+  accepter: 'accepter',
+  refuser: 'refuser',
+} as const;
+
+export interface MusicianDecisionInput {
+  decision: MusicianDecisionInputDecision;
+}
+
+export interface AtelierProject {
+  reference: string;
+  type_instrument: string;
+  budget_min_eur: number;
+  budget_max_eur: number;
+  styles: string[];
+  /** @nullable */
+  description?: string | null;
+  cree_le: string;
+}
+
+export type AtelierAccessRequestStatut = typeof AtelierAccessRequestStatut[keyof typeof AtelierAccessRequestStatut];
+
+
+export const AtelierAccessRequestStatut = {
+  en_attente: 'en_attente',
+  acceptee: 'acceptee',
+  refusee: 'refusee',
+  annulee: 'annulee',
+  expiree: 'expiree',
+} as const;
+
+export type AtelierAccessRequestStatutPaiement = typeof AtelierAccessRequestStatutPaiement[keyof typeof AtelierAccessRequestStatutPaiement];
+
+
+export const AtelierAccessRequestStatutPaiement = {
+  preautorise: 'preautorise',
+  encaisse: 'encaisse',
+  annule: 'annule',
+} as const;
+
+export interface AtelierAccessRequest {
+  id: number;
+  reference_projet: string;
+  atelier_slug: string;
+  atelier_nom: string;
+  offre: AccessPlan;
+  montant_eur: number;
+  statut: AtelierAccessRequestStatut;
+  statut_paiement: AtelierAccessRequestStatutPaiement;
+  cree_le: string;
+  /** @nullable */
+  decide_le?: string | null;
+  /** @nullable */
+  expire_le?: string | null;
+  credits_relance: number;
+  /** @nullable */
+  derniere_relance_le?: string | null;
+  projet?: AtelierProject;
+}
+
+export interface AtelierDashboard {
+  atelier_slug: string;
+  atelier_nom: string;
+  places_restantes: number;
+  demandes: AtelierAccessRequest[];
+  carnets: AtelierAccessRequest[];
+}
+
+export type MusicianProjectStatut = typeof MusicianProjectStatut[keyof typeof MusicianProjectStatut];
+
+
+export const MusicianProjectStatut = {
+  actif: 'actif',
+  sommeil: 'sommeil',
+} as const;
+
+export interface MusicianProject {
+  reference: string;
+  statut: MusicianProjectStatut;
+  type_instrument: string;
+  budget_min_eur: number;
+  budget_max_eur: number;
+  styles: string[];
+  /** @nullable */
+  description?: string | null;
+  cree_le: string;
+  courriel_confirmation: string;
+  demandes: AtelierAccessRequest[];
+}
+
+export interface AccessMaintenanceResult {
+  annulations: number;
+  expirations: number;
+  relances: number;
+  projets_sommeil: number;
+  execute_le: string;
 }
 
 export type ListFichesParams = {

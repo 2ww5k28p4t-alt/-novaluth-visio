@@ -1,4 +1,4 @@
-import { useRoute } from "wouter";
+import { Link, useRoute } from "wouter";
 import { useGetFiche, getGetFicheQueryKey } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -86,6 +86,15 @@ export default function Fiche() {
                 </div>
               )}
             </div>
+
+            {fiche.demonstration && (
+              <div className="mt-8">
+                <Link href={`/atelier/${fiche.slug}`} className="nv-bouton nv-bouton-secondaire border-primary text-primary hover:bg-primary/10">
+                  <Zap className="h-4 w-4 mr-2" />
+                  Espace Artisan (Démo)
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </header>

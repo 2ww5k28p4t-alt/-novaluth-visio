@@ -5,6 +5,7 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { AccessAdminSummary } from './accessAdminSummary';
 import type { AdminSummaryCompteurs } from './adminSummaryCompteurs';
 import type { Fiche } from './fiche';
 
@@ -12,4 +13,5 @@ export interface AdminSummary {
   compteurs: AdminSummaryCompteurs;
   fiches: Fiche[];
   passerelle: string;
+  acces: AccessAdminSummary;
 }

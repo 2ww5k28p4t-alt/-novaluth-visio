@@ -17,6 +17,8 @@ import Fiche from '@/pages/Fiche';
 import Brief from '@/pages/Brief';
 import Admin from '@/pages/Admin';
 import Legal from '@/pages/Legal';
+import Atelier from '@/pages/Atelier';
+import Portail from '@/pages/Portail';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient({
@@ -36,6 +38,8 @@ function Router() {
           <Route path="/" component={Home} />
           <Route path="/annuaire" component={Annuaire} />
           <Route path="/fiche/:slug" component={Fiche} />
+          <Route path="/atelier/:slug" component={Atelier} />
+          <Route path="/projets/:reference/portail/:token" component={Portail} />
           <Route path="/brief" component={Brief} />
           <Route path="/admin" component={Admin} />
           <Route path="/legal" component={Legal} />
