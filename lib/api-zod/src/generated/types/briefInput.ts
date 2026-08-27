@@ -48,12 +48,8 @@ export interface BriefInput {
      * @nullable
      */
   brillance_souhaitee?: number | null;
-  /**
-     * @minimum 0
-     * @maximum 10
-     * @nullable
-     */
-  innovation_recherchee?: number | null;
+  /** @maxItems 21 */
+  facons_recherchees?: string[];
   personnalisation: boolean;
   /** @maxLength 1500 */
   description_libre: string;

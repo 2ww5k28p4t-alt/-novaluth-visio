@@ -51,14 +51,57 @@ paths:
           schema:
             type: string
             enum: [luthier, marque_emergente]
-        - name: innovation_min
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: instrument
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [electrique, acoustique, basse, autre]
+        - name: style
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: zone
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [france, europe, monde]
+        - name: budget_eur
           in: query
           required: false
           schema:
             type: number
             minimum: 0
-            maximum: 10
-            default: 0
+        - name: delai_max_mois
+          in: query
+          required: false
+          schema:
+            type: number
+            minimum: 0
+        - name: relue_seulement
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: facons
+          in: query
+          required: false
+          description: Comma-separated working-method keys from the closed directory vocabulary.
+          schema:
+            type: string
+        - name: tri
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [equitable, delai, budget, alpha, maj]
         - name: statut
           in: query
           required: false
@@ -481,7 +524,6 @@ components:
     Innovation:
       type: object
       properties:
-        niveau: { type: ["number", "null"] }
         materiaux_alternatifs:
           type: array
           items: { type: string }
@@ -505,7 +547,7 @@ components:
         genere_le: { type: ["string", "null"] }
     Fiche:
       type: object
-      required: [slug, nom, type, modeles, profil_sonore, logistique, innovation, ia, statut, demonstration]
+      required: [slug, nom, type, modeles, profil_sonore, logistique, innovation, ia, statut, demonstration, facons_travail, provenance_facons]
       properties:
         slug: { type: string }
         nom: { type: string }
@@ -525,8 +567,6 @@ components:
         prix_max_eur: { type: ["number", "null"] }
         production_annuelle: { type: ["number", "null"] }
         approche_artisanale: { type: ["string", "null"] }
-        score_originalite: { type: ["number", "null"] }
-        score_innovation: { type: ["number", "null"] }
         modeles:
           type: array
           items: { $ref: "#/components/schemas/Modele" }
@@ -549,6 +589,10 @@ components:
         demonstration: { type: boolean }
         cree_le: { type: ["string", "null"] }
         maj_le: { type: ["string", "null"] }
+        facons_travail:
+          type: array
+          items: { type: string }
+        provenance_facons: { type: string }
     BriefInput:
       type: object
       required: [type_instrument, budget_min_eur, budget_max_eur, styles, bois_souhaites, zone_preferee, personnalisation, description_libre, consentement_transmission]
@@ -573,7 +617,10 @@ components:
           enum: [france, europe, monde]
         chaleur_souhaitee: { type: ["number", "null"], minimum: 0, maximum: 10 }
         brillance_souhaitee: { type: ["number", "null"], minimum: 0, maximum: 10 }
-        innovation_recherchee: { type: ["number", "null"], minimum: 0, maximum: 10 }
+        facons_recherchees:
+          type: array
+          maxItems: 21
+          items: { type: string }
         personnalisation: { type: boolean }
         description_libre: { type: string, maxLength: 1500 }
         email: { type: ["string", "null"], maxLength: 180, description: Required when consentement_transmission is true; otherwise it is not persisted. }
@@ -621,9 +668,25 @@ components:
         recommandations:
           type: array
           items: { $ref: "#/components/schemas/Recommendation" }
+    Facette:
+      type: object
+      required: [cle, libelle, aide]
+      properties:
+        cle: { type: string }
+        libelle: { type: string }
+        aide: { type: string }
+    FamilleFacettes:
+      type: object
+      required: [cle, titre, cases]
+      properties:
+        cle: { type: string }
+        titre: { type: string }
+        cases:
+          type: array
+          items: { $ref: "#/components/schemas/Facette" }
     FichesMeta:
       type: object
-      required: [total_publiees, total_fiches, pays, types]
+      required: [total_publiees, total_fiches, pays, types, styles, facettes]
       properties:
         total_publiees: { type: number }
         total_fiches: { type: number }
@@ -633,6 +696,12 @@ components:
         types:
           type: object
           additionalProperties: { type: number }
+        styles:
+          type: array
+          items: { type: string }
+        facettes:
+          type: array
+          items: { $ref: "#/components/schemas/FamilleFacettes" }
     AdminSummary:
       type: object
       required: [compteurs, fiches, passerelle, acces]

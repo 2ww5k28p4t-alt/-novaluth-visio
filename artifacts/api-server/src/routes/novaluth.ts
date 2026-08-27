@@ -49,6 +49,17 @@ import {
   type NovaluthProject,
 } from "@workspace/db";
 import { novaluthSeed } from "../data/novaluth-seed";
+import {
+  availableFacetFamilies,
+  availableStyles,
+  facetLabel,
+  facetProvenance,
+  facetsForFiche,
+  filterDirectory,
+  normalizeFacetKeys,
+  sortDirectory,
+  type DirectorySort,
+} from "../lib/novaluth-facets";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -79,7 +90,7 @@ type Brief = {
   zone_preferee: string;
   chaleur_souhaitee?: number | null;
   brillance_souhaitee?: number | null;
-  innovation_recherchee?: number | null;
+  facons_recherchees?: string[];
   personnalisation: boolean;
   description_libre: string;
   email?: string | null;
@@ -113,7 +124,16 @@ function seedProfiles(): Promise<void> {
 }
 
 function getFiche(data: unknown): Fiche {
-  return GetFicheResponse.parse(data);
+  const core = GetFicheResponse.parse({
+    ...(data as Record<string, unknown>),
+    facons_travail: [],
+    provenance_facons: "d’après ses pages publiques",
+  });
+  return {
+    ...core,
+    facons_travail: facetsForFiche(core),
+    provenance_facons: facetProvenance(core),
+  };
 }
 
 function normalized(values: readonly string[]) {
@@ -197,13 +217,22 @@ function evaluateMatch(brief: Brief, fiche: Fiche) {
     if (proximity >= 0.7) points.push("Le profil sonore est proche de ce que vous décrivez.");
   }
 
-  const innovation = fiche.innovation.niveau ?? fiche.score_innovation ?? 0;
-  if (brief.innovation_recherchee != null) {
-    score += Math.round(8 * Math.max(0, 1 - Math.abs(brief.innovation_recherchee - innovation) / 10));
-  } else if (innovation >= 7) {
+  const soughtFacets = normalizeFacetKeys(brief.facons_recherchees ?? []);
+  if (soughtFacets.length) {
+    const documented = new Set(fiche.facons_travail);
+    const shared = soughtFacets.filter((facet) => documented.has(facet));
+    score += Math.round(8 * shared.length / soughtFacets.length);
+    if (shared.length) {
+      points.push(`Correspond à ce que vous cherchez : ${shared.map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`);
+    }
+    const missing = soughtFacets.filter((facet) => !documented.has(facet));
+    if (missing.length) {
+      warnings.push(`Non documenté chez cet atelier : ${missing.map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`);
+    }
+  } else if (fiche.facons_travail.length) {
     score += 5;
+    points.push(`Manière de travailler documentée : ${fiche.facons_travail.slice(0, 3).map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`);
   }
-  if (innovation >= 7) points.push("La démarche technique originale est documentée.");
 
   if (brief.personnalisation) {
     if (fiche.modeles.some((model) => model.personnalisable)) {
@@ -241,12 +270,15 @@ function evaluateMatch(brief: Brief, fiche: Fiche) {
 
 async function recommendations(brief: Brief) {
   await seedProfiles();
+  const soughtFacets = normalizeFacetKeys(brief.facons_recherchees ?? []);
   const rows = await db
     .select()
     .from(novaluthProfilesTable)
     .where(eq(novaluthProfilesTable.status, publicStatus));
   return rows
-    .map((row) => evaluateMatch(brief, getFiche(row.data)))
+    .map((row) => getFiche(row.data))
+    .filter((fiche) => soughtFacets.every((facet) => fiche.facons_travail.includes(facet)))
+    .map((fiche) => evaluateMatch(brief, fiche))
     .filter((result) => result.correspondance > 0)
     .sort((left, right) => right.correspondance - left.correspondance)
     .slice(0, 3);
@@ -431,24 +463,36 @@ router.get("/fiches", async (req, res, next) => {
     const parsed = ListFichesQueryParams.parse({
       pays: typeof req.query.pays === "string" ? req.query.pays : undefined,
       type: typeof req.query.type === "string" ? req.query.type : undefined,
-      innovation_min:
-        typeof req.query.innovation_min === "string"
-          ? Number(req.query.innovation_min)
-          : undefined,
+      q: typeof req.query.q === "string" ? req.query.q : undefined,
+      instrument: typeof req.query.instrument === "string" ? req.query.instrument : undefined,
+      style: typeof req.query.style === "string" ? req.query.style : undefined,
+      zone: typeof req.query.zone === "string" ? req.query.zone : undefined,
+      budget_eur: typeof req.query.budget_eur === "string" ? Number(req.query.budget_eur) : undefined,
+      delai_max_mois: typeof req.query.delai_max_mois === "string" ? Number(req.query.delai_max_mois) : undefined,
+      relue_seulement: typeof req.query.relue_seulement === "string" ? req.query.relue_seulement === "true" : undefined,
+      facons: typeof req.query.facons === "string" ? req.query.facons : undefined,
+      tri: typeof req.query.tri === "string" ? req.query.tri : undefined,
       statut: typeof req.query.statut === "string" ? req.query.statut : undefined,
     });
     const conditions = [eq(novaluthProfilesTable.status, parsed.statut ?? publicStatus)];
     if (parsed.pays) conditions.push(eq(novaluthProfilesTable.country, parsed.pays));
     if (parsed.type) conditions.push(eq(novaluthProfilesTable.entityType, parsed.type));
-    if (parsed.innovation_min) {
-      conditions.push(gte(novaluthProfilesTable.innovationScore, parsed.innovation_min));
-    }
     const rows = await db
       .select()
       .from(novaluthProfilesTable)
-      .where(and(...conditions))
-      .orderBy(novaluthProfilesTable.name);
-    res.json(ListFichesResponse.parse(rows.map((row) => row.data)));
+      .where(and(...conditions));
+    const fiches = rows.map((row) => getFiche(row.data));
+    const filtered = filterDirectory(fiches, {
+      query: parsed.q,
+      instrument: parsed.instrument,
+      style: parsed.style,
+      zone: parsed.zone,
+      budget: parsed.budget_eur,
+      deadline: parsed.delai_max_mois,
+      reviewedOnly: parsed.relue_seulement,
+      facets: normalizeFacetKeys((parsed.facons ?? "").split(",")),
+    });
+    res.json(ListFichesResponse.parse(sortDirectory(filtered, (parsed.tri ?? "equitable") as DirectorySort)));
   } catch (error) {
     next(error);
   }
@@ -458,7 +502,9 @@ router.get("/fiches/meta", async (_req, res, next) => {
   try {
     await seedProfiles();
     const rows = await db.select().from(novaluthProfilesTable);
-    const published = rows.filter((row) => row.status === publicStatus);
+    const published = rows
+      .filter((row) => row.status === publicStatus)
+      .map((row) => getFiche(row.data));
     const types = Object.fromEntries(
       rows.reduce((summary, row) => {
         summary.set(row.entityType, (summary.get(row.entityType) ?? 0) + 1);
@@ -469,8 +515,10 @@ router.get("/fiches/meta", async (_req, res, next) => {
       GetFichesMetaResponse.parse({
         total_publiees: published.length,
         total_fiches: rows.length,
-        pays: [...new Set(rows.flatMap((row) => (row.country ? [row.country] : [])))].sort(),
+        pays: [...new Set(published.flatMap((fiche) => (fiche.pays ? [fiche.pays] : [])))].sort(),
         types,
+        styles: availableStyles(published),
+        facettes: availableFacetFamilies(published),
       }),
     );
   } catch (error) {
@@ -490,7 +538,7 @@ router.get("/fiches/:slug", async (req, res, next) => {
       res.status(404).json({ error: "Fiche introuvable." });
       return;
     }
-    res.json(GetFicheResponse.parse(row.data));
+    res.json(getFiche(row.data));
   } catch (error) {
     next(error);
   }

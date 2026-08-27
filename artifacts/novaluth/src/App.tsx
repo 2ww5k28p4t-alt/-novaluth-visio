@@ -20,6 +20,7 @@ import Legal from '@/pages/Legal';
 import Atelier from '@/pages/Atelier';
 import Portail from '@/pages/Portail';
 import NotFound from '@/pages/not-found';
+import Classement from '@/pages/Classement';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,6 +44,7 @@ function Router() {
           <Route path="/brief" component={Brief} />
           <Route path="/admin" component={Admin} />
           <Route path="/legal" component={Legal} />
+          <Route path="/legal/classement" component={Classement} />
           <Route component={NotFound} />
         </Switch>
       </RoutedErrorBoundary>

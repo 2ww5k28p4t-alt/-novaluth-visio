@@ -1,5 +1,5 @@
 import { Link, useRoute } from "wouter";
-import { useGetFiche, getGetFicheQueryKey } from "@workspace/api-client-react";
+import { useGetFiche, getGetFicheQueryKey, useGetFichesMeta } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -22,6 +22,17 @@ export default function Fiche() {
   const { data: fiche, isLoading, isError } = useGetFiche(slug, {
     query: { enabled: !!slug, queryKey: getGetFicheQueryKey(slug) }
   });
+
+  const { data: meta } = useGetFichesMeta();
+
+  const getFacetteLabel = (cle: string) => {
+    if (!meta) return cle;
+    for (const famille of meta.facettes) {
+      const found = famille.cases.find(c => c.cle === cle);
+      if (found) return found.libelle;
+    }
+    return cle;
+  };
 
   if (isLoading) {
     return (
@@ -114,11 +125,6 @@ export default function Fiche() {
                 </h2>
                 <div className="bg-secondary/20 p-8 border-l-2 border-accent text-lg text-foreground font-light leading-relaxed">
                   {fiche.ia.resume_ia}
-                </div>
-                <div className="flex gap-2 mt-4 flex-wrap">
-                  {fiche.ia.tags?.map(tag => (
-                    <span key={tag} className="text-sm px-3 py-1 bg-muted/50 text-muted-foreground">#{tag}</span>
-                  ))}
                 </div>
               </section>
             )}
@@ -238,32 +244,28 @@ export default function Fiche() {
               )}
             </div>
 
-            {/* Innovation */}
-            <div className="bg-card border border-border/50 p-6 space-y-4">
-              <h3 className="font-serif text-lg text-primary border-b border-border/50 pb-4 flex items-center gap-2">
-                <Zap className="h-4 w-4" /> Innovation
-              </h3>
-              
-              {fiche.innovation.niveau !== undefined && fiche.innovation.niveau !== null && (
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <span className="text-sm text-muted-foreground block">Indice de radicalité</span>
-                  </div>
-                  <div className="text-xl font-serif text-primary">{fiche.innovation.niveau}/10</div>
-                </div>
-              )}
-              
-              {fiche.innovation.marqueurs && fiche.innovation.marqueurs.length > 0 && (
-                <ul className="space-y-2 text-sm mt-4">
-                  {fiche.innovation.marqueurs.map((m, i) => (
-                    <li key={i} className="flex items-start gap-2 text-muted-foreground">
+            {/* Façons de travailler */}
+            {fiche.facons_travail && fiche.facons_travail.length > 0 && (
+              <div className="bg-card border border-border/50 p-6 space-y-4">
+                <h3 className="font-serif text-lg text-primary border-b border-border/50 pb-4 flex items-center gap-2">
+                  <Zap className="h-4 w-4" /> Façons de travailler
+                </h3>
+
+                <ul className="space-y-3 text-sm mt-4">
+                  {fiche.facons_travail.map((cle, i) => (
+                    <li key={i} className="flex items-start gap-2 text-foreground">
                       <span className="text-accent mt-0.5">•</span>
-                      <span>{m}</span>
+                      <span>{getFacetteLabel(cle)}</span>
                     </li>
                   ))}
                 </ul>
-              )}
-            </div>
+                {fiche.provenance_facons && (
+                  <div className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border/30">
+                    <span className="italic">Source : {fiche.provenance_facons}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Logistics */}
             <div className="bg-card border border-border/50 p-6 space-y-4">

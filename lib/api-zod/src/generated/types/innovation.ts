@@ -7,8 +7,6 @@
  */
 
 export interface Innovation {
-  /** @nullable */
-  niveau?: number | null;
   materiaux_alternatifs?: string[];
   /** @nullable */
   demarche_ecologique?: string | null;

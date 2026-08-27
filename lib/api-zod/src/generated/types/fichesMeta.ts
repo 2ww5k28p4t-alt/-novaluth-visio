@@ -5,6 +5,7 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { FamilleFacettes } from './familleFacettes';
 import type { FichesMetaTypes } from './fichesMetaTypes';
 
 export interface FichesMeta {
@@ -12,4 +13,6 @@ export interface FichesMeta {
   total_fiches: number;
   pays: string[];
   types: FichesMetaTypes;
+  styles: string[];
+  facettes: FamilleFacettes[];
 }

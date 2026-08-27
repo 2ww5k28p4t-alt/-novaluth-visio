@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useListFiches } from "@workspace/api-client-react";
+import { useListFiches, useGetFichesMeta } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { assetPath } from "@/lib/asset-path";
@@ -9,6 +9,17 @@ import { assetPath } from "@/lib/asset-path";
 export default function Home() {
   const { data: fiches, isLoading } = useListFiches({ statut: 'publiee' });
   const recentFiches = fiches?.slice(0, 3) || [];
+
+  const { data: meta } = useGetFichesMeta();
+
+  const getFacetteLabel = (cle: string) => {
+    if (!meta) return cle;
+    for (const famille of meta.facettes) {
+      const found = famille.cases.find(c => c.cle === cle);
+      if (found) return found.libelle;
+    }
+    return cle;
+  };
 
   return (
     <div className="flex flex-col w-full">
@@ -19,10 +30,10 @@ export default function Home() {
           <div className="max-w-4xl mx-auto space-y-7">
             <p className="nv-baseline">L'avenir de l'instrument</p>
             <h1 className="text-4xl md:text-6xl text-foreground leading-[1.1]">
-              Les luthiers et les marques qui sortent des <em>sentiers battus</em>.
+              Découvrez les artisans qui façonnent <em>votre instrument</em>.
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground font-light max-w-2xl leading-relaxed">
-              NovaLuth cartographie les artisans innovants et les jeunes marques
+              NovaLuth cartographie les artisans et les jeunes marques
               d'instruments. Décrivez votre projet, puis découvrez les ateliers qui
               correspondent réellement à vos critères.
             </p>
@@ -84,8 +95,8 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-end mb-12">
             <div>
-              <h2 className="text-2xl text-foreground mb-2">Dernières fiches publiées</h2>
-              <p className="text-muted-foreground">Les dernières découvertes de notre équipe.</p>
+              <h2 className="text-2xl text-foreground mb-2">Ateliers à découvrir</h2>
+              <p className="text-muted-foreground">Une sélection qui tourne chaque jour pour laisser de la place à chaque fiche.</p>
             </div>
             <Button variant="ghost" asChild className="hidden sm:flex text-primary hover:bg-primary/5">
               <Link href="/annuaire">Voir tout <ArrowRight className="ml-2 h-4 w-4" /></Link>
@@ -123,9 +134,9 @@ export default function Home() {
                     </p>
                     
                     <div className="flex flex-wrap gap-2 mt-auto">
-                      {fiche.ia.tags?.slice(0, 3).map((tag) => (
-                        <span key={tag} className="text-xs px-2 py-1 bg-muted/50 text-muted-foreground border border-border/50">
-                          {tag}
+                      {fiche.facons_travail?.slice(0, 3).map((cle) => (
+                        <span key={cle} className="text-xs px-2 py-1 bg-muted/50 text-muted-foreground border border-border/50">
+                          {getFacetteLabel(cle)}
                         </span>
                       ))}
                     </div>

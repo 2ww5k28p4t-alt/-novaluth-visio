@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useCreateBrief, useRecommend, BriefInputTypeInstrument, BriefInputZonePreferee } from "@workspace/api-client-react";
+import { useCreateBrief, useRecommend, useGetFichesMeta, BriefInputTypeInstrument, BriefInputZonePreferee } from "@workspace/api-client-react";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,7 +25,7 @@ const briefSchema = z.object({
   zone_preferee: z.nativeEnum(BriefInputZonePreferee),
   chaleur_souhaitee: z.number().min(0).max(10).optional(),
   brillance_souhaitee: z.number().min(0).max(10).optional(),
-  innovation_recherchee: z.number().min(0).max(10).optional(),
+  facons_recherchees: z.array(z.string()).optional(),
   personnalisation: z.boolean().default(false),
   description_libre: z.string().max(1500),
   email: z.string().email().optional().or(z.literal('')),
@@ -37,6 +37,7 @@ const briefSchema = z.object({
 
 export default function Brief() {
   const [receipt, setReceipt] = useState<any>(null);
+  const { data: meta } = useGetFichesMeta();
   
   const form = useForm<z.input<typeof briefSchema>>({
     resolver: zodResolver(briefSchema),
@@ -51,7 +52,7 @@ export default function Brief() {
       zone_preferee: BriefInputZonePreferee.france,
       chaleur_souhaitee: 5,
       brillance_souhaitee: 5,
-      innovation_recherchee: 5,
+      facons_recherchees: [],
       personnalisation: false,
       description_libre: "",
       email: "",
@@ -382,33 +383,6 @@ export default function Brief() {
                       </FormItem>
                     )}
                   />
-
-                  <FormField
-                    control={form.control}
-                    name="innovation_recherchee"
-                    render={({ field }) => (
-                      <FormItem>
-                        <div className="flex justify-between items-center mb-4">
-                          <FormLabel className="text-base">Radicalité / Innovation</FormLabel>
-                          <span className="text-sm font-medium text-accent">{field.value}/10</span>
-                        </div>
-                        <FormControl>
-                          <Slider
-                            value={[field.value || 5]}
-                            onValueChange={(v) => field.onChange(v[0])}
-                            max={10}
-                            step={1}
-                            className="[&_[role=slider]]:border-primary [&_[role=slider]]:bg-primary"
-                          />
-                        </FormControl>
-                        <div className="flex justify-between text-xs text-muted-foreground mt-2">
-                          <span>Tradition stricte</span>
-                          <span>Expérimental</span>
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6 pt-4">
@@ -440,6 +414,60 @@ export default function Brief() {
                     )}
                   />
                 </div>
+
+                {meta?.facettes && (
+                  <div className="space-y-6 pt-6 border-t border-border/50">
+                    <h3 className="font-serif text-lg text-primary">Méthodes et caractéristiques recherchées (Optionnel)</h3>
+                    <div className="grid gap-8">
+                      {meta.facettes.map(famille => (
+                        <div key={famille.cle} className="space-y-4">
+                          <h4 className="font-medium text-foreground">{famille.titre}</h4>
+                          <div className="grid sm:grid-cols-2 gap-4">
+                            {famille.cases.map(facette => (
+                              <FormField
+                                key={facette.cle}
+                                control={form.control}
+                                name="facons_recherchees"
+                                render={({ field }) => {
+                                  return (
+                                    <FormItem
+                                      className="flex flex-row items-start space-x-3 space-y-0"
+                                    >
+                                      <FormControl>
+                                        <Checkbox
+                                          checked={field.value?.includes(facette.cle)}
+                                          onCheckedChange={(checked) => {
+                                            return checked
+                                              ? field.onChange([...(field.value || []), facette.cle])
+                                              : field.onChange(
+                                                  field.value?.filter(
+                                                    (value) => value !== facette.cle
+                                                  )
+                                                )
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <div className="space-y-1 leading-none">
+                                        <FormLabel className="font-normal cursor-pointer">
+                                          {facette.libelle}
+                                        </FormLabel>
+                                        {facette.aide && (
+                                          <FormDescription className="text-xs">
+                                            {facette.aide}
+                                          </FormDescription>
+                                        )}
+                                      </div>
+                                    </FormItem>
+                                  )
+                                }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Section 3: Logistique & Contact */}

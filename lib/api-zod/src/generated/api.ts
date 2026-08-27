@@ -20,16 +20,24 @@ export const HealthCheckResponse = zod.object({
 /**
  * @summary List published makers
  */
-export const listFichesQueryInnovationMinDefault = 0;
-export const listFichesQueryInnovationMinMin = 0;
-export const listFichesQueryInnovationMinMax = 10;
+export const listFichesQueryBudgetEurMin = 0;
+
+export const listFichesQueryDelaiMaxMoisMin = 0;
 
 export const listFichesQueryStatutDefault = `publiee`;
 
 export const ListFichesQueryParams = zod.object({
   "pays": zod.coerce.string().optional(),
   "type": zod.enum(['luthier', 'marque_emergente']).optional(),
-  "innovation_min": zod.coerce.number().min(listFichesQueryInnovationMinMin).max(listFichesQueryInnovationMinMax).default(listFichesQueryInnovationMinDefault),
+  "q": zod.coerce.string().optional(),
+  "instrument": zod.enum(['electrique', 'acoustique', 'basse', 'autre']).optional(),
+  "style": zod.coerce.string().optional(),
+  "zone": zod.enum(['france', 'europe', 'monde']).optional(),
+  "budget_eur": zod.coerce.number().min(listFichesQueryBudgetEurMin).optional(),
+  "delai_max_mois": zod.coerce.number().min(listFichesQueryDelaiMaxMoisMin).optional(),
+  "relue_seulement": zod.coerce.boolean().optional(),
+  "facons": zod.coerce.string().optional().describe('Comma-separated working-method keys from the closed directory vocabulary.'),
+  "tri": zod.enum(['equitable', 'delai', 'budget', 'alpha', 'maj']).optional(),
   "statut": zod.enum(['publiee', 'candidate', 'a_verifier', 'a_suivre', 'trop_etablie', 'rejetee']).default(listFichesQueryStatutDefault)
 })
 
@@ -48,8 +56,6 @@ export const ListFichesResponseItem = zod.object({
   "prix_max_eur": zod.number().nullish(),
   "production_annuelle": zod.number().nullish(),
   "approche_artisanale": zod.string().nullish(),
-  "score_originalite": zod.number().nullish(),
-  "score_innovation": zod.number().nullish(),
   "modeles": zod.array(zod.object({
   "nom": zod.string(),
   "type": zod.enum(['electrique', 'acoustique', 'basse', 'autre']),
@@ -87,7 +93,6 @@ export const ListFichesResponseItem = zod.object({
   "politique_retour": zod.string().nullish()
 }),
   "innovation": zod.object({
-  "niveau": zod.number().nullish(),
   "materiaux_alternatifs": zod.array(zod.string()).optional(),
   "demarche_ecologique": zod.string().nullish(),
   "technologie_proprietaire": zod.string().nullish(),
@@ -107,7 +112,9 @@ export const ListFichesResponseItem = zod.object({
   "verification_identite_le": zod.string().nullish(),
   "demonstration": zod.boolean(),
   "cree_le": zod.string().nullish(),
-  "maj_le": zod.string().nullish()
+  "maj_le": zod.string().nullish(),
+  "facons_travail": zod.array(zod.string()),
+  "provenance_facons": zod.string()
 })
 export const ListFichesResponse = zod.array(ListFichesResponseItem)
 
@@ -119,7 +126,17 @@ export const GetFichesMetaResponse = zod.object({
   "total_publiees": zod.number(),
   "total_fiches": zod.number(),
   "pays": zod.array(zod.string()),
-  "types": zod.record(zod.string(), zod.number())
+  "types": zod.record(zod.string(), zod.number()),
+  "styles": zod.array(zod.string()),
+  "facettes": zod.array(zod.object({
+  "cle": zod.string(),
+  "titre": zod.string(),
+  "cases": zod.array(zod.object({
+  "cle": zod.string(),
+  "libelle": zod.string(),
+  "aide": zod.string()
+}))
+}))
 })
 
 
@@ -145,8 +162,6 @@ export const GetFicheResponse = zod.object({
   "prix_max_eur": zod.number().nullish(),
   "production_annuelle": zod.number().nullish(),
   "approche_artisanale": zod.string().nullish(),
-  "score_originalite": zod.number().nullish(),
-  "score_innovation": zod.number().nullish(),
   "modeles": zod.array(zod.object({
   "nom": zod.string(),
   "type": zod.enum(['electrique', 'acoustique', 'basse', 'autre']),
@@ -184,7 +199,6 @@ export const GetFicheResponse = zod.object({
   "politique_retour": zod.string().nullish()
 }),
   "innovation": zod.object({
-  "niveau": zod.number().nullish(),
   "materiaux_alternatifs": zod.array(zod.string()).optional(),
   "demarche_ecologique": zod.string().nullish(),
   "technologie_proprietaire": zod.string().nullish(),
@@ -204,7 +218,9 @@ export const GetFicheResponse = zod.object({
   "verification_identite_le": zod.string().nullish(),
   "demonstration": zod.boolean(),
   "cree_le": zod.string().nullish(),
-  "maj_le": zod.string().nullish()
+  "maj_le": zod.string().nullish(),
+  "facons_travail": zod.array(zod.string()),
+  "provenance_facons": zod.string()
 })
 
 
@@ -232,8 +248,7 @@ export const recommendBodyChaleurSouhaiteeMax = 10;
 export const recommendBodyBrillanceSouhaiteeMin = 0;
 export const recommendBodyBrillanceSouhaiteeMax = 10;
 
-export const recommendBodyInnovationRechercheeMin = 0;
-export const recommendBodyInnovationRechercheeMax = 10;
+export const recommendBodyFaconsRechercheesMax = 21;
 
 export const recommendBodyDescriptionLibreMax = 1500;
 
@@ -252,7 +267,7 @@ export const RecommendBody = zod.object({
   "zone_preferee": zod.enum(['france', 'europe', 'monde']),
   "chaleur_souhaitee": zod.number().min(recommendBodyChaleurSouhaiteeMin).max(recommendBodyChaleurSouhaiteeMax).nullish(),
   "brillance_souhaitee": zod.number().min(recommendBodyBrillanceSouhaiteeMin).max(recommendBodyBrillanceSouhaiteeMax).nullish(),
-  "innovation_recherchee": zod.number().min(recommendBodyInnovationRechercheeMin).max(recommendBodyInnovationRechercheeMax).nullish(),
+  "facons_recherchees": zod.array(zod.string()).max(recommendBodyFaconsRechercheesMax).optional(),
   "personnalisation": zod.boolean(),
   "description_libre": zod.string().max(recommendBodyDescriptionLibreMax),
   "email": zod.string().max(recommendBodyEmailMax).nullish().describe('Required when consentement_transmission is true; otherwise it is not persisted.'),
@@ -306,8 +321,7 @@ export const createBriefBodyChaleurSouhaiteeMax = 10;
 export const createBriefBodyBrillanceSouhaiteeMin = 0;
 export const createBriefBodyBrillanceSouhaiteeMax = 10;
 
-export const createBriefBodyInnovationRechercheeMin = 0;
-export const createBriefBodyInnovationRechercheeMax = 10;
+export const createBriefBodyFaconsRechercheesMax = 21;
 
 export const createBriefBodyDescriptionLibreMax = 1500;
 
@@ -326,7 +340,7 @@ export const CreateBriefBody = zod.object({
   "zone_preferee": zod.enum(['france', 'europe', 'monde']),
   "chaleur_souhaitee": zod.number().min(createBriefBodyChaleurSouhaiteeMin).max(createBriefBodyChaleurSouhaiteeMax).nullish(),
   "brillance_souhaitee": zod.number().min(createBriefBodyBrillanceSouhaiteeMin).max(createBriefBodyBrillanceSouhaiteeMax).nullish(),
-  "innovation_recherchee": zod.number().min(createBriefBodyInnovationRechercheeMin).max(createBriefBodyInnovationRechercheeMax).nullish(),
+  "facons_recherchees": zod.array(zod.string()).max(createBriefBodyFaconsRechercheesMax).optional(),
   "personnalisation": zod.boolean(),
   "description_libre": zod.string().max(createBriefBodyDescriptionLibreMax),
   "email": zod.string().max(createBriefBodyEmailMax).nullish().describe('Required when consentement_transmission is true; otherwise it is not persisted.'),
@@ -727,8 +741,6 @@ export const GetAdminSummaryResponse = zod.object({
   "prix_max_eur": zod.number().nullish(),
   "production_annuelle": zod.number().nullish(),
   "approche_artisanale": zod.string().nullish(),
-  "score_originalite": zod.number().nullish(),
-  "score_innovation": zod.number().nullish(),
   "modeles": zod.array(zod.object({
   "nom": zod.string(),
   "type": zod.enum(['electrique', 'acoustique', 'basse', 'autre']),
@@ -766,7 +778,6 @@ export const GetAdminSummaryResponse = zod.object({
   "politique_retour": zod.string().nullish()
 }),
   "innovation": zod.object({
-  "niveau": zod.number().nullish(),
   "materiaux_alternatifs": zod.array(zod.string()).optional(),
   "demarche_ecologique": zod.string().nullish(),
   "technologie_proprietaire": zod.string().nullish(),
@@ -786,7 +797,9 @@ export const GetAdminSummaryResponse = zod.object({
   "verification_identite_le": zod.string().nullish(),
   "demonstration": zod.boolean(),
   "cree_le": zod.string().nullish(),
-  "maj_le": zod.string().nullish()
+  "maj_le": zod.string().nullish(),
+  "facons_travail": zod.array(zod.string()),
+  "provenance_facons": zod.string()
 })),
   "passerelle": zod.string(),
   "acces": zod.object({
@@ -825,8 +838,6 @@ export const UpdateFicheStatusResponse = zod.object({
   "prix_max_eur": zod.number().nullish(),
   "production_annuelle": zod.number().nullish(),
   "approche_artisanale": zod.string().nullish(),
-  "score_originalite": zod.number().nullish(),
-  "score_innovation": zod.number().nullish(),
   "modeles": zod.array(zod.object({
   "nom": zod.string(),
   "type": zod.enum(['electrique', 'acoustique', 'basse', 'autre']),
@@ -864,7 +875,6 @@ export const UpdateFicheStatusResponse = zod.object({
   "politique_retour": zod.string().nullish()
 }),
   "innovation": zod.object({
-  "niveau": zod.number().nullish(),
   "materiaux_alternatifs": zod.array(zod.string()).optional(),
   "demarche_ecologique": zod.string().nullish(),
   "technologie_proprietaire": zod.string().nullish(),
@@ -884,7 +894,9 @@ export const UpdateFicheStatusResponse = zod.object({
   "verification_identite_le": zod.string().nullish(),
   "demonstration": zod.boolean(),
   "cree_le": zod.string().nullish(),
-  "maj_le": zod.string().nullish()
+  "maj_le": zod.string().nullish(),
+  "facons_travail": zod.array(zod.string()),
+  "provenance_facons": zod.string()
 })
 
 

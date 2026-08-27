@@ -82,8 +82,6 @@ export interface Logistique {
 }
 
 export interface Innovation {
-  /** @nullable */
-  niveau?: number | null;
   materiaux_alternatifs?: string[];
   /** @nullable */
   demarche_ecologique?: string | null;
@@ -150,10 +148,6 @@ export interface Fiche {
   production_annuelle?: number | null;
   /** @nullable */
   approche_artisanale?: string | null;
-  /** @nullable */
-  score_originalite?: number | null;
-  /** @nullable */
-  score_innovation?: number | null;
   modeles: Modele[];
   profil_sonore: ProfilSonore;
   logistique: Logistique;
@@ -169,6 +163,8 @@ export interface Fiche {
   cree_le?: string | null;
   /** @nullable */
   maj_le?: string | null;
+  facons_travail: string[];
+  provenance_facons: string;
 }
 
 export type BriefInputTypeInstrument = typeof BriefInputTypeInstrument[keyof typeof BriefInputTypeInstrument];
@@ -230,12 +226,8 @@ export interface BriefInput {
      * @nullable
      */
   brillance_souhaitee?: number | null;
-  /**
-     * @minimum 0
-     * @maximum 10
-     * @nullable
-     */
-  innovation_recherchee?: number | null;
+  /** @maxItems 21 */
+  facons_recherchees?: string[];
   personnalisation: boolean;
   /** @maxLength 1500 */
   description_libre: string;
@@ -294,6 +286,18 @@ export interface BriefReceipt {
   recommandations: Recommendation[];
 }
 
+export interface Facette {
+  cle: string;
+  libelle: string;
+  aide: string;
+}
+
+export interface FamilleFacettes {
+  cle: string;
+  titre: string;
+  cases: Facette[];
+}
+
 export type FichesMetaTypes = {[key: string]: number};
 
 export interface FichesMeta {
@@ -301,6 +305,8 @@ export interface FichesMeta {
   total_fiches: number;
   pays: string[];
   types: FichesMetaTypes;
+  styles: string[];
+  facettes: FamilleFacettes[];
 }
 
 export type AdminSummaryCompteurs = {[key: string]: number};
@@ -483,11 +489,24 @@ export interface AccessMaintenanceResult {
 export type ListFichesParams = {
 pays?: string;
 type?: ListFichesType;
+q?: string;
+instrument?: ListFichesInstrument;
+style?: string;
+zone?: ListFichesZone;
 /**
  * @minimum 0
- * @maximum 10
  */
-innovation_min?: number;
+budget_eur?: number;
+/**
+ * @minimum 0
+ */
+delai_max_mois?: number;
+relue_seulement?: boolean;
+/**
+ * Comma-separated working-method keys from the closed directory vocabulary.
+ */
+facons?: string;
+tri?: ListFichesTri;
 statut?: ListFichesStatut;
 };
 
@@ -497,6 +516,36 @@ export type ListFichesType = typeof ListFichesType[keyof typeof ListFichesType];
 export const ListFichesType = {
   luthier: 'luthier',
   marque_emergente: 'marque_emergente',
+} as const;
+
+export type ListFichesInstrument = typeof ListFichesInstrument[keyof typeof ListFichesInstrument];
+
+
+export const ListFichesInstrument = {
+  electrique: 'electrique',
+  acoustique: 'acoustique',
+  basse: 'basse',
+  autre: 'autre',
+} as const;
+
+export type ListFichesZone = typeof ListFichesZone[keyof typeof ListFichesZone];
+
+
+export const ListFichesZone = {
+  france: 'france',
+  europe: 'europe',
+  monde: 'monde',
+} as const;
+
+export type ListFichesTri = typeof ListFichesTri[keyof typeof ListFichesTri];
+
+
+export const ListFichesTri = {
+  equitable: 'equitable',
+  delai: 'delai',
+  budget: 'budget',
+  alpha: 'alpha',
+  maj: 'maj',
 } as const;
 
 export type ListFichesStatut = typeof ListFichesStatut[keyof typeof ListFichesStatut];

@@ -38,10 +38,6 @@ export interface Fiche {
   production_annuelle?: number | null;
   /** @nullable */
   approche_artisanale?: string | null;
-  /** @nullable */
-  score_originalite?: number | null;
-  /** @nullable */
-  score_innovation?: number | null;
   modeles: Modele[];
   profil_sonore: ProfilSonore;
   logistique: Logistique;
@@ -57,4 +53,6 @@ export interface Fiche {
   cree_le?: string | null;
   /** @nullable */
   maj_le?: string | null;
+  facons_travail: string[];
+  provenance_facons: string;
 }

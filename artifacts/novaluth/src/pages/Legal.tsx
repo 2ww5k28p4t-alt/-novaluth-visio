@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { Scale, ShieldCheck, HeartHandshake } from "lucide-react";
 
 export default function Legal() {
@@ -68,6 +69,11 @@ export default function Legal() {
           <p>
             La police Space Grotesk est hébergée directement par NovaLuth. Aucune
             requête n'est adressée à un service de polices tiers lors de votre visite.
+          </p>
+
+          <h2 className="text-2xl font-serif text-primary mt-8">6. Classement et tri</h2>
+          <p>
+            Pour en savoir plus sur l'ordre d'affichage, la rotation quotidienne et l'absence de biais commercial sur l'annuaire, veuillez consulter notre <Link href="/legal/classement" className="text-primary hover:text-accent underline">page dédiée au classement</Link>.
           </p>
         </div>
       </div>

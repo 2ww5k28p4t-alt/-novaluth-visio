@@ -5,16 +5,32 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { ListFichesInstrument } from './listFichesInstrument';
 import type { ListFichesStatut } from './listFichesStatut';
+import type { ListFichesTri } from './listFichesTri';
 import type { ListFichesType } from './listFichesType';
+import type { ListFichesZone } from './listFichesZone';
 
 export type ListFichesParams = {
 pays?: string;
 type?: ListFichesType;
+q?: string;
+instrument?: ListFichesInstrument;
+style?: string;
+zone?: ListFichesZone;
 /**
  * @minimum 0
- * @maximum 10
  */
-innovation_min?: number;
+budget_eur?: number;
+/**
+ * @minimum 0
+ */
+delai_max_mois?: number;
+relue_seulement?: boolean;
+/**
+ * Comma-separated working-method keys from the closed directory vocabulary.
+ */
+facons?: string;
+tri?: ListFichesTri;
 statut?: ListFichesStatut;
 };
