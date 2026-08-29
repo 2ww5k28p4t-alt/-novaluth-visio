@@ -11,7 +11,7 @@ export type NovaLuthEmailEvent =
   | "access_expiring_soon"
   | "followup";
 
-type EmailDetails = {
+export type EmailDetails = {
   event: NovaLuthEmailEvent;
   reference: string;
   portalUrl: string;
@@ -21,8 +21,19 @@ type EmailDetails = {
 };
 
 export type EmailDeliveryResult =
-  | { sent: true }
+  | { sent: true; providerMessageId?: string }
   | { sent: false; reason: "not_configured" | "no_recipient" };
+
+export class NovaLuthEmailError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    readonly statusCode?: number,
+  ) {
+    super(message);
+    this.name = "NovaLuthEmailError";
+  }
+}
 
 function escapeHtml(value: string) {
   return value
@@ -146,6 +157,7 @@ export function isNovaLuthEmailConfigured() {
 export async function sendNovaLuthEmail(
   recipient: string | null | undefined,
   details: EmailDetails,
+  options: { idempotencyKey?: string } = {},
 ): Promise<EmailDeliveryResult> {
   if (!recipient) {
     return { sent: false, reason: "no_recipient" };
@@ -154,11 +166,7 @@ export async function sendNovaLuthEmail(
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.NOVALUTH_EMAIL_FROM;
   if (!apiKey || !from) {
-    logger.warn(
-      { event: details.event, reference: details.reference },
-      "NovaLuth email not sent: Resend is not configured",
-    );
-    return { sent: false, reason: "not_configured" };
+    throw new NovaLuthEmailError("Resend is not configured.", false);
   }
 
   const content = contentFor(details);
@@ -188,29 +196,50 @@ export async function sendNovaLuthEmail(
     `Référence : ${details.reference}`,
   ].join("\n");
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [recipient],
-      subject: content.subject,
-      html,
-      text,
-      tags: [{ name: "novaluth_event", value: details.event }],
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Resend rejected the email with status ${response.status}.`);
+  let response: Response;
+  try {
+    response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...(options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : {}),
+      },
+      body: JSON.stringify({
+        from,
+        to: [recipient],
+        subject: content.subject,
+        html,
+        text,
+        tags: [{ name: "novaluth_event", value: details.event }],
+      }),
+    });
+  } catch (error) {
+    throw new NovaLuthEmailError(
+      error instanceof Error ? error.message : "Resend request failed.",
+      true,
+    );
   }
 
+  if (!response.ok) {
+    throw new NovaLuthEmailError(
+      `Resend rejected the email with status ${response.status}.`,
+      response.status === 408 || response.status === 429 || response.status >= 500,
+      response.status,
+    );
+  }
+
+  let providerMessageId: string | undefined;
+  try {
+    const body = (await response.json()) as { id?: unknown };
+    providerMessageId = typeof body.id === "string" ? body.id : undefined;
+  } catch {
+    // A successful provider response may have no JSON body.
+  }
   logger.info(
-    { event: details.event, reference: details.reference },
+    { event: details.event, reference: details.reference, providerMessageId },
     "NovaLuth email sent",
   );
-  return { sent: true };
+  return { sent: true, providerMessageId };
 }

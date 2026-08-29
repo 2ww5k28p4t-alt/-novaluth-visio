@@ -64,9 +64,13 @@ import { availableSoundColours, compareSound, soundFromLegacy } from "../lib/nov
 import {
   getNovaLuthPublicUrl,
   isNovaLuthEmailConfigured,
-  sendNovaLuthEmail,
   type NovaLuthEmailEvent,
 } from "../lib/novaluth-email";
+import {
+  enqueueNovaLuthEmail,
+  getNovaLuthEmailOutboxSummary,
+  type NovaLuthDbExecutor,
+} from "../lib/novaluth-email-outbox";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -322,6 +326,8 @@ async function notifyProjectEmail(
   project: Pick<NovaluthProject, "email" | "reference" | "musicianToken">,
   event: NovaLuthEmailEvent,
   details: { atelierName?: string; plan?: string; accessEndsAt?: Date | null } = {},
+  executor: NovaLuthDbExecutor = db,
+  dedupeKey = `${event}:${project.reference}`,
 ) {
   const privatePortalUrl = portalUrl(portalPath(project.reference, project.musicianToken));
   if (!privatePortalUrl) {
@@ -332,20 +338,20 @@ async function notifyProjectEmail(
     return { sent: false as const, reason: "not_configured" as const };
   }
 
-  try {
-    return await sendNovaLuthEmail(project.email, {
+  const queued = await enqueueNovaLuthEmail(
+    executor,
+    project.email,
+    {
       event,
       reference: project.reference,
       portalUrl: privatePortalUrl,
       ...details,
-    });
-  } catch (error) {
-    logger.error(
-      { err: error, event, reference: project.reference },
-      "NovaLuth email delivery failed",
-    );
-    return { sent: false as const, reason: "delivery_failed" as const };
-  }
+    },
+    dedupeKey,
+  );
+  return queued.queued
+    ? { sent: true as const, deduplicated: queued.deduplicated }
+    : { sent: false as const, reason: queued.reason };
 }
 
 function projectForAtelier(project: NovaluthProject, includeDescription = false) {
@@ -433,20 +439,34 @@ async function runMaintenance() {
       ),
     );
   for (const request of pendingToCancel) {
-    await db
-      .update(novaluthAccessRequestsTable)
-      .set({ status: "annulee", paymentStatus: "annule", decidedAt: now })
-      .where(eq(novaluthAccessRequestsTable.id, request.id));
-    const [project] = await db
-      .select()
-      .from(novaluthProjectsTable)
-      .where(eq(novaluthProjectsTable.reference, request.projectReference));
-    if (project) {
-      await notifyProjectEmail(project, "request_cancelled", {
-        plan: request.plan,
-      });
-    }
-    annulations += 1;
+    const cancelled = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(novaluthAccessRequestsTable)
+        .set({ status: "annulee", paymentStatus: "annule", decidedAt: now })
+        .where(
+          and(
+            eq(novaluthAccessRequestsTable.id, request.id),
+            eq(novaluthAccessRequestsTable.status, "en_attente"),
+          ),
+        )
+        .returning();
+      if (!updated) return false;
+      const [project] = await tx
+        .select()
+        .from(novaluthProjectsTable)
+        .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+      if (project) {
+        await notifyProjectEmail(
+          project,
+          "request_cancelled",
+          { plan: updated.plan },
+          tx,
+          `request_cancelled:${updated.id}`,
+        );
+      }
+      return true;
+    });
+    if (cancelled) annulations += 1;
   }
 
   const acceptedToExpire = await db
@@ -459,21 +479,34 @@ async function runMaintenance() {
       ),
     );
   for (const request of acceptedToExpire) {
-    await db
-      .update(novaluthAccessRequestsTable)
-      .set({ status: "expiree" })
-      .where(eq(novaluthAccessRequestsTable.id, request.id));
-    const [project] = await db
-      .select()
-      .from(novaluthProjectsTable)
-      .where(eq(novaluthProjectsTable.reference, request.projectReference));
-    if (project) {
-      await notifyProjectEmail(project, "request_expired", {
-        plan: request.plan,
-        accessEndsAt: request.accessEndsAt,
-      });
-    }
-    expirations += 1;
+    const expired = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(novaluthAccessRequestsTable)
+        .set({ status: "expiree" })
+        .where(
+          and(
+            eq(novaluthAccessRequestsTable.id, request.id),
+            eq(novaluthAccessRequestsTable.status, "acceptee"),
+          ),
+        )
+        .returning();
+      if (!updated) return false;
+      const [project] = await tx
+        .select()
+        .from(novaluthProjectsTable)
+        .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+      if (project) {
+        await notifyProjectEmail(
+          project,
+          "request_expired",
+          { plan: updated.plan, accessEndsAt: updated.accessEndsAt },
+          tx,
+          `request_expired:${updated.id}`,
+        );
+      }
+      return true;
+    });
+    if (expired) expirations += 1;
   }
 
   const candidatesForReminder = await db
@@ -481,22 +514,23 @@ async function runMaintenance() {
     .from(novaluthAccessRequestsTable)
     .where(eq(novaluthAccessRequestsTable.status, "en_attente"));
   for (const request of candidatesForReminder) {
-    if (request.requestedAt <= threeDaysAgo && !request.reminderSentAt) {
-      await db
-        .update(novaluthAccessRequestsTable)
-        .set({ reminderSentAt: now })
-        .where(eq(novaluthAccessRequestsTable.id, request.id));
-      const [project] = await db
+    if (request.requestedAt > threeDaysAgo) continue;
+    const queued = await db.transaction(async (tx) => {
+      const [project] = await tx
         .select()
         .from(novaluthProjectsTable)
         .where(eq(novaluthProjectsTable.reference, request.projectReference));
-      if (project) {
-        await notifyProjectEmail(project, "pending_reminder", {
-          plan: request.plan,
-        });
-      }
-      relances += 1;
-    }
+      if (!project) return false;
+      const result = await notifyProjectEmail(
+        project,
+        "pending_reminder",
+        { plan: request.plan },
+        tx,
+        `pending_reminder:${request.id}`,
+      );
+      return result.sent && !result.deduplicated;
+    });
+    if (queued) relances += 1;
   }
 
   const accessEndingSoon = await db
@@ -504,23 +538,23 @@ async function runMaintenance() {
     .from(novaluthAccessRequestsTable)
     .where(eq(novaluthAccessRequestsTable.status, "acceptee"));
   for (const request of accessEndingSoon) {
-    if (request.accessEndsAt && request.accessEndsAt <= inTwoDays && !request.reminderSentAt) {
-      await db
-        .update(novaluthAccessRequestsTable)
-        .set({ reminderSentAt: now })
-        .where(eq(novaluthAccessRequestsTable.id, request.id));
-      const [project] = await db
+    if (!request.accessEndsAt || request.accessEndsAt > inTwoDays) continue;
+    const queued = await db.transaction(async (tx) => {
+      const [project] = await tx
         .select()
         .from(novaluthProjectsTable)
         .where(eq(novaluthProjectsTable.reference, request.projectReference));
-      if (project) {
-        await notifyProjectEmail(project, "access_expiring_soon", {
-          plan: request.plan,
-          accessEndsAt: request.accessEndsAt,
-        });
-      }
-      relances += 1;
-    }
+      if (!project) return false;
+      const result = await notifyProjectEmail(
+        project,
+        "access_expiring_soon",
+        { plan: request.plan, accessEndsAt: request.accessEndsAt },
+        tx,
+        `access_expiring_soon:${request.id}`,
+      );
+      return result.sent && !result.deduplicated;
+    });
+    if (queued) relances += 1;
   }
 
   const idleProjects = await db
@@ -673,43 +707,49 @@ router.post("/briefs", async (req, res, next) => {
       return;
     }
     const resultats = await recommendations(brief);
-    const [saved] = await db
-      .insert(novaluthBriefsTable)
-      .values({
-        criteria: { ...brief, email: undefined },
-        email: brief.consentement_transmission ? brief.email ?? null : null,
-        consent: Boolean(brief.consentement_transmission),
-        recommendations: resultats,
-      })
-      .returning();
-    const musicianToken = saved.consent ? randomUUID() : null;
-    if (musicianToken) {
-      await db.insert(novaluthProjectsTable).values({
-        reference: saved.reference,
-        musicianToken,
-        email: saved.email,
-        criteria: saved.criteria,
-        recommendedAteliers: resultats.map((result) => result.slug),
-      });
-    }
-    const emailDelivery =
-      musicianToken && saved.email
-        ? await notifyProjectEmail(
-            {
-              reference: saved.reference,
-              musicianToken,
-              email: saved.email,
-            },
-            "portal_created",
-          )
-        : { sent: false as const, reason: "no_recipient" as const };
+    const created = await db.transaction(async (tx) => {
+      const [saved] = await tx
+        .insert(novaluthBriefsTable)
+        .values({
+          criteria: { ...brief, email: undefined },
+          email: brief.consentement_transmission ? brief.email ?? null : null,
+          consent: Boolean(brief.consentement_transmission),
+          recommendations: resultats,
+        })
+        .returning();
+      const musicianToken = saved.consent ? randomUUID() : null;
+      if (musicianToken) {
+        await tx.insert(novaluthProjectsTable).values({
+          reference: saved.reference,
+          musicianToken,
+          email: saved.email,
+          criteria: saved.criteria,
+          recommendedAteliers: resultats.map((result) => result.slug),
+        });
+      }
+      const emailDelivery =
+        musicianToken && saved.email
+          ? await notifyProjectEmail(
+              {
+                reference: saved.reference,
+                musicianToken,
+                email: saved.email,
+              },
+              "portal_created",
+              {},
+              tx,
+              `portal_created:${saved.reference}`,
+            )
+          : { sent: false as const, reason: "no_recipient" as const };
+      return { saved, musicianToken, emailDelivery };
+    });
     res.status(201).json(
       CreateBriefResponse.parse({
-        reference: saved.reference,
-        portail_musicien: musicianToken
-          ? `/projets/${saved.reference}/portail/${musicianToken}`
+        reference: created.saved.reference,
+        portail_musicien: created.musicianToken
+          ? `/projets/${created.saved.reference}/portail/${created.musicianToken}`
           : null,
-        courriel_envoye: emailDelivery.sent,
+        courriel_envoye: created.emailDelivery.sent,
         recommandations: resultats,
       }),
     );
@@ -748,6 +788,28 @@ router.get("/admin/summary", async (req, res, next) => {
         },
       }),
     );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/admin/courriels", async (req, res, next) => {
+  try {
+    if (!requireAdminToken(req.header("X-Admin-Token") ?? undefined)) {
+      res.status(401).json({ error: "Jeton d’administration invalide." });
+      return;
+    }
+    const lignes = await getNovaLuthEmailOutboxSummary();
+    res.json({
+      total: lignes.reduce((sum, ligne) => sum + Number(ligne.count), 0),
+      etats: lignes.map((ligne) => ({
+        statut: ligne.status,
+        nombre: Number(ligne.count),
+        plus_ancien: ligne.oldest_created_at?.toISOString() ?? null,
+        prochaine_reprise: ligne.next_available_at?.toISOString() ?? null,
+      })),
+      limite_tentatives: 5,
+    });
   } catch (error) {
     next(error);
   }
@@ -825,68 +887,78 @@ router.post("/projets/:reference/portail/:token/demandes/:requestId/decision", a
     await runMaintenance();
     const { reference, token, requestId } = DecideMusicianAccessRequestParams.parse(req.params);
     const { decision } = DecideMusicianAccessRequestBody.parse(req.body);
-    const [project] = await db
-      .select()
-      .from(novaluthProjectsTable)
-      .where(
-        and(
-          eq(novaluthProjectsTable.reference, reference),
-          eq(novaluthProjectsTable.musicianToken, token),
-        ),
+    const decided = await db.transaction(async (tx) => {
+      const [project] = await tx
+        .select()
+        .from(novaluthProjectsTable)
+        .where(
+          and(
+            eq(novaluthProjectsTable.reference, reference),
+            eq(novaluthProjectsTable.musicianToken, token),
+          ),
+        );
+      const [request] = await tx
+        .select()
+        .from(novaluthAccessRequestsTable)
+        .where(
+          and(
+            eq(novaluthAccessRequestsTable.id, requestId),
+            eq(novaluthAccessRequestsTable.projectReference, reference),
+          ),
+        );
+      if (!project || !request) return { error: "not_found" as const };
+      if (request.status !== "en_attente") return { error: "already_decided" as const };
+
+      const now = new Date();
+      const accepted = decision === "accepter";
+      const [updated] = await tx
+        .update(novaluthAccessRequestsTable)
+        .set({
+          status: accepted ? "acceptee" : "refusee",
+          paymentStatus: accepted ? "encaisse" : "annule",
+          decidedAt: now,
+          accessEndsAt: accepted ? new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000) : null,
+        })
+        .where(
+          and(
+            eq(novaluthAccessRequestsTable.id, request.id),
+            eq(novaluthAccessRequestsTable.status, "en_attente"),
+            eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
+          ),
+        )
+        .returning();
+      if (!updated) return { error: "conflict" as const };
+
+      await tx
+        .update(novaluthProjectsTable)
+        .set({ lastActivityAt: now, status: "actif" })
+        .where(eq(novaluthProjectsTable.reference, reference));
+      await notifyProjectEmail(
+        project,
+        accepted ? "decision_accepted" : "decision_refused",
+        {
+          plan: request.plan,
+          accessEndsAt: updated.accessEndsAt,
+        },
+        tx,
+        `${accepted ? "decision_accepted" : "decision_refused"}:${request.id}`,
       );
-    const [request] = await db
-      .select()
-      .from(novaluthAccessRequestsTable)
-      .where(
-        and(
-          eq(novaluthAccessRequestsTable.id, requestId),
-          eq(novaluthAccessRequestsTable.projectReference, reference),
-        ),
-      );
-    if (!project || !request) {
+      return { updated };
+    });
+    if ("error" in decided && decided.error === "not_found") {
       res.status(404).json({ error: "La demande ou le lien personnel est introuvable." });
       return;
     }
-    if (request.status !== "en_attente") {
+    if ("error" in decided && decided.error === "already_decided") {
       res.status(400).json({ error: "Cette demande a déjà reçu une décision." });
       return;
     }
-    const now = new Date();
-    const accepted = decision === "accepter";
-    const [updated] = await db
-      .update(novaluthAccessRequestsTable)
-      .set({
-        status: accepted ? "acceptee" : "refusee",
-        paymentStatus: accepted ? "encaisse" : "annule",
-        decidedAt: now,
-        accessEndsAt: accepted ? new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000) : null,
-      })
-      .where(
-        and(
-          eq(novaluthAccessRequestsTable.id, request.id),
-          eq(novaluthAccessRequestsTable.status, "en_attente"),
-          eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
-        ),
-      )
-      .returning();
-    if (!updated) {
+    if ("error" in decided && decided.error === "conflict") {
       res.status(409).json({ error: "Cette demande a reçu une décision entre-temps." });
       return;
     }
-    await db
-      .update(novaluthProjectsTable)
-      .set({ lastActivityAt: now, status: "actif" })
-      .where(eq(novaluthProjectsTable.reference, reference));
     req.log.info({ requestId, decision }, "NovaLuth access request decided");
-    await notifyProjectEmail(
-      project,
-      accepted ? "decision_accepted" : "decision_refused",
-      {
-        plan: request.plan,
-        accessEndsAt: updated.accessEndsAt,
-      },
-    );
-    res.json(DecideMusicianAccessRequestResponse.parse(await requestForDisplay(updated, true)));
+    res.json(DecideMusicianAccessRequestResponse.parse(await requestForDisplay(decided.updated, true)));
   } catch (error) {
     next(error);
   }
@@ -1001,16 +1073,18 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
     }
     const created = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${slug}))`);
-      const [[target], activeRequests] = await Promise.all([
-        tx
-          .select()
-          .from(novaluthProjectsTable)
-          .where(eq(novaluthProjectsTable.reference, input.reference_projet)),
-        tx
-          .select()
-          .from(novaluthAccessRequestsTable)
-          .where(eq(novaluthAccessRequestsTable.atelierSlug, slug)),
-      ]);
+      const [target] = await tx
+        .select()
+        .from(novaluthProjectsTable)
+        .where(eq(novaluthProjectsTable.reference, input.reference_projet));
+      const activeRequests = await tx
+        .select()
+        .from(novaluthAccessRequestsTable)
+        .where(eq(novaluthAccessRequestsTable.atelierSlug, slug));
+      const [atelier] = await tx
+        .select()
+        .from(novaluthProfilesTable)
+        .where(eq(novaluthProfilesTable.slug, slug));
       const current = activeRequests.filter((request) =>
         activeRequestStatuses.includes(request.status as (typeof activeRequestStatuses)[number]),
       );
@@ -1041,6 +1115,21 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
           paymentReference: `sim_${randomUUID()}`,
         })
         .returning();
+      const now = new Date();
+      await tx
+        .update(novaluthProjectsTable)
+        .set({ lastActivityAt: now })
+        .where(eq(novaluthProjectsTable.reference, target.reference));
+      await notifyProjectEmail(
+        target,
+        "access_request",
+        {
+          atelierName: atelier ? getFiche(atelier.data).nom : slug,
+          plan: request.plan,
+        },
+        tx,
+        `access_request:${request.id}`,
+      );
       return { request };
     });
     if ("error" in created) {
@@ -1048,22 +1137,8 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
       return;
     }
     const request = created.request;
-    await db
-      .update(novaluthProjectsTable)
-      .set({ lastActivityAt: new Date() })
-      .where(eq(novaluthProjectsTable.reference, request.projectReference));
     req.log.info({ requestId: request.id, atelier: slug, plan: input.offre }, "NovaLuth payment preauthorized");
     const displayedRequest = await requestForDisplay(request);
-    const [project] = await db
-      .select()
-      .from(novaluthProjectsTable)
-      .where(eq(novaluthProjectsTable.reference, request.projectReference));
-    if (project) {
-      await notifyProjectEmail(project, "access_request", {
-        atelierName: displayedRequest.atelier_nom,
-        plan: request.plan,
-      });
-    }
     res.status(201).json(CreateAtelierAccessRequestResponse.parse(displayedRequest));
   } catch (error) {
     next(error);
@@ -1079,32 +1154,41 @@ router.post("/ateliers/:slug/demandes/:requestId/annulation", async (req, res, n
       res.status(401).json({ error: "Session atelier invalide ou expirée." });
       return;
     }
-    const [updated] = await db
-      .update(novaluthAccessRequestsTable)
-      .set({ status: "annulee", paymentStatus: "annule", decidedAt: new Date() })
-      .where(
-        and(
-          eq(novaluthAccessRequestsTable.id, requestId),
-          eq(novaluthAccessRequestsTable.atelierSlug, slug),
-          eq(novaluthAccessRequestsTable.status, "en_attente"),
-          eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
-        ),
-      )
-      .returning();
-    if (!updated) {
+    const cancelled = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(novaluthAccessRequestsTable)
+        .set({ status: "annulee", paymentStatus: "annule", decidedAt: new Date() })
+        .where(
+          and(
+            eq(novaluthAccessRequestsTable.id, requestId),
+            eq(novaluthAccessRequestsTable.atelierSlug, slug),
+            eq(novaluthAccessRequestsTable.status, "en_attente"),
+            eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
+          ),
+        )
+        .returning();
+      if (!updated) return null;
+
+      const [project] = await tx
+        .select()
+        .from(novaluthProjectsTable)
+        .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+      if (project) {
+        await notifyProjectEmail(
+          project,
+          "request_cancelled",
+          { plan: updated.plan },
+          tx,
+          `request_cancelled:${updated.id}`,
+        );
+      }
+      return updated;
+    });
+    if (!cancelled) {
       res.status(400).json({ error: "Cette demande ne peut plus être annulée." });
       return;
     }
-    const [project] = await db
-      .select()
-      .from(novaluthProjectsTable)
-      .where(eq(novaluthProjectsTable.reference, updated.projectReference));
-    if (project) {
-      await notifyProjectEmail(project, "request_cancelled", {
-        plan: updated.plan,
-      });
-    }
-    res.json(CancelAtelierAccessRequestResponse.parse(await requestForDisplay(updated)));
+    res.json(CancelAtelierAccessRequestResponse.parse(await requestForDisplay(cancelled)));
   } catch (error) {
     next(error);
   }
@@ -1120,42 +1204,50 @@ router.post("/ateliers/:slug/carnets/:requestId/relance", async (req, res, next)
       return;
     }
     const now = new Date();
-    const [updated] = await db
-      .update(novaluthAccessRequestsTable)
-      .set({
-        followupCredits: sql`${novaluthAccessRequestsTable.followupCredits} - 1`,
-        lastFollowupAt: now,
-      })
-      .where(
-        and(
-          eq(novaluthAccessRequestsTable.id, requestId),
-          eq(novaluthAccessRequestsTable.atelierSlug, slug),
-          eq(novaluthAccessRequestsTable.status, "acceptee"),
-          eq(novaluthAccessRequestsTable.paymentStatus, "encaisse"),
-          gt(novaluthAccessRequestsTable.followupCredits, 0),
-          gt(novaluthAccessRequestsTable.accessEndsAt, now),
-        ),
-      )
-      .returning();
-    if (!updated) {
+    const followedUp = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(novaluthAccessRequestsTable)
+        .set({
+          followupCredits: sql`${novaluthAccessRequestsTable.followupCredits} - 1`,
+          lastFollowupAt: now,
+        })
+        .where(
+          and(
+            eq(novaluthAccessRequestsTable.id, requestId),
+            eq(novaluthAccessRequestsTable.atelierSlug, slug),
+            eq(novaluthAccessRequestsTable.status, "acceptee"),
+            eq(novaluthAccessRequestsTable.paymentStatus, "encaisse"),
+            gt(novaluthAccessRequestsTable.followupCredits, 0),
+            gt(novaluthAccessRequestsTable.accessEndsAt, now),
+          ),
+        )
+        .returning();
+      if (!updated) return null;
+
+      await tx
+        .update(novaluthProjectsTable)
+        .set({ lastActivityAt: now, status: "actif" })
+        .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+      const [project] = await tx
+        .select()
+        .from(novaluthProjectsTable)
+        .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+      if (project) {
+        await notifyProjectEmail(
+          project,
+          "followup",
+          { plan: updated.plan, accessEndsAt: updated.accessEndsAt },
+          tx,
+          `followup:${updated.id}:${updated.lastFollowupAt?.toISOString() ?? now.toISOString()}`,
+        );
+      }
+      return updated;
+    });
+    if (!followedUp) {
       res.status(400).json({ error: "Aucun crédit de relance disponible pour ce carnet actif." });
       return;
     }
-    await db
-      .update(novaluthProjectsTable)
-      .set({ lastActivityAt: now, status: "actif" })
-      .where(eq(novaluthProjectsTable.reference, updated.projectReference));
-    const [project] = await db
-      .select()
-      .from(novaluthProjectsTable)
-      .where(eq(novaluthProjectsTable.reference, updated.projectReference));
-    if (project) {
-      await notifyProjectEmail(project, "followup", {
-        plan: updated.plan,
-        accessEndsAt: updated.accessEndsAt,
-      });
-    }
-    res.json(UseAtelierFollowupCreditResponse.parse(await requestForDisplay(updated, true)));
+    res.json(UseAtelierFollowupCreditResponse.parse(await requestForDisplay(followedUp, true)));
   } catch (error) {
     next(error);
   }

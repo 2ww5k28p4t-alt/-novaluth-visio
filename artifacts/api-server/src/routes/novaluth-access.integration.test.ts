@@ -8,12 +8,17 @@ import {
   db,
   novaluthAccessRequestsTable,
   novaluthBriefsTable,
+  novaluthEmailOutboxTable,
   novaluthProfilesTable,
   novaluthProjectsTable,
   pool,
 } from "@workspace/db";
 import { novaluthSeed } from "../data/novaluth-seed";
 import app from "../app";
+import {
+  enqueueNovaLuthEmail,
+  processNovaLuthEmailOutbox,
+} from "../lib/novaluth-email-outbox";
 
 type JsonResponse = {
   response: Response;
@@ -35,6 +40,7 @@ const deliveredEmails: Array<{
   html?: string;
   tags?: Array<{ name: string; value: string }>;
 }> = [];
+let resendMode: "success" | "temporary" | "permanent" = "success";
 const nativeFetch = globalThis.fetch;
 const originalEmailConfig = {
   apiKey: process.env.RESEND_API_KEY,
@@ -83,7 +89,9 @@ async function api(path: string, init: RequestInit = {}): Promise<JsonResponse> 
       ...(init.headers ?? {}),
     },
   });
-  return { response, body: (await response.json()) as Record<string, unknown> };
+  const body = (await response.json()) as Record<string, unknown>;
+  await processNovaLuthEmailOutbox(100);
+  return { response, body };
 }
 
 async function createAtelier() {
@@ -157,11 +165,18 @@ async function requestAccess(
 }
 
 before(async () => {
+  await db.delete(novaluthEmailOutboxTable);
   process.env.RESEND_API_KEY = "re_test_transactional_email";
   process.env.NOVALUTH_EMAIL_FROM = "NovaLuth <notifications@example.test>";
   process.env.NOVALUTH_PUBLIC_URL = "https://novaluth.example.test";
   globalThis.fetch = async (input, init) => {
     if (String(input) === "https://api.resend.com/emails") {
+      if (resendMode === "temporary") {
+        return new Response(JSON.stringify({ error: "temporary failure" }), { status: 503 });
+      }
+      if (resendMode === "permanent") {
+        return new Response(JSON.stringify({ error: "invalid recipient" }), { status: 400 });
+      }
       deliveredEmails.push(JSON.parse(String(init?.body)) as { tags?: Array<{ name: string; value: string }> });
       return new Response(JSON.stringify({ id: "email_test_123" }), {
         status: 200,
@@ -194,6 +209,7 @@ after(async () => {
   if (atelierSlugs.length) {
     await db.delete(novaluthProfilesTable).where(inArray(novaluthProfilesTable.slug, atelierSlugs));
   }
+  await db.delete(novaluthEmailOutboxTable);
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   await pool.end();
 });
@@ -410,4 +426,58 @@ test("NovaLuth blocks early sharing and early capture across the access lifecycl
   ]) {
     assert.ok(events.has(event), `Expected "${event}" email to be sent.`);
   }
+});
+
+test("NovaLuth email outbox deduplicates and dead-letters repeated provider failures", async () => {
+  const dedupeKey = `outbox-test:${suffix}`;
+  const details = {
+    event: "portal_created" as const,
+    reference: `OUTBOX-${suffix}`,
+    portalUrl: "https://novaluth.example.test/projets/test",
+  };
+  const first = await enqueueNovaLuthEmail(
+    db,
+    `outbox-${suffix}@example.test`,
+    details,
+    dedupeKey,
+  );
+  const duplicate = await enqueueNovaLuthEmail(
+    db,
+    `outbox-${suffix}@example.test`,
+    details,
+    dedupeKey,
+  );
+  assert.equal(first.queued, true);
+  assert.equal(first.deduplicated, false);
+  assert.equal(duplicate.queued, true);
+  assert.equal(duplicate.deduplicated, true);
+
+  resendMode = "temporary";
+  await processNovaLuthEmailOutbox();
+  let [row] = await db
+    .select()
+    .from(novaluthEmailOutboxTable)
+    .where(eq(novaluthEmailOutboxTable.dedupeKey, dedupeKey));
+  assert.equal(row.status, "failed");
+  assert.equal(row.attempts, 1);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await db
+      .update(novaluthEmailOutboxTable)
+      .set({ availableAt: new Date(0) })
+      .where(eq(novaluthEmailOutboxTable.dedupeKey, dedupeKey));
+    await processNovaLuthEmailOutbox();
+  }
+  [row] = await db
+    .select()
+    .from(novaluthEmailOutboxTable)
+    .where(eq(novaluthEmailOutboxTable.dedupeKey, dedupeKey));
+  assert.equal(row.status, "dead");
+  assert.equal(row.attempts, 5);
+  assert.equal(row.lastStatusCode, 503);
+
+  resendMode = "success";
+  await db
+    .delete(novaluthEmailOutboxTable)
+    .where(eq(novaluthEmailOutboxTable.dedupeKey, dedupeKey));
 });
