@@ -61,6 +61,13 @@ import {
   type DirectorySort,
 } from "../lib/novaluth-facets";
 import { availableSoundColours, compareSound, soundFromLegacy } from "../lib/novaluth-sound";
+import {
+  getNovaLuthPublicUrl,
+  isNovaLuthEmailConfigured,
+  sendNovaLuthEmail,
+  type NovaLuthEmailEvent,
+} from "../lib/novaluth-email";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -302,6 +309,45 @@ function requireAdminToken(token: string | undefined) {
   return token === expected;
 }
 
+function portalPath(reference: string, musicianToken: string) {
+  return `/projets/${reference}/portail/${musicianToken}`;
+}
+
+function portalUrl(path: string) {
+  const publicUrl = getNovaLuthPublicUrl();
+  return publicUrl ? `${publicUrl}${path}` : null;
+}
+
+async function notifyProjectEmail(
+  project: Pick<NovaluthProject, "email" | "reference" | "musicianToken">,
+  event: NovaLuthEmailEvent,
+  details: { atelierName?: string; plan?: string; accessEndsAt?: Date | null } = {},
+) {
+  const privatePortalUrl = portalUrl(portalPath(project.reference, project.musicianToken));
+  if (!privatePortalUrl) {
+    logger.warn(
+      { event, reference: project.reference },
+      "NovaLuth email not sent: NOVALUTH_PUBLIC_URL must be a valid HTTPS URL",
+    );
+    return { sent: false as const, reason: "not_configured" as const };
+  }
+
+  try {
+    return await sendNovaLuthEmail(project.email, {
+      event,
+      reference: project.reference,
+      portalUrl: privatePortalUrl,
+      ...details,
+    });
+  } catch (error) {
+    logger.error(
+      { err: error, event, reference: project.reference },
+      "NovaLuth email delivery failed",
+    );
+    return { sent: false as const, reason: "delivery_failed" as const };
+  }
+}
+
 function projectForAtelier(project: NovaluthProject, includeDescription = false) {
   const criteria = project.criteria as Brief;
   return {
@@ -391,6 +437,15 @@ async function runMaintenance() {
       .update(novaluthAccessRequestsTable)
       .set({ status: "annulee", paymentStatus: "annule", decidedAt: now })
       .where(eq(novaluthAccessRequestsTable.id, request.id));
+    const [project] = await db
+      .select()
+      .from(novaluthProjectsTable)
+      .where(eq(novaluthProjectsTable.reference, request.projectReference));
+    if (project) {
+      await notifyProjectEmail(project, "request_cancelled", {
+        plan: request.plan,
+      });
+    }
     annulations += 1;
   }
 
@@ -408,6 +463,16 @@ async function runMaintenance() {
       .update(novaluthAccessRequestsTable)
       .set({ status: "expiree" })
       .where(eq(novaluthAccessRequestsTable.id, request.id));
+    const [project] = await db
+      .select()
+      .from(novaluthProjectsTable)
+      .where(eq(novaluthProjectsTable.reference, request.projectReference));
+    if (project) {
+      await notifyProjectEmail(project, "request_expired", {
+        plan: request.plan,
+        accessEndsAt: request.accessEndsAt,
+      });
+    }
     expirations += 1;
   }
 
@@ -421,6 +486,15 @@ async function runMaintenance() {
         .update(novaluthAccessRequestsTable)
         .set({ reminderSentAt: now })
         .where(eq(novaluthAccessRequestsTable.id, request.id));
+      const [project] = await db
+        .select()
+        .from(novaluthProjectsTable)
+        .where(eq(novaluthProjectsTable.reference, request.projectReference));
+      if (project) {
+        await notifyProjectEmail(project, "pending_reminder", {
+          plan: request.plan,
+        });
+      }
       relances += 1;
     }
   }
@@ -435,6 +509,16 @@ async function runMaintenance() {
         .update(novaluthAccessRequestsTable)
         .set({ reminderSentAt: now })
         .where(eq(novaluthAccessRequestsTable.id, request.id));
+      const [project] = await db
+        .select()
+        .from(novaluthProjectsTable)
+        .where(eq(novaluthProjectsTable.reference, request.projectReference));
+      if (project) {
+        await notifyProjectEmail(project, "access_expiring_soon", {
+          plan: request.plan,
+          accessEndsAt: request.accessEndsAt,
+        });
+      }
       relances += 1;
     }
   }
@@ -608,12 +692,24 @@ router.post("/briefs", async (req, res, next) => {
         recommendedAteliers: resultats.map((result) => result.slug),
       });
     }
+    const emailDelivery =
+      musicianToken && saved.email
+        ? await notifyProjectEmail(
+            {
+              reference: saved.reference,
+              musicianToken,
+              email: saved.email,
+            },
+            "portal_created",
+          )
+        : { sent: false as const, reason: "no_recipient" as const };
     res.status(201).json(
       CreateBriefResponse.parse({
         reference: saved.reference,
         portail_musicien: musicianToken
           ? `/projets/${saved.reference}/portail/${musicianToken}`
           : null,
+        courriel_envoye: emailDelivery.sent,
         recommandations: resultats,
       }),
     );
@@ -712,7 +808,9 @@ router.get("/projets/:reference/portail/:token", async (req, res, next) => {
       ...projectForAtelier(project, true),
       statut: project.status,
       courriel_confirmation: project.email
-        ? "Une confirmation de suivi est prête pour votre adresse renseignée."
+        ? isNovaLuthEmailConfigured()
+          ? "Les notifications de suivi sont envoyées à votre adresse renseignée."
+          : "Votre adresse de suivi est enregistrée ; l’envoi des notifications est en cours de configuration."
         : "Conservez ce lien personnel pour suivre votre projet.",
       demandes: await Promise.all(requests.map((request) => requestForDisplay(request, true))),
     };
@@ -780,6 +878,14 @@ router.post("/projets/:reference/portail/:token/demandes/:requestId/decision", a
       .set({ lastActivityAt: now, status: "actif" })
       .where(eq(novaluthProjectsTable.reference, reference));
     req.log.info({ requestId, decision }, "NovaLuth access request decided");
+    await notifyProjectEmail(
+      project,
+      accepted ? "decision_accepted" : "decision_refused",
+      {
+        plan: request.plan,
+        accessEndsAt: updated.accessEndsAt,
+      },
+    );
     res.json(DecideMusicianAccessRequestResponse.parse(await requestForDisplay(updated, true)));
   } catch (error) {
     next(error);
@@ -947,7 +1053,18 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
       .set({ lastActivityAt: new Date() })
       .where(eq(novaluthProjectsTable.reference, request.projectReference));
     req.log.info({ requestId: request.id, atelier: slug, plan: input.offre }, "NovaLuth payment preauthorized");
-    res.status(201).json(CreateAtelierAccessRequestResponse.parse(await requestForDisplay(request)));
+    const displayedRequest = await requestForDisplay(request);
+    const [project] = await db
+      .select()
+      .from(novaluthProjectsTable)
+      .where(eq(novaluthProjectsTable.reference, request.projectReference));
+    if (project) {
+      await notifyProjectEmail(project, "access_request", {
+        atelierName: displayedRequest.atelier_nom,
+        plan: request.plan,
+      });
+    }
+    res.status(201).json(CreateAtelierAccessRequestResponse.parse(displayedRequest));
   } catch (error) {
     next(error);
   }
@@ -977,6 +1094,15 @@ router.post("/ateliers/:slug/demandes/:requestId/annulation", async (req, res, n
     if (!updated) {
       res.status(400).json({ error: "Cette demande ne peut plus être annulée." });
       return;
+    }
+    const [project] = await db
+      .select()
+      .from(novaluthProjectsTable)
+      .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+    if (project) {
+      await notifyProjectEmail(project, "request_cancelled", {
+        plan: updated.plan,
+      });
     }
     res.json(CancelAtelierAccessRequestResponse.parse(await requestForDisplay(updated)));
   } catch (error) {
@@ -1019,6 +1145,16 @@ router.post("/ateliers/:slug/carnets/:requestId/relance", async (req, res, next)
       .update(novaluthProjectsTable)
       .set({ lastActivityAt: now, status: "actif" })
       .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+    const [project] = await db
+      .select()
+      .from(novaluthProjectsTable)
+      .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+    if (project) {
+      await notifyProjectEmail(project, "followup", {
+        plan: updated.plan,
+        accessEndsAt: updated.accessEndsAt,
+      });
+    }
     res.json(UseAtelierFollowupCreditResponse.parse(await requestForDisplay(updated, true)));
   } catch (error) {
     next(error);

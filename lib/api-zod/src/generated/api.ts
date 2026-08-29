@@ -489,6 +489,7 @@ export const CreateBriefBody = zod.object({
 export const CreateBriefResponse = zod.object({
   "reference": zod.string(),
   "portail_musicien": zod.string().nullable(),
+  "courriel_envoye": zod.boolean().describe('Indicates whether the private portal email was accepted by the transactional email provider.'),
   "recommandations": zod.array(zod.object({
   "slug": zod.string(),
   "nom": zod.string(),

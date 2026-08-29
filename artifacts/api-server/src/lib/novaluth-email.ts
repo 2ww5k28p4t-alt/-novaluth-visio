@@ -1,0 +1,216 @@
+import { logger } from "./logger";
+
+export type NovaLuthEmailEvent =
+  | "portal_created"
+  | "access_request"
+  | "decision_accepted"
+  | "decision_refused"
+  | "request_cancelled"
+  | "request_expired"
+  | "pending_reminder"
+  | "access_expiring_soon"
+  | "followup";
+
+type EmailDetails = {
+  event: NovaLuthEmailEvent;
+  reference: string;
+  portalUrl: string;
+  atelierName?: string;
+  plan?: string;
+  accessEndsAt?: Date | null;
+};
+
+export type EmailDeliveryResult =
+  | { sent: true }
+  | { sent: false; reason: "not_configured" | "no_recipient" };
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function formatDate(value: Date | null | undefined) {
+  return value
+    ? new Intl.DateTimeFormat("fr-FR", {
+        dateStyle: "long",
+        timeZone: "Europe/Paris",
+      }).format(value)
+    : "prochainement";
+}
+
+function contentFor(details: EmailDetails) {
+  const atelier = details.atelierName ?? "un atelier partenaire";
+  const plan = details.plan ? ` Offre ${details.plan}.` : "";
+  const date = formatDate(details.accessEndsAt);
+
+  switch (details.event) {
+    case "portal_created":
+      return {
+        subject: `Votre portail privé NovaLuth · ${details.reference}`,
+        title: "Votre projet est enregistré",
+        intro:
+          "Vous avez autorisé NovaLuth à conserver votre brief et à vous transmettre les propositions compatibles.",
+        body: `Votre portail privé est prêt. Vous pourrez y consulter les demandes des artisans et décider librement de chaque mise en relation.`,
+      };
+    case "access_request":
+      return {
+        subject: `Nouvelle proposition pour votre projet · ${details.reference}`,
+        title: "Une proposition vous attend",
+        intro: `${atelier} souhaite entrer en relation avec vous.${plan}`,
+        body:
+          "Ouvrez votre portail privé pour consulter la proposition et l’accepter ou la refuser. Aucun débit n’est effectué avant votre acceptation.",
+      };
+    case "decision_accepted":
+      return {
+        subject: `Mise en relation acceptée · ${details.reference}`,
+        title: "Mise en relation acceptée",
+        intro: `Vous avez accepté la proposition de ${atelier}.${plan}`,
+        body:
+          "L’artisan peut maintenant accéder aux informations nécessaires et prendre contact avec vous.",
+      };
+    case "decision_refused":
+      return {
+        subject: `Décision enregistrée · ${details.reference}`,
+        title: "Proposition déclinée",
+        intro: `Votre refus de la proposition de ${atelier} a bien été enregistré.${plan}`,
+        body: "Aucun débit ne sera effectué pour cette demande.",
+      };
+    case "request_cancelled":
+      return {
+        subject: `Proposition annulée · ${details.reference}`,
+        title: "Proposition annulée",
+        intro: `La proposition de ${atelier} n’est plus active.${plan}`,
+        body:
+          "Vous n’avez aucune action à effectuer. Votre portail reste disponible pour les autres propositions.",
+      };
+    case "request_expired":
+      return {
+        subject: `Accès arrivé à échéance · ${details.reference}`,
+        title: "Une mise en relation est arrivée à échéance",
+        intro: `La période d’accès de ${atelier} est terminée le ${date}.`,
+        body:
+          "Votre portail reste disponible pour consulter l’historique et les prochaines propositions.",
+      };
+    case "pending_reminder":
+      return {
+        subject: `Rappel : une proposition attend votre réponse · ${details.reference}`,
+        title: "Votre réponse est attendue",
+        intro: `La proposition de ${atelier} est toujours en attente.${plan}`,
+        body:
+          "Connectez-vous à votre portail privé pour accepter ou décliner cette demande avant son annulation automatique.",
+      };
+    case "access_expiring_soon":
+      return {
+        subject: `Rappel : votre accès arrive bientôt à échéance · ${details.reference}`,
+        title: "Votre mise en relation arrive bientôt à échéance",
+        intro: `L’accès accordé à ${atelier} se termine le ${date}.`,
+        body:
+          "Vous pouvez continuer vos échanges pendant cette période. Votre portail restera ensuite disponible pour l’historique.",
+      };
+    case "followup":
+      return {
+        subject: `Relance envoyée à votre artisan · ${details.reference}`,
+        title: "Une relance a été envoyée",
+        intro: `${atelier} vient d’utiliser un crédit de relance pour votre projet.${plan}`,
+        body:
+          "Vous n’avez rien à faire. Ce message vous informe simplement qu’une nouvelle relance a été enregistrée dans votre suivi.",
+      };
+  }
+}
+
+export function getNovaLuthPublicUrl() {
+  const rawUrl = process.env.NOVALUTH_PUBLIC_URL;
+  if (!rawUrl) return null;
+
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" || !url.hostname) return null;
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function isNovaLuthEmailConfigured() {
+  return Boolean(
+    process.env.RESEND_API_KEY &&
+      process.env.NOVALUTH_EMAIL_FROM &&
+      getNovaLuthPublicUrl(),
+  );
+}
+
+export async function sendNovaLuthEmail(
+  recipient: string | null | undefined,
+  details: EmailDetails,
+): Promise<EmailDeliveryResult> {
+  if (!recipient) {
+    return { sent: false, reason: "no_recipient" };
+  }
+
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.NOVALUTH_EMAIL_FROM;
+  if (!apiKey || !from) {
+    logger.warn(
+      { event: details.event, reference: details.reference },
+      "NovaLuth email not sent: Resend is not configured",
+    );
+    return { sent: false, reason: "not_configured" };
+  }
+
+  const content = contentFor(details);
+  const safePortalUrl = escapeHtml(details.portalUrl);
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#202124;max-width:620px">
+      <p style="color:#6d4c41;font-weight:700;letter-spacing:.08em;text-transform:uppercase">NovaLuth</p>
+      <h1 style="font-size:26px;font-weight:500">${escapeHtml(content.title)}</h1>
+      <p>${escapeHtml(content.intro)}</p>
+      <p>${escapeHtml(content.body)}</p>
+      <p style="margin:28px 0">
+        <a href="${safePortalUrl}" style="display:inline-block;background:#6d4c41;color:#fff;padding:12px 20px;text-decoration:none">
+          Ouvrir mon portail privé
+        </a>
+      </p>
+      <p style="font-size:12px;color:#6b7280">Référence : ${escapeHtml(details.reference)}</p>
+    </div>
+  `;
+  const text = [
+    "NovaLuth",
+    "",
+    content.title,
+    content.intro,
+    content.body,
+    "",
+    `Ouvrir votre portail privé : ${details.portalUrl}`,
+    `Référence : ${details.reference}`,
+  ].join("\n");
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [recipient],
+      subject: content.subject,
+      html,
+      text,
+      tags: [{ name: "novaluth_event", value: details.event }],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Resend rejected the email with status ${response.status}.`);
+  }
+
+  logger.info(
+    { event: details.event, reference: details.reference },
+    "NovaLuth email sent",
+  );
+  return { sent: true };
+}

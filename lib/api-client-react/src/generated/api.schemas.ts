@@ -413,6 +413,8 @@ export interface BriefReceipt {
   reference: string;
   /** @nullable */
   portail_musicien: string | null;
+  /** Indicates whether the private portal email was accepted by the transactional email provider. */
+  courriel_envoye: boolean;
   recommandations: Recommendation[];
 }
 

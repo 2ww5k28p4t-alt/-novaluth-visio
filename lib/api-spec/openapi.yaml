@@ -805,10 +805,13 @@ components:
         avertissement: { type: string }
     BriefReceipt:
       type: object
-      required: [reference, portail_musicien, recommandations]
+      required: [reference, portail_musicien, courriel_envoye, recommandations]
       properties:
         reference: { type: string }
         portail_musicien: { type: ["string", "null"] }
+        courriel_envoye:
+          type: boolean
+          description: Indicates whether the private portal email was accepted by the transactional email provider.
         recommandations:
           type: array
           items: { $ref: "#/components/schemas/Recommendation" }
@@ -1000,4 +1003,3 @@ components:
         relances: { type: number }
         projets_sommeil: { type: number }
         execute_le: { type: string }
-

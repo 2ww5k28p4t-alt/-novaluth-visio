@@ -30,6 +30,17 @@ let server: Server;
 let origin = "";
 const references: string[] = [];
 const atelierSlugs: string[] = [];
+const deliveredEmails: Array<{
+  to?: string[];
+  html?: string;
+  tags?: Array<{ name: string; value: string }>;
+}> = [];
+const nativeFetch = globalThis.fetch;
+const originalEmailConfig = {
+  apiKey: process.env.RESEND_API_KEY,
+  from: process.env.NOVALUTH_EMAIL_FROM,
+  publicUrl: process.env.NOVALUTH_PUBLIC_URL,
+};
 
 const suffix = randomUUID().slice(0, 8);
 
@@ -115,6 +126,7 @@ async function createProject(description: string): Promise<Project> {
     body: JSON.stringify(brief(true, description)),
   });
   assert.equal(created.response.status, 201);
+  assert.equal(created.body.courriel_envoye, true);
   const portal = String(created.body.portail_musicien);
   assert.notEqual(portal, "null");
   const [, , reference, , token] = new URL(portal, origin).pathname.split("/");
@@ -145,6 +157,19 @@ async function requestAccess(
 }
 
 before(async () => {
+  process.env.RESEND_API_KEY = "re_test_transactional_email";
+  process.env.NOVALUTH_EMAIL_FROM = "NovaLuth <notifications@example.test>";
+  process.env.NOVALUTH_PUBLIC_URL = "https://novaluth.example.test";
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === "https://api.resend.com/emails") {
+      deliveredEmails.push(JSON.parse(String(init?.body)) as { tags?: Array<{ name: string; value: string }> });
+      return new Response(JSON.stringify({ id: "email_test_123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return nativeFetch(input, init);
+  };
   server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
@@ -152,6 +177,13 @@ before(async () => {
 });
 
 after(async () => {
+  globalThis.fetch = nativeFetch;
+  if (originalEmailConfig.apiKey === undefined) delete process.env.RESEND_API_KEY;
+  else process.env.RESEND_API_KEY = originalEmailConfig.apiKey;
+  if (originalEmailConfig.from === undefined) delete process.env.NOVALUTH_EMAIL_FROM;
+  else process.env.NOVALUTH_EMAIL_FROM = originalEmailConfig.from;
+  if (originalEmailConfig.publicUrl === undefined) delete process.env.NOVALUTH_PUBLIC_URL;
+  else process.env.NOVALUTH_PUBLIC_URL = originalEmailConfig.publicUrl;
   if (references.length) {
     await db
       .delete(novaluthAccessRequestsTable)
@@ -173,6 +205,7 @@ test("NovaLuth blocks early sharing and early capture across the access lifecycl
   });
   assert.equal(withoutConsent.response.status, 201);
   assert.equal(withoutConsent.body.portail_musicien, null);
+  assert.equal(withoutConsent.body.courriel_envoye, false);
   const noConsentReference = String(withoutConsent.body.reference);
   references.push(noConsentReference);
   const [storedBrief] = await db
@@ -203,6 +236,23 @@ test("NovaLuth blocks early sharing and early capture across the access lifecycl
   assert.equal(pending.body.statut, "en_attente");
   assert.equal(pending.body.statut_paiement, "preautorise");
   const pendingId = Number(pending.body.id);
+  const portalEmail = deliveredEmails.find((email) =>
+    email.tags?.some(
+      (tag) => tag.name === "novaluth_event" && tag.value === "portal_created",
+    ),
+  );
+  assert.deepEqual(portalEmail?.to, [`musicien-${suffix}@example.test`]);
+  assert.match(
+    portalEmail?.html ?? "",
+    new RegExp(
+      `https://novaluth\\.example\\.test/projets/${cancellationProject.reference}/portail/${cancellationProject.token}`,
+    ),
+  );
+
+  await db
+    .update(novaluthAccessRequestsTable)
+    .set({ requestedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000) })
+    .where(eq(novaluthAccessRequestsTable.id, pendingId));
 
   const pendingDashboard = await api(`/ateliers/${atelier.slug}/tableau-de-bord`, {
     headers: { "X-NovaLuth-Atelier-Session": atelier.session },
@@ -253,6 +303,14 @@ test("NovaLuth blocks early sharing and early capture across the access lifecycl
     (request) => request.id === acceptedId,
   );
   assert.equal((acceptedPass?.projet as Record<string, unknown>).description, acceptedProject.description);
+
+  await db
+    .update(novaluthAccessRequestsTable)
+    .set({ accessEndsAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
+    .where(eq(novaluthAccessRequestsTable.id, acceptedId));
+  await api(`/ateliers/${atelier.slug}/tableau-de-bord`, {
+    headers: { "X-NovaLuth-Atelier-Session": atelier.session },
+  });
 
   const followups = await Promise.all(
     Array.from({ length: 4 }, () =>
@@ -331,4 +389,25 @@ test("NovaLuth blocks early sharing and early capture across the access lifecycl
   assert.equal(released.response.status, 200);
   const replacement = await requestAccess(limitAtelier, blockedProject);
   assert.equal(replacement.response.status, 201);
+
+  const events = new Set(
+    deliveredEmails.flatMap((email) =>
+      email.tags
+        ?.filter((tag) => tag.name === "novaluth_event")
+        .map((tag) => tag.value) ?? [],
+    ),
+  );
+  for (const event of [
+    "portal_created",
+    "access_request",
+    "decision_accepted",
+    "decision_refused",
+    "request_cancelled",
+    "request_expired",
+    "pending_reminder",
+    "access_expiring_soon",
+    "followup",
+  ]) {
+    assert.ok(events.has(event), `Expected "${event}" email to be sent.`);
+  }
 });

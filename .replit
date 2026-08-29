@@ -21,3 +21,9 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+NOVALUTH_EMAIL_FROM = "contact@novaluth.com"
+NOVALUTH_PUBLIC_URL = "https://novaluth.replit.app/"

@@ -68,12 +68,13 @@ export default function Brief() {
     // Cast empty email to undefined
     if (data.email === "") data.email = undefined;
     
-    if (data.consentement_transmission || data.email) {
+    if (data.consentement_transmission) {
       createBrief.mutate({ data }, {
         onSuccess: (res) => {
           setReceipt({
             reference: res.reference,
             portail_musicien: res.portail_musicien,
+            courriel_envoye: res.courriel_envoye,
             recommandations: res.recommandations,
             isSaved: true
           });
@@ -109,9 +110,13 @@ export default function Brief() {
             </p>
             {receipt.portail_musicien && (
               <div className="mt-6 inline-block bg-primary/10 border border-primary/20 rounded-md p-4 max-w-lg mx-auto text-left">
-                <p className="text-sm text-primary mb-2 font-medium">Conservez ce lien précieux :</p>
+                <p className="text-sm text-primary mb-2 font-medium">
+                  {receipt.courriel_envoye ? "Lien privé envoyé par e-mail :" : "Conservez ce lien privé :"}
+                </p>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Ce lien vous donne accès à votre portail personnel. Il vous permettra de suivre et d'accepter les propositions des artisans.
+                  {receipt.courriel_envoye
+                    ? "Nous venons aussi de vous l’envoyer. Il vous permet de suivre votre projet et de répondre aux propositions des artisans."
+                    : "L’e-mail de confirmation n’a pas pu être envoyé pour le moment. Copiez ce lien : il vous permet de suivre votre projet et de répondre aux propositions des artisans."}
                 </p>
                 <div className="flex items-center justify-between bg-background border border-border p-2 rounded">
                   <code className="text-xs text-foreground truncate block w-full">{window.location.origin}{receipt.portail_musicien}</code>
@@ -550,10 +555,13 @@ export default function Brief() {
                     name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Email (Optionnel)</FormLabel>
+                        <FormLabel>Email pour le suivi privé</FormLabel>
                         <FormControl>
-                          <Input type="email" placeholder="pour recevoir une copie" className="rounded-none bg-background" {...field} value={field.value || ''} />
+                          <Input type="email" placeholder="vous@exemple.fr" className="rounded-none bg-background" {...field} value={field.value || ''} />
                         </FormControl>
+                        <FormDescription>
+                          Requis si vous choisissez de sauvegarder votre projet et de recevoir votre lien privé.
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -597,7 +605,7 @@ export default function Brief() {
                               Sauvegarder ce projet
                             </FormLabel>
                             <FormDescription>
-                              Enregistrer pour obtenir un numéro de référence. Si vous ne cochez pas, seul un test sera effectué.
+                              Enregistrer le brief, recevoir votre lien privé par e-mail et être averti des propositions, décisions, annulations et relances. Sans consentement, seul un test local est effectué.
                             </FormDescription>
                           </div>
                         </FormItem>
