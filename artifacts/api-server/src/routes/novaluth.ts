@@ -71,6 +71,11 @@ import {
   getNovaLuthEmailOutboxSummary,
   type NovaLuthDbExecutor,
 } from "../lib/novaluth-email-outbox";
+import {
+  novaLuthTelegramTestMessage,
+  NovaLuthTelegramError,
+  sendNovaLuthTelegramMessage,
+} from "../lib/novaluth-telegram";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -626,6 +631,17 @@ router.get("/fiches", async (req, res, next) => {
     });
     res.json(ListFichesResponse.parse(sortDirectory(filtered, (parsed.tri ?? "equitable") as DirectorySort)));
   } catch (error) {
+    if (error instanceof NovaLuthTelegramError) {
+      res
+        .status(error.statusCode && error.statusCode >= 400 ? error.statusCode : 502)
+        .json(
+          error.telegramResponse ?? {
+            ok: false,
+            description: error.message,
+          },
+        );
+      return;
+    }
     next(error);
   }
 });
@@ -1260,6 +1276,22 @@ router.post("/admin/acces/entretien", async (req, res, next) => {
       return;
     }
     res.json(RunAccessMaintenanceResponse.parse(await runMaintenance()));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/admin/telegram/test", async (req, res, next) => {
+  try {
+    if (!requireAdminToken(req.header("X-Admin-Token") ?? undefined)) {
+      res.status(401).json({ error: "Jeton d’administration invalide." });
+      return;
+    }
+
+    const telegramResponse = await sendNovaLuthTelegramMessage(
+      novaLuthTelegramTestMessage,
+    );
+    res.json(telegramResponse);
   } catch (error) {
     next(error);
   }
