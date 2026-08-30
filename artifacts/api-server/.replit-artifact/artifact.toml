@@ -27,6 +27,8 @@ args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
+NOVALUTH_MAINTENANCE_ENABLED = "true"
+NOVALUTH_MAINTENANCE_INTERVAL_MS = "900000"
 
 [services.production.health.startup]
 path = "/api/healthz"

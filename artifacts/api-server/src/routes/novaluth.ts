@@ -94,6 +94,7 @@ const accessPlans = {
   signature: { amountCents: 2499, followupCredits: 3 },
 } as const;
 const activeRequestStatuses = ["en_attente", "acceptee"] as const;
+const DEFAULT_MAINTENANCE_INTERVAL_MS = 15 * 60 * 1000;
 
 type Fiche = ReturnType<typeof GetFicheResponse.parse>;
 type Brief = {
@@ -424,7 +425,7 @@ async function requireAtelierSession(slug: string, token: string | undefined) {
   return session;
 }
 
-async function runMaintenance() {
+export async function runMaintenance(trigger: "request" | "scheduled" = "request") {
   const now = new Date();
   const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
   const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
@@ -590,7 +591,57 @@ async function runMaintenance() {
     }
   }
 
-  return { annulations, expirations, relances, projets_sommeil: projetsSommeil, execute_le: now.toISOString() };
+  const result = {
+    annulations,
+    expirations,
+    relances,
+    projets_sommeil: projetsSommeil,
+    execute_le: now.toISOString(),
+  };
+  logger.info({ trigger, ...result }, "NovaLuth access maintenance completed");
+  return result;
+}
+
+export function startNovaLuthMaintenanceScheduler() {
+  if (process.env.NOVALUTH_MAINTENANCE_ENABLED === "false") {
+    logger.info("NovaLuth scheduled maintenance disabled");
+    return () => undefined;
+  }
+
+  const configuredInterval = Number(
+    process.env.NOVALUTH_MAINTENANCE_INTERVAL_MS ?? DEFAULT_MAINTENANCE_INTERVAL_MS,
+  );
+  const intervalMs =
+    Number.isFinite(configuredInterval) && configuredInterval > 0
+      ? configuredInterval
+      : DEFAULT_MAINTENANCE_INTERVAL_MS;
+  let running = true;
+  let inFlight: Promise<void> | undefined;
+
+  const tick = async () => {
+    if (!running || inFlight) return;
+    inFlight = runMaintenance("scheduled")
+      .then(() => undefined)
+      .catch((error) => {
+        logger.error({ err: error }, "NovaLuth scheduled maintenance failed");
+      })
+      .finally(() => {
+        inFlight = undefined;
+      });
+    await inFlight;
+  };
+
+  const timer = setInterval(() => {
+    void tick();
+  }, intervalMs);
+  timer.unref();
+  void tick();
+
+  logger.info({ intervalMs }, "NovaLuth scheduled maintenance started");
+  return () => {
+    running = false;
+    clearInterval(timer);
+  };
 }
 
 router.get("/fiches", async (req, res, next) => {
