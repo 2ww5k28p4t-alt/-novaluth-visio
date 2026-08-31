@@ -30,12 +30,30 @@ try {
     process.env.SN13_API_KEY = apiKey;
     const status = process.env.SN13_DIAGNOSTIC_TEST_STATUS ?? "erreur";
     const calledAt = Number(process.env.SN13_DIAGNOSTIC_TEST_CALLED_AT);
+    const callCountValue = Number(process.env.SN13_DIAGNOSTIC_TEST_CALLS);
+    const callCount =
+      Number.isFinite(callCountValue) && callCountValue > 0
+        ? Math.floor(callCountValue)
+        : 1;
+    const betweenCallsDelayValue = Number(
+      process.env.SN13_DIAGNOSTIC_TEST_BETWEEN_CALLS_DELAY_MS,
+    );
+    const betweenCallsDelay =
+      Number.isFinite(betweenCallsDelayValue) && betweenCallsDelayValue > 0
+        ? betweenCallsDelayValue
+        : 0;
+    let callIndex = 0;
     if (Number.isFinite(calledAt)) {
       setSn13ClockForTests(() => calledAt);
     }
     setSn13ClientFactoryForTests(() => ({
       onDemandData: async () => ({
-        status: status === "incomplet" ? "success" : status === "erreur" ? "error" : "success",
+        status:
+          status === "incomplet"
+            ? "success"
+            : status === "erreur"
+              ? "error"
+              : "success",
         data:
           status === "incomplet"
             ? (undefined as never)
@@ -43,7 +61,7 @@ try {
               ? []
               : [{ request_id: requestId }],
         meta: {
-          request_id: requestId,
+          request_id: callCount > 1 ? `${requestId}-${callIndex++}` : requestId,
           detail: `upstream failed for request=${requestId} with api_key=${apiKey}`,
           authorization: `Bearer ${apiKey}`,
         },
@@ -53,7 +71,12 @@ try {
     if (Number.isFinite(delayMs) && delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
-    await requestDataUniverse(request);
+    for (let callIndex = 0; callIndex < callCount; callIndex += 1) {
+      await requestDataUniverse(request);
+      if (callIndex < callCount - 1 && betweenCallsDelay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, betweenCallsDelay));
+      }
+    }
   } else if (mode !== "read") {
     throw new Error(`Mode de processus SN13 inconnu: ${mode}`);
   }

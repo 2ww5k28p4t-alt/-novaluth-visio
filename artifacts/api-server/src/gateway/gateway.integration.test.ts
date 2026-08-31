@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHmac, randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { like } from "drizzle-orm";
-import { db, novaluthEmailOutboxTable } from "@workspace/db";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { eq, like } from "drizzle-orm";
+import { db, novaluthEmailOutboxTable, novaluthSn13DiagnosticsTable } from "@workspace/db";
 import app from "../app";
 import { anonymize } from "./anonymize";
 import { logger } from "../lib/logger";
@@ -23,6 +26,12 @@ let robotsOrigin = "";
 let reservationServer: Server;
 let reservationOrigin = "";
 let previousNodeEnv: string | undefined;
+const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+const sn13ProcessRunner = path.join(
+  workspaceRoot,
+  "artifacts/api-server/src/routes/sn13-diagnostic-process.integration.ts",
+);
+const tsxBinary = path.join(workspaceRoot, "scripts/node_modules/.bin/tsx");
 
 function originFor(server: Server) {
   const address = server.address() as AddressInfo;
@@ -32,6 +41,53 @@ function originFor(server: Server) {
 function close(server: Server) {
   return new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+type Sn13ProcessOptions = {
+  status?: "erreur" | "incomplet" | "vide" | "succes";
+  calledAt?: number;
+  calls?: number;
+  betweenCallsDelayMs?: number;
+};
+
+function runSn13Process(
+  requestId: string,
+  secret: string,
+  options: Sn13ProcessOptions = {},
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(tsxBinary, [sn13ProcessRunner, "write"], {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        SN13_DIAGNOSTIC_TEST_REQUEST_ID: requestId,
+        SN13_DIAGNOSTIC_TEST_SECRET: secret,
+        SN13_DIAGNOSTIC_TEST_STATUS: options.status ?? "erreur",
+        SN13_DIAGNOSTIC_TEST_CALLED_AT: options.calledAt?.toString() ?? "",
+        SN13_DIAGNOSTIC_TEST_CALLS: options.calls?.toString() ?? "",
+        SN13_DIAGNOSTIC_TEST_BETWEEN_CALLS_DELAY_MS:
+          options.betweenCallsDelayMs?.toString() ?? "",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    let errorOutput = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      errorOutput += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Le processus SN13 a échoué (${code}). ${errorOutput.slice(0, 500)}`));
+        return;
+      }
+      resolve();
+    });
   });
 }
 
@@ -201,8 +257,10 @@ test("refuses robots and TDM-reserved pages through the signed gateway route", a
 
 test("notifies the team once when SN13 crosses the incomplete-response threshold", async () => {
   const previousAlertEmail = process.env.NOVALUTH_ALERT_EMAIL;
+  const previousSn13AlertEmail = process.env.NOVALUTH_SN13_ALERT_EMAIL;
   const dedupePattern = "sn13:degradation:%";
   await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
   process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
   setSn13ClientFactoryForTests(() => ({
     onDemandData: async () => ({
@@ -251,6 +309,61 @@ test("notifies the team once when SN13 crosses the incomplete-response threshold
     setSn13ClientFactoryForTests(null);
     if (previousAlertEmail === undefined) delete process.env.NOVALUTH_ALERT_EMAIL;
     else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
+    if (previousSn13AlertEmail === undefined) delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
+  }
+});
+
+test("crée une seule alerte SN13 quand deux processus franchissent le seuil simultanément", async () => {
+  const previousAlertEmail = process.env.NOVALUTH_ALERT_EMAIL;
+  const previousSn13AlertEmail = process.env.NOVALUTH_SN13_ALERT_EMAIL;
+  const dedupePattern = "sn13:degradation:%";
+  const episodeStartedAt = Date.now();
+  const firstRequestId = `sn13-concurrent-alert-first-${randomUUID()}`;
+  const secondRequestId = `sn13-concurrent-alert-second-${randomUUID()}`;
+  const firstSecret = `sn13-concurrent-alert-first-secret-${randomUUID()}`;
+  const secondSecret = `sn13-concurrent-alert-second-secret-${randomUUID()}`;
+
+  await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  await db
+    .delete(novaluthSn13DiagnosticsTable)
+    .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+  delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+  process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
+
+  try {
+    await Promise.all([
+      runSn13Process(firstRequestId, firstSecret, {
+        status: "incomplet",
+        calledAt: episodeStartedAt,
+        calls: 2,
+        betweenCallsDelayMs: 100,
+      }),
+      runSn13Process(secondRequestId, secondSecret, {
+        status: "incomplet",
+        calledAt: episodeStartedAt,
+        calls: 2,
+        betweenCallsDelayMs: 100,
+      }),
+    ]);
+
+    const alerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0]?.dedupeKey, `sn13:degradation:${episodeStartedAt}`);
+    assert.equal(alerts[0]?.recipient, "equipe@example.test");
+    assert.equal(alerts[0]?.event, "sn13_degradation");
+  } finally {
+    await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await db
+      .delete(novaluthSn13DiagnosticsTable)
+      .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+    if (previousAlertEmail === undefined) delete process.env.NOVALUTH_ALERT_EMAIL;
+    else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
+    if (previousSn13AlertEmail === undefined) delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
   }
 });
 
