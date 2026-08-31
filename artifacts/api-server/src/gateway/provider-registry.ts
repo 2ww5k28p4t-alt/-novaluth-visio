@@ -76,6 +76,7 @@ export type DataUniverseRequestResult = {
 };
 
 type Sn13ClientFactory = (apiKey: string) => Pick<Sn13Client, "onDemandData">;
+type Sn13Purge = (now: number) => Promise<number>;
 
 const defaultSn13ClientFactory: Sn13ClientFactory = (apiKey) =>
   new Sn13Client({ apiKey });
@@ -231,15 +232,30 @@ async function persistedRecentSn13Stats(
   };
 }
 
-export async function purgeExpiredSn13CallEvents(
-  now = Date.now(),
-): Promise<number> {
+const defaultSn13Purge: Sn13Purge = async (now) => {
   const cutoffDate = new Date(now - sn13RecentWindowMs);
   const deleted = await db
     .delete(novaluthSn13CallEventsTable)
     .where(sql`${novaluthSn13CallEventsTable.calledAt} < ${cutoffDate}`)
     .returning({ id: novaluthSn13CallEventsTable.id });
   return deleted.length;
+};
+
+let sn13Purge = defaultSn13Purge;
+
+export async function purgeExpiredSn13CallEvents(
+  now = Date.now(),
+): Promise<number> {
+  return sn13Purge(now);
+}
+
+export function setSn13PurgeForTests(purge: Sn13Purge | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      "La purge SN13 ne peut être remplacée qu’en environnement de test.",
+    );
+  }
+  sn13Purge = purge ?? defaultSn13Purge;
 }
 
 async function updateSn13PurgeAlertState(

@@ -6,7 +6,7 @@ import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 import {
   db,
   novaluthAccessRequestsTable,
@@ -14,6 +14,7 @@ import {
   novaluthEmailOutboxTable,
   novaluthProfilesTable,
   novaluthProjectsTable,
+  novaluthSn13AlertStateTable,
   novaluthSn13CallEventsTable,
   novaluthSn13DiagnosticsTable,
   pool,
@@ -25,6 +26,7 @@ import {
   enqueueNovaLuthEmail,
   processNovaLuthEmailOutbox,
 } from "../lib/novaluth-email-outbox";
+import { setSn13PurgeForTests } from "../gateway/provider-registry";
 
 type JsonResponse = {
   response: Response;
@@ -609,6 +611,216 @@ test("purge les événements SN13 expirés lors de l’entretien sans nouvelle c
           recent.id,
         ]),
       );
+  }
+});
+
+test("maintient les accès et alerte une seule fois pendant une panne de purge SN13", async () => {
+  const previousAlertEmail = process.env.NOVALUTH_ALERT_EMAIL;
+  const previousSn13AlertEmail = process.env.NOVALUTH_SN13_ALERT_EMAIL;
+  const purgeAlertPattern = "sn13:purge-failure:%";
+  const now = Date.now();
+  const maintenanceNow = new Date(now);
+  const eventDate = new Date(now - 24 * 60 * 60 * 1_000 - 1);
+  let expiredEventId: number | undefined;
+
+  await db
+    .delete(novaluthEmailOutboxTable)
+    .where(like(novaluthEmailOutboxTable.dedupeKey, purgeAlertPattern));
+  await db
+    .delete(novaluthSn13AlertStateTable)
+    .where(eq(novaluthSn13AlertStateTable.key, "purge"));
+
+  async function prepareRequest(
+    description: string,
+    offer: "essentiel" | "atelier" | "signature" = "essentiel",
+  ) {
+    const atelier = await createAtelier();
+    const project = await createProject(description);
+    await makeProjectAvailable(project, atelier.slug);
+    const requested = await requestAccess(atelier, project, offer);
+    assert.equal(requested.response.status, 201);
+    return { atelier, project, requestId: Number(requested.body.id) };
+  }
+
+  process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
+  delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+
+  try {
+    const cancellation = await prepareRequest(
+      `Panne purge annulation ${suffix}`,
+    );
+    await db
+      .update(novaluthAccessRequestsTable)
+      .set({
+        requestedAt: new Date(now - 6 * 24 * 60 * 60 * 1_000),
+      })
+      .where(eq(novaluthAccessRequestsTable.id, cancellation.requestId));
+
+    const expiration = await prepareRequest(
+      `Panne purge expiration ${suffix}`,
+      "atelier",
+    );
+    const expirationDecision = await api(
+      `/projets/${expiration.project.reference}/portail/${expiration.project.token}/demandes/${expiration.requestId}/decision`,
+      { method: "POST", body: JSON.stringify({ decision: "accepter" }) },
+    );
+    assert.equal(expirationDecision.response.status, 200);
+    await db
+      .update(novaluthAccessRequestsTable)
+      .set({ accessEndsAt: new Date(now - 1_000) })
+      .where(eq(novaluthAccessRequestsTable.id, expiration.requestId));
+
+    const pendingReminder = await prepareRequest(
+      `Panne purge rappel attente ${suffix}`,
+    );
+    await db
+      .update(novaluthAccessRequestsTable)
+      .set({
+        requestedAt: new Date(now - 4 * 24 * 60 * 60 * 1_000),
+      })
+      .where(eq(novaluthAccessRequestsTable.id, pendingReminder.requestId));
+
+    const expiringReminder = await prepareRequest(
+      `Panne purge rappel expiration ${suffix}`,
+      "signature",
+    );
+    const expiringDecision = await api(
+      `/projets/${expiringReminder.project.reference}/portail/${expiringReminder.project.token}/demandes/${expiringReminder.requestId}/decision`,
+      { method: "POST", body: JSON.stringify({ decision: "accepter" }) },
+    );
+    assert.equal(expiringDecision.response.status, 200);
+    await db
+      .update(novaluthAccessRequestsTable)
+      .set({ accessEndsAt: new Date(now + 24 * 60 * 60 * 1_000) })
+      .where(eq(novaluthAccessRequestsTable.id, expiringReminder.requestId));
+
+    const [expiredEvent] = await db
+      .insert(novaluthSn13CallEventsTable)
+      .values({ status: "erreur", calledAt: eventDate })
+      .returning({ id: novaluthSn13CallEventsTable.id });
+    expiredEventId = expiredEvent.id;
+
+    setSn13PurgeForTests(async () => {
+      throw new Error("SN13 purge unavailable in integration test");
+    });
+
+    const failed = await runMaintenance("scheduled", maintenanceNow);
+    assert.deepEqual(failed.sn13_purge, {
+      statut: "erreur",
+      evenements_supprimes: 0,
+      retabli: false,
+    });
+
+    const [cancelled, expired, pending, expiring] = await Promise.all(
+      [
+        cancellation.requestId,
+        expiration.requestId,
+        pendingReminder.requestId,
+        expiringReminder.requestId,
+      ].map(async (id) => {
+        const [request] = await db
+          .select()
+          .from(novaluthAccessRequestsTable)
+          .where(eq(novaluthAccessRequestsTable.id, id));
+        return request;
+      }),
+    );
+    assert.equal(cancelled?.status, "annulee");
+    assert.equal(cancelled?.paymentStatus, "annule");
+    assert.equal(expired?.status, "expiree");
+    assert.equal(expired?.paymentStatus, "encaisse");
+    assert.equal(pending?.status, "en_attente");
+    assert.equal(expiring?.status, "acceptee");
+
+    let purgeAlerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, purgeAlertPattern));
+    assert.equal(purgeAlerts.length, 1);
+    assert.equal(purgeAlerts[0]?.event, "sn13_purge_failure");
+    assert.equal(purgeAlerts[0]?.recipient, "equipe@example.test");
+
+    const maintenanceEvents = await db
+      .select({ event: novaluthEmailOutboxTable.event })
+      .from(novaluthEmailOutboxTable)
+      .where(
+        inArray(novaluthEmailOutboxTable.event, [
+          "request_cancelled",
+          "request_expired",
+          "pending_reminder",
+          "access_expiring_soon",
+        ]),
+      );
+    assert.deepEqual(
+      new Set(maintenanceEvents.map(({ event }) => event)),
+      new Set([
+        "request_cancelled",
+        "request_expired",
+        "pending_reminder",
+        "access_expiring_soon",
+      ]),
+    );
+
+    const repeatedFailure = await runMaintenance(
+      "scheduled",
+      new Date(now + 60 * 60 * 1_000),
+    );
+    assert.equal(repeatedFailure.sn13_purge.statut, "erreur");
+    purgeAlerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, purgeAlertPattern));
+    assert.equal(purgeAlerts.length, 1);
+
+    setSn13PurgeForTests(null);
+    const recovered = await runMaintenance(
+      "scheduled",
+      new Date(now + 2 * 60 * 60 * 1_000),
+    );
+    assert.deepEqual(recovered.sn13_purge, {
+      statut: "succes",
+      evenements_supprimes: 1,
+      retabli: true,
+    });
+    const [remainingExpiredEvent] = await db
+      .select({ id: novaluthSn13CallEventsTable.id })
+      .from(novaluthSn13CallEventsTable)
+      .where(eq(novaluthSn13CallEventsTable.id, expiredEventId));
+    assert.equal(remainingExpiredEvent, undefined);
+
+    setSn13PurgeForTests(async () => {
+      throw new Error("SN13 purge unavailable in next integration cycle");
+    });
+    const nextFailure = await runMaintenance(
+      "scheduled",
+      new Date(now + 3 * 60 * 60 * 1_000),
+    );
+    assert.equal(nextFailure.sn13_purge.statut, "erreur");
+    purgeAlerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, purgeAlertPattern));
+    assert.equal(purgeAlerts.length, 2);
+    assert.notEqual(purgeAlerts[0]?.dedupeKey, purgeAlerts[1]?.dedupeKey);
+  } finally {
+    setSn13PurgeForTests(null);
+    await db
+      .delete(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, purgeAlertPattern));
+    await db
+      .delete(novaluthSn13AlertStateTable)
+      .where(eq(novaluthSn13AlertStateTable.key, "purge"));
+    if (expiredEventId !== undefined) {
+      await db
+        .delete(novaluthSn13CallEventsTable)
+        .where(eq(novaluthSn13CallEventsTable.id, expiredEventId));
+    }
+    if (previousAlertEmail === undefined)
+      delete process.env.NOVALUTH_ALERT_EMAIL;
+    else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
+    if (previousSn13AlertEmail === undefined)
+      delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
   }
 });
 
