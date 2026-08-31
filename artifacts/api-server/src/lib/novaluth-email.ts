@@ -9,7 +9,18 @@ export type NovaLuthEmailEvent =
   | "request_expired"
   | "pending_reminder"
   | "access_expiring_soon"
-  | "followup";
+  | "followup"
+  | "sn13_degradation";
+
+export type Sn13AlertDetails = {
+  provider: string;
+  windowHours: number;
+  total: number;
+  success: number;
+  empty: number;
+  incomplete: number;
+  error: number;
+};
 
 export type EmailDetails = {
   event: NovaLuthEmailEvent;
@@ -18,6 +29,7 @@ export type EmailDetails = {
   atelierName?: string;
   plan?: string;
   accessEndsAt?: Date | null;
+  sn13?: Sn13AlertDetails;
 };
 
 export type EmailDeliveryResult =
@@ -54,6 +66,22 @@ function formatDate(value: Date | null | undefined) {
 }
 
 function contentFor(details: EmailDetails) {
+  if (details.event === "sn13_degradation") {
+    const alert = details.sn13;
+    if (!alert) {
+      throw new Error("Les détails de l’alerte SN13 sont requis.");
+    }
+    return {
+      subject: `Alerte SN13 · ${alert.provider}`,
+      title: "Collecte SN13 à surveiller",
+      intro: `Fournisseur : ${alert.provider}`,
+      body: [
+        `Fenêtre : ${alert.windowHours} heures.`,
+        `Compteurs : total ${alert.total}, succès ${alert.success}, vides ${alert.empty}, incomplètes ${alert.incomplete}, erreurs ${alert.error}.`,
+      ].join(" "),
+    };
+  }
+
   const atelier = details.atelierName ?? "un atelier partenaire";
   const plan = details.plan ? ` Offre ${details.plan}.` : "";
   const date = formatDate(details.accessEndsAt);
@@ -177,24 +205,31 @@ export async function sendNovaLuthEmail(
       <h1 style="font-size:26px;font-weight:500">${escapeHtml(content.title)}</h1>
       <p>${escapeHtml(content.intro)}</p>
       <p>${escapeHtml(content.body)}</p>
-      <p style="margin:28px 0">
+      ${
+        details.event === "sn13_degradation"
+          ? ""
+          : `<p style="margin:28px 0">
         <a href="${safePortalUrl}" style="display:inline-block;background:#6d4c41;color:#fff;padding:12px 20px;text-decoration:none">
           Ouvrir mon portail privé
         </a>
       </p>
-      <p style="font-size:12px;color:#6b7280">Référence : ${escapeHtml(details.reference)}</p>
+      <p style="font-size:12px;color:#6b7280">Référence : ${escapeHtml(details.reference)}</p>`
+      }
     </div>
   `;
-  const text = [
-    "NovaLuth",
-    "",
-    content.title,
-    content.intro,
-    content.body,
-    "",
-    `Ouvrir votre portail privé : ${details.portalUrl}`,
-    `Référence : ${details.reference}`,
-  ].join("\n");
+  const text =
+    details.event === "sn13_degradation"
+      ? ["NovaLuth", "", content.title, content.intro, content.body].join("\n")
+      : [
+          "NovaLuth",
+          "",
+          content.title,
+          content.intro,
+          content.body,
+          "",
+          `Ouvrir votre portail privé : ${details.portalUrl}`,
+          `Référence : ${details.reference}`,
+        ].join("\n");
 
   let response: Response;
   try {

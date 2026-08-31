@@ -38,7 +38,7 @@ export const novaluthSn13DiagnosticsTable = pgTable(
   (table) => [
     check(
       "novaluth_sn13_diagnostics_status_check",
-      sql`${table.status} in ('succes', 'vide', 'erreur')`,
+      sql`${table.status} in ('succes', 'vide', 'incomplet', 'erreur')`,
     ),
     check(
       "novaluth_sn13_diagnostics_request_id_length_check",

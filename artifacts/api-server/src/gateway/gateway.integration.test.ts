@@ -3,10 +3,13 @@ import { createHmac, randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
+import { like } from "drizzle-orm";
+import { db, novaluthEmailOutboxTable } from "@workspace/db";
 import app from "../app";
 import { anonymize } from "./anonymize";
 import { logger } from "../lib/logger";
 import {
+  requestDataUniverse,
   activeProviders,
   setSn13ClientFactoryForTests,
   type DataUniverseRequest,
@@ -193,6 +196,61 @@ test("refuses robots and TDM-reserved pages through the signed gateway route", a
   } finally {
     if (previousSecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousSecret;
+  }
+});
+
+test("notifies the team once when SN13 crosses the incomplete-response threshold", async () => {
+  const previousAlertEmail = process.env.NOVALUTH_ALERT_EMAIL;
+  const dedupePattern = "sn13:degradation:%";
+  await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
+  setSn13ClientFactoryForTests(() => ({
+    onDemandData: async () => ({
+      status: "success",
+      data: "not-a-publication-array" as unknown as [],
+      meta: { request_id: "sn13-alert-test-request" },
+    }),
+  }));
+
+  try {
+    const request = {
+      source: "X" as const,
+      usernames: [],
+      keywords: ["lutherie"],
+      startDate: "2026-03-01",
+      endDate: "2026-08-31",
+      limit: 100,
+      keywordMode: "any" as const,
+    };
+
+    await requestDataUniverse(request);
+    let alerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(alerts.length, 0);
+
+    await requestDataUniverse(request);
+    alerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0]?.recipient, "equipe@example.test");
+    assert.equal(alerts[0]?.event, "sn13_degradation");
+    assert.doesNotMatch(JSON.stringify(alerts[0]?.payload), /request|publication-array|secret|api[_-]?key/i);
+
+    await requestDataUniverse(request);
+    alerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(alerts.length, 1);
+  } finally {
+    await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    setSn13ClientFactoryForTests(null);
+    if (previousAlertEmail === undefined) delete process.env.NOVALUTH_ALERT_EMAIL;
+    else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
   }
 });
 

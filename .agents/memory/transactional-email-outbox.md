@@ -7,4 +7,4 @@ Any business mutation that triggers an email must enqueue the notification in th
 
 **Why:** Sending directly after a mutation can lose the notification between the commit and the provider call; a process crash after provider acceptance can also create a duplicate unless the provider receives the same idempotency key.
 
-**How to apply:** Keep deduplication keys event-specific, retain failed/dead messages with bounded retry metadata, and expose queue state to administrators without exposing recipient content or provider credentials.
+**How to apply:** Keep deduplication keys event-specific, retain failed/dead messages with bounded retry metadata, and expose queue state to administrators without exposing recipient content or provider credentials. Operational alerts should enqueue alongside the diagnostic transaction and carry only aggregate, non-sensitive counters.

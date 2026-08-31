@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { Sn13Client, type OnDemandDataResponse } from "macrocosmos";
 import { db, novaluthSn13DiagnosticsTable } from "@workspace/db";
+import { enqueueNovaLuthEmail } from "../lib/novaluth-email-outbox";
 
 export type ProviderNeed = "inference" | "recherche" | "lecture" | "collecte";
 
@@ -91,9 +92,11 @@ const sn13RecentHistory: Array<{
   statut: Exclude<Sn13CollectionStatus, "jamais">;
 }> = [];
 let lastSn13CallState: Sn13CallState = initialSn13CallState;
+let sn13AlertEpisodeStartedAt: number | null = null;
 
 const SN13_DIAGNOSTIC_KEY = "latest";
 const MAX_SN13_ERROR_BODY_LENGTH = 4_000;
+const SN13_ALERT_DEDUPE_PREFIX = "sn13:degradation";
 function textValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -178,36 +181,72 @@ async function rememberSn13Call(
   corpsErreur: string | null,
 ) {
   const calledAt = Date.now();
+  const previousStats = recentSn13Stats(calledAt);
   sn13RecentHistory.push({ at: calledAt, statut });
+  const recentStats = recentSn13Stats(calledAt);
+  const crossedAlertThreshold = !previousStats.alerte && recentStats.alerte;
+  const alertEpisodeStartedAt = crossedAlertThreshold
+    ? calledAt
+    : recentStats.alerte
+      ? sn13AlertEpisodeStartedAt
+      : null;
   const state: Sn13CallState = {
     statut,
     requete_id: requeteId,
     corps_erreur: corpsErreur,
     appele_le: new Date(calledAt).toISOString(),
     nombre,
-    recents: recentSn13Stats(calledAt),
+    recents: recentStats,
   };
   const calledAtDate = new Date(calledAt);
-  await db
-    .insert(novaluthSn13DiagnosticsTable)
-    .values({
-      key: SN13_DIAGNOSTIC_KEY,
-      status: state.statut,
-      requestId: state.requete_id,
-      errorBody: state.corps_erreur,
-      calledAt: calledAtDate,
-      resultCount: state.nombre,
-    })
-    .onConflictDoUpdate({
-      target: novaluthSn13DiagnosticsTable.key,
-      set: {
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(novaluthSn13DiagnosticsTable)
+      .values({
+        key: SN13_DIAGNOSTIC_KEY,
         status: state.statut,
         requestId: state.requete_id,
         errorBody: state.corps_erreur,
         calledAt: calledAtDate,
         resultCount: state.nombre,
-      },
+      })
+      .onConflictDoUpdate({
+        target: novaluthSn13DiagnosticsTable.key,
+        set: {
+          status: state.statut,
+          requestId: state.requete_id,
+          errorBody: state.corps_erreur,
+          calledAt: calledAtDate,
+          resultCount: state.nombre,
+        },
+      });
+
+    const recipient =
+      process.env.NOVALUTH_SN13_ALERT_EMAIL?.trim() ||
+      process.env.NOVALUTH_ALERT_EMAIL?.trim();
+    if (crossedAlertThreshold && recipient && alertEpisodeStartedAt !== null) {
+      await enqueueNovaLuthEmail(
+        tx,
+        recipient,
+        {
+          event: "sn13_degradation",
+          reference: "SN13",
+          portalUrl: "",
+          sn13: {
+            provider: "Data Universe",
+            windowHours: recentStats.fenetre_heures,
+            total: recentStats.total,
+            success: recentStats.succes,
+            empty: recentStats.vide,
+            incomplete: recentStats.incomplet,
+            error: recentStats.erreur,
+          },
+        },
+        `${SN13_ALERT_DEDUPE_PREFIX}:${alertEpisodeStartedAt}`,
+      );
+    }
     });
+  sn13AlertEpisodeStartedAt = alertEpisodeStartedAt;
   lastSn13CallState = state;
 }
 
