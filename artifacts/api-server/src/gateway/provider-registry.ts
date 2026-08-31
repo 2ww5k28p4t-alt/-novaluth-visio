@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { Sn13Client, type OnDemandDataResponse } from "macrocosmos";
+import { db, novaluthSn13DiagnosticsTable } from "@workspace/db";
 
 export type ProviderNeed = "inference" | "recherche" | "lecture" | "collecte";
 
@@ -90,6 +92,8 @@ const sn13RecentHistory: Array<{
 }> = [];
 let lastSn13CallState: Sn13CallState = initialSn13CallState;
 
+const SN13_DIAGNOSTIC_KEY = "latest";
+const MAX_SN13_ERROR_BODY_LENGTH = 4_000;
 function textValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -127,7 +131,7 @@ function sanitizedErrorBody(value: unknown, apiKey: string): string {
       /(["']?(?:api[_-]?key|authorization|token|secret)["']?\s*[:=]\s*["']?)[^"',}\s]+/gi,
       "$1[REDACTED]",
     )
-    .slice(0, 4_000);
+    .slice(0, MAX_SN13_ERROR_BODY_LENGTH);
 }
 
 function errorBodyFromResponse(response: OnDemandDataResponse, apiKey: string): string {
@@ -167,7 +171,7 @@ function recentSn13Stats(now = Date.now()): Sn13RecentStats {
   };
 }
 
-function rememberSn13Call(
+async function rememberSn13Call(
   statut: Exclude<Sn13CollectionStatus, "jamais">,
   requeteId: string,
   nombre: number | null,
@@ -175,7 +179,7 @@ function rememberSn13Call(
 ) {
   const calledAt = Date.now();
   sn13RecentHistory.push({ at: calledAt, statut });
-  lastSn13CallState = {
+  const state: Sn13CallState = {
     statut,
     requete_id: requeteId,
     corps_erreur: corpsErreur,
@@ -183,10 +187,47 @@ function rememberSn13Call(
     nombre,
     recents: recentSn13Stats(calledAt),
   };
+  const calledAtDate = new Date(calledAt);
+  await db
+    .insert(novaluthSn13DiagnosticsTable)
+    .values({
+      key: SN13_DIAGNOSTIC_KEY,
+      status: state.statut,
+      requestId: state.requete_id,
+      errorBody: state.corps_erreur,
+      calledAt: calledAtDate,
+      resultCount: state.nombre,
+    })
+    .onConflictDoUpdate({
+      target: novaluthSn13DiagnosticsTable.key,
+      set: {
+        status: state.statut,
+        requestId: state.requete_id,
+        errorBody: state.corps_erreur,
+        calledAt: calledAtDate,
+        resultCount: state.nombre,
+      },
+    });
+  lastSn13CallState = state;
 }
 
-export function lastSn13Call(): Sn13CallState {
-  return { ...lastSn13CallState, recents: recentSn13Stats() };
+export async function lastSn13Call(): Promise<Sn13CallState> {
+  const [stored] = await db
+    .select()
+    .from(novaluthSn13DiagnosticsTable)
+    .where(eq(novaluthSn13DiagnosticsTable.key, SN13_DIAGNOSTIC_KEY))
+    .limit(1);
+  if (!stored) {
+    return { ...lastSn13CallState, recents: recentSn13Stats() };
+  }
+  return {
+    statut: stored.status as Sn13CollectionStatus,
+    requete_id: stored.requestId,
+    corps_erreur: stored.errorBody,
+    appele_le: stored.calledAt.toISOString(),
+    nombre: stored.resultCount,
+    recents: recentSn13Stats(),
+  };
 }
 
 export function setSn13ClientFactoryForTests(factory: Sn13ClientFactory | null): void {
@@ -212,7 +253,7 @@ export async function requestDataUniverse(
     const hasUsableData = Array.isArray(response.data);
     const nombre = isSuccess && hasUsableData ? response.data.length : null;
     const corpsErreur = isSuccess && hasUsableData ? null : errorBodyFromResponse(response, apiKey);
-    rememberSn13Call(
+    await rememberSn13Call(
       isSuccess
         ? hasUsableData
           ? nombre === 0
@@ -228,7 +269,7 @@ export async function requestDataUniverse(
   } catch (error) {
     const requeteId = requestIdFromValue((error as { metadata?: unknown })?.metadata) ?? fallbackRequestId;
     const corpsErreur = errorBodyFromThrown(error, apiKey);
-    rememberSn13Call("erreur", requeteId, null, corpsErreur);
+    await rememberSn13Call("erreur", requeteId, null, corpsErreur);
     throw Object.assign(error instanceof Error ? error : new Error(corpsErreur), {
       sn13RequestId: requeteId,
       sn13ErrorBody: corpsErreur,

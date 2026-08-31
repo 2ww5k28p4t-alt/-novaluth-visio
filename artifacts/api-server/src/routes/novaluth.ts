@@ -847,7 +847,7 @@ router.get("/admin/summary", async (req, res, next) => {
           .filter((row) => row.status !== "rejetee" && row.status !== "trop_etablie")
           .map((row) => getFiche(row.data)),
         passerelle: "moteur de correspondance local",
-        collecte_sn13: lastSn13Call(),
+        collecte_sn13: await lastSn13Call(),
         acces: {
           en_attente: accessRows.filter((request) => request.status === "en_attente").length,
           acceptees: accessRows.filter((request) => request.status === "acceptee").length,
