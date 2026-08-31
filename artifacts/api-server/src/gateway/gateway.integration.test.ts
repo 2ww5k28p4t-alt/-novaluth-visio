@@ -6,7 +6,11 @@ import { after, before, test } from "node:test";
 import app from "../app";
 import { anonymize } from "./anonymize";
 import { logger } from "../lib/logger";
-import { activeProviders, setSn13ClientFactoryForTests } from "./provider-registry";
+import {
+  activeProviders,
+  setSn13ClientFactoryForTests,
+  type DataUniverseRequest,
+} from "./provider-registry";
 import { assertPublicPageUrl, readPublicPage, robotsTextAllows } from "./page-harvester";
 
 let apiServer: Server;
@@ -200,19 +204,23 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
   const requestId = "sn13-request-test-123";
   const originalLoggerInfo = logger.info;
   const sn13Audits: Record<string, unknown>[] = [];
+  const capturedRequests: DataUniverseRequest[] = [];
 
   process.env.NOVALUTH_GATEWAY_SECRET = gatewaySecret;
   process.env.SN13_API_KEY = sn13Key;
   setSn13ClientFactoryForTests(() => ({
-    onDemandData: async () => ({
-      status: "error",
-      data: [],
-      meta: {
-        request_id: requestId,
-        detail: `upstream failed with api_key=${sn13Key}`,
-        authorization: `Bearer ${sn13Key}`,
-      },
-    }),
+    onDemandData: async (request) => {
+      capturedRequests.push(request as DataUniverseRequest);
+      return {
+        status: "error",
+        data: [],
+        meta: {
+          request_id: requestId,
+          detail: `upstream failed with api_key=${sn13Key}`,
+          authorization: `Bearer ${sn13Key}`,
+        },
+      };
+    },
   }));
   logger.info = ((details: unknown, message?: string) => {
     if (
@@ -243,8 +251,8 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
   const collect = async () => {
     const requestBody = JSON.stringify({
       source: "x",
-      usernames: [],
-      mots_cles: ["lutherie"],
+      usernames: ["atelier_un", "atelier_deux", "atelier_trois", "atelier_quatre", "atelier_cinq"],
+      mots_cles: ["lutherie", "luthier", "guitare artisanale", "handmade guitar", "custom guitar"],
       start_date: "2026-03-01",
       end_date: "2026-08-31",
       limite: 100,
@@ -297,6 +305,40 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
     assert.equal(afterSummary.collecte_sn13.requete_id, requestId);
     assert.match(afterSummary.collecte_sn13.corps_erreur ?? "", /\[REDACTED\]/);
     assert.doesNotMatch(afterSummary.collecte_sn13.corps_erreur ?? "", new RegExp(sn13Key));
+    assert.equal(capturedRequests.length, 2);
+    for (const request of capturedRequests) {
+      assert.deepEqual(Object.keys(request).sort(), [
+        "endDate",
+        "keywordMode",
+        "keywords",
+        "limit",
+        "source",
+        "startDate",
+        "usernames",
+      ]);
+      assert.equal(request.source, "X");
+      assert.deepEqual(request.keywords, [
+        "lutherie",
+        "luthier",
+        "guitare artisanale",
+        "handmade guitar",
+        "custom guitar",
+      ]);
+      assert.deepEqual(request.usernames, [
+        "atelier_un",
+        "atelier_deux",
+        "atelier_trois",
+        "atelier_quatre",
+        "atelier_cinq",
+      ]);
+      assert.equal(request.startDate, "2026-03-01");
+      assert.equal(request.endDate, "2026-08-31");
+      assert.equal(request.limit, 100);
+      assert.equal(request.keywordMode, "any");
+      assert.equal("start_date" in request, false);
+      assert.equal("end_date" in request, false);
+      assert.equal("keyword_mode" in request, false);
+    }
     assert.equal(sn13Audits.length, 1);
     assert.equal(sn13Audits[0]?.requete_id, requestId);
     assert.match(String(sn13Audits[0]?.erreur), /\[REDACTED\]/);
