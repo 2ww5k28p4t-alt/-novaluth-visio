@@ -62,13 +62,30 @@ type Sn13ProcessOptions = {
   betweenCallsDelayMs?: number;
 };
 
+type Sn13DiagnosticSnapshot = {
+  statut: string;
+  requete_id: string | null;
+  appele_le: string | null;
+  corps_erreur: string | null;
+  recents: {
+    fenetre_heures: number;
+    total: number;
+    succes: number;
+    vide: number;
+    incomplet: number;
+    erreur: number;
+    alerte: boolean;
+  };
+};
+
 function runSn13Process(
+  mode: "write" | "read",
   requestId: string,
   secret: string,
   options: Sn13ProcessOptions = {},
-): Promise<void> {
+): Promise<Sn13DiagnosticSnapshot | null> {
   return new Promise((resolve, reject) => {
-    const child = spawn(tsxBinary, [sn13ProcessRunner, "write"], {
+    const child = spawn(tsxBinary, [sn13ProcessRunner, mode], {
       cwd: workspaceRoot,
       env: {
         ...process.env,
@@ -97,7 +114,15 @@ function runSn13Process(
         reject(new Error(`Le processus SN13 a échoué (${code}). ${errorOutput.slice(0, 500)}`));
         return;
       }
-      resolve();
+      if (mode === "write") {
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(JSON.parse(output) as Sn13DiagnosticSnapshot);
+      } catch {
+        reject(new Error(`Réponse JSON invalide du processus SN13 ${mode}.`));
+      }
     });
   });
 }
@@ -348,13 +373,13 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
 
   try {
     await Promise.all([
-      runSn13Process(firstRequestId, firstSecret, {
+      runSn13Process("write", firstRequestId, firstSecret, {
         status: "incomplet",
         calledAt: episodeStartedAt,
         calls: 2,
         betweenCallsDelayMs: 100,
       }),
-      runSn13Process(secondRequestId, secondSecret, {
+      runSn13Process("write", secondRequestId, secondSecret, {
         status: "incomplet",
         calledAt: episodeStartedAt + 7,
         calls: 2,
@@ -374,6 +399,7 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
     const firstEpisodeKey = alerts[0]?.dedupeKey;
     const nextEpisodeStartedAt = episodeStartedAt + 24 * 60 * 60 * 1_000 + 1_000;
     await runSn13Process(
+      "write",
       `sn13-concurrent-alert-next-${randomUUID()}`,
       `sn13-concurrent-alert-next-secret-${randomUUID()}`,
       {
@@ -389,6 +415,56 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
     assert.equal(nextAlerts.length, 2);
     assert.notEqual(nextAlerts[0]?.dedupeKey, nextAlerts[1]?.dedupeKey);
     assert.ok(nextAlerts.some((alert) => alert.dedupeKey === firstEpisodeKey));
+  } finally {
+    await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await db.delete(novaluthSn13CallEventsTable);
+    await db.delete(novaluthSn13AlertStateTable);
+    await db
+      .delete(novaluthSn13DiagnosticsTable)
+      .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+    if (previousAlertEmail === undefined) delete process.env.NOVALUTH_ALERT_EMAIL;
+    else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
+    if (previousSn13AlertEmail === undefined) delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
+  }
+});
+
+test("récupère les compteurs SN13 persistés après un redémarrage", async () => {
+  const previousAlertEmail = process.env.NOVALUTH_ALERT_EMAIL;
+  const previousSn13AlertEmail = process.env.NOVALUTH_SN13_ALERT_EMAIL;
+  const dedupePattern = "sn13:degradation:%";
+  const calledAt = Date.now();
+  const requestId = `sn13-restart-diagnostics-${randomUUID()}`;
+  const secret = `sn13-restart-diagnostics-secret-${randomUUID()}`;
+
+  await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  await db
+    .delete(novaluthSn13DiagnosticsTable)
+    .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+  await db.delete(novaluthSn13CallEventsTable);
+  await db.delete(novaluthSn13AlertStateTable);
+  delete process.env.NOVALUTH_ALERT_EMAIL;
+  delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+
+  try {
+    await runSn13Process("write", requestId, secret, {
+      status: "incomplet",
+      calledAt,
+      calls: 2,
+    });
+
+    // The first process has exited; this second process simulates the server restart.
+    const restarted = await runSn13Process("read", requestId, secret);
+    assert.ok(restarted);
+    assert.equal(restarted.statut, "incomplet");
+    assert.equal(restarted.requete_id, `${requestId}-1`);
+    assert.equal(restarted.recents.fenetre_heures, 24);
+    assert.equal(restarted.recents.total, 2);
+    assert.equal(restarted.recents.succes, 0);
+    assert.equal(restarted.recents.vide, 0);
+    assert.equal(restarted.recents.incomplet, 2);
+    assert.equal(restarted.recents.erreur, 0);
+    assert.equal(restarted.recents.alerte, true);
   } finally {
     await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
     await db.delete(novaluthSn13CallEventsTable);
@@ -425,7 +501,7 @@ test("conserve une alerte SN13 après un redémarrage entre deux franchissements
   process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
 
   try {
-    await runSn13Process(firstRequestId, firstSecret, {
+    await runSn13Process("write", firstRequestId, firstSecret, {
       status: "incomplet",
       calledAt: episodeStartedAt,
       calls: 1,
@@ -438,7 +514,7 @@ test("conserve une alerte SN13 après un redémarrage entre deux franchissements
     assert.equal(alerts.length, 0);
 
     // The first process has exited; this second process simulates the server restart.
-    await runSn13Process(secondRequestId, secondSecret, {
+    await runSn13Process("write", secondRequestId, secondSecret, {
       status: "incomplet",
       calledAt: episodeStartedAt + 1,
       calls: 1,

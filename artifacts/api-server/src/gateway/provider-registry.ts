@@ -181,6 +181,36 @@ function recentSn13Stats(now = Date.now()): Sn13RecentStats {
   };
 }
 
+async function persistedRecentSn13Stats(now = Date.now()): Promise<Sn13RecentStats> {
+  const cutoffDate = new Date(now - sn13RecentWindowMs);
+  const recentResult = await db.execute(sql`
+    select
+      count(*)::int as total,
+      count(*) filter (where status = 'succes')::int as succes,
+      count(*) filter (where status = 'vide')::int as vide,
+      count(*) filter (where status = 'incomplet')::int as incomplet,
+      count(*) filter (where status = 'erreur')::int as erreur
+    from novaluth_sn13_call_events
+    where called_at >= ${cutoffDate}
+  `);
+  const recent = recentResult.rows[0] as {
+    total: number;
+    succes: number;
+    vide: number;
+    incomplet: number;
+    erreur: number;
+  };
+  return {
+    fenetre_heures: 24,
+    total: recent.total,
+    succes: recent.succes,
+    vide: recent.vide,
+    incomplet: recent.incomplet,
+    erreur: recent.erreur,
+    alerte: recent.incomplet >= sn13IncompleteAlertThreshold,
+  };
+}
+
 async function rememberSn13Call(
   statut: Exclude<Sn13CollectionStatus, "jamais">,
   requeteId: string,
@@ -340,13 +370,14 @@ async function rememberSn13Call(
 }
 
 export async function lastSn13Call(): Promise<Sn13CallState> {
+  const recents = await persistedRecentSn13Stats();
   const [stored] = await db
     .select()
     .from(novaluthSn13DiagnosticsTable)
     .where(eq(novaluthSn13DiagnosticsTable.key, SN13_DIAGNOSTIC_KEY))
     .limit(1);
   if (!stored) {
-    return { ...lastSn13CallState, recents: recentSn13Stats() };
+    return { ...lastSn13CallState, recents };
   }
   return {
     statut: stored.status as Sn13CollectionStatus,
@@ -354,7 +385,7 @@ export async function lastSn13Call(): Promise<Sn13CallState> {
     corps_erreur: stored.errorBody,
     appele_le: stored.calledAt.toISOString(),
     nombre: stored.resultCount,
-    recents: recentSn13Stats(),
+    recents,
   };
 }
 
