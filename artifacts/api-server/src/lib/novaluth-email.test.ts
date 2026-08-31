@@ -48,7 +48,33 @@ test("SN13 alert email contains only provider, window, and counters", async () =
   assert.equal(sentBody?.subject, "Alerte SN13 · Data Universe");
   assert.match(sentBody?.text ?? "", /Fournisseur : Data Universe/);
   assert.match(sentBody?.text ?? "", /Fenêtre : 24 heures/);
-  assert.match(sentBody?.text ?? "", /total 5, succès 1, vides 1, incomplètes 2, erreurs 1/);
-  assert.doesNotMatch(sentBody?.text ?? "", /SN13-REQUEST|api[_-]?key|secret|Bearer/i);
+  assert.match(
+    sentBody?.text ?? "",
+    /total 5, succès 1, vides 1, incomplètes 2, erreurs 1/,
+  );
+  assert.doesNotMatch(
+    sentBody?.text ?? "",
+    /SN13-REQUEST|api[_-]?key|secret|Bearer/i,
+  );
+  assert.doesNotMatch(sentBody?.html ?? "", /portail|Référence|https?:\/\//i);
+});
+
+test("SN13 purge failure email identifies the failed maintenance", async () => {
+  await sendNovaLuthEmail("equipe@example.test", {
+    event: "sn13_purge_failure",
+    reference: "SN13",
+    portalUrl: "",
+    sn13Purge: {
+      provider: "Data Universe",
+      windowHours: 24,
+    },
+  });
+
+  assert.equal(sentBody?.subject, "Échec de purge SN13 · Data Universe");
+  assert.match(sentBody?.text ?? "", /Purge SN13 en échec/);
+  assert.match(
+    sentBody?.text ?? "",
+    /La purge planifiée de l’historique SN13 a échoué/,
+  );
   assert.doesNotMatch(sentBody?.html ?? "", /portail|Référence|https?:\/\//i);
 });

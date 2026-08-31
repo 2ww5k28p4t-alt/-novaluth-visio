@@ -152,7 +152,8 @@ paths:
           required: false
           schema:
             type: string
-            enum: [publiee, candidate, a_verifier, a_suivre, trop_etablie, rejetee]
+            enum:
+              [publiee, candidate, a_verifier, a_suivre, trop_etablie, rejetee]
             default: publiee
       responses:
         "200":
@@ -521,7 +522,19 @@ components:
         - status
     Provider:
       type: object
-      required: [cle, nom, reseau, netuid, tarif, source, licence, reserve, configure, modeles]
+      required:
+        [
+          cle,
+          nom,
+          reseau,
+          netuid,
+          tarif,
+          source,
+          licence,
+          reserve,
+          configure,
+          modeles,
+        ]
       properties:
         cle: { type: string }
         nom: { type: string }
@@ -570,7 +583,15 @@ components:
           items: { type: string }
     GatewayHealth:
       type: object
-      required: [service, secret_interne, cles_presentes, chaines_actives, modeles_autorises, plafonds]
+      required:
+        [
+          service,
+          secret_interne,
+          cles_presentes,
+          chaines_actives,
+          modeles_autorises,
+          plafonds,
+        ]
       properties:
         service: { type: string }
         secret_interne: { type: boolean }
@@ -587,7 +608,13 @@ components:
           items: { type: string }
         plafonds:
           type: object
-          required: [ia_par_jour, collecte_par_jour, recherches_par_jour, pages_par_jour]
+          required:
+            [
+              ia_par_jour,
+              collecte_par_jour,
+              recherches_par_jour,
+              pages_par_jour,
+            ]
           properties:
             ia_par_jour: { type: number }
             collecte_par_jour: { type: number }
@@ -684,7 +711,21 @@ components:
         genere_le: { type: ["string", "null"] }
     Fiche:
       type: object
-      required: [slug, nom, type, modeles, profil_sonore, logistique, innovation, ia, statut, demonstration, facons_travail, provenance_facons]
+      required:
+        [
+          slug,
+          nom,
+          type,
+          modeles,
+          profil_sonore,
+          logistique,
+          innovation,
+          ia,
+          statut,
+          demonstration,
+          facons_travail,
+          provenance_facons,
+        ]
       properties:
         slug: { type: string }
         nom: { type: string }
@@ -717,7 +758,8 @@ components:
           $ref: "#/components/schemas/IaMetadata"
         statut:
           type: string
-          enum: [candidate, a_verifier, a_suivre, trop_etablie, rejetee, publiee]
+          enum:
+            [candidate, a_verifier, a_suivre, trop_etablie, rejetee, publiee]
         source_donnees:
           type: array
           items: { type: string }
@@ -732,7 +774,18 @@ components:
         provenance_facons: { type: string }
     BriefInput:
       type: object
-      required: [type_instrument, budget_min_eur, budget_max_eur, styles, bois_souhaites, zone_preferee, personnalisation, description_libre, consentement_transmission]
+      required:
+        [
+          type_instrument,
+          budget_min_eur,
+          budget_max_eur,
+          styles,
+          bois_souhaites,
+          zone_preferee,
+          personnalisation,
+          description_libre,
+          consentement_transmission,
+        ]
       properties:
         type_instrument:
           type: string
@@ -767,11 +820,31 @@ components:
           items: { type: string }
         personnalisation: { type: boolean }
         description_libre: { type: string, maxLength: 1500 }
-        email: { type: ["string", "null"], maxLength: 180, description: Required when consentement_transmission is true; otherwise it is not persisted. }
-        consentement_transmission: { type: boolean, default: false, description: Explicitly authorizes creation of a private musician portal and transmission after acceptance. }
+        email:
+          {
+            type: ["string", "null"],
+            maxLength: 180,
+            description: Required when consentement_transmission is true; otherwise it is not persisted.,
+          }
+        consentement_transmission:
+          {
+            type: boolean,
+            default: false,
+            description: Explicitly authorizes creation of a private musician portal and transmission after acceptance.,
+          }
     Recommendation:
       type: object
-      required: [slug, nom, type, correspondance, points_correspondance, points_vigilance, demonstration, valide_par_artisan]
+      required:
+        [
+          slug,
+          nom,
+          type,
+          correspondance,
+          points_correspondance,
+          points_vigilance,
+          demonstration,
+          valide_par_artisan,
+        ]
       properties:
         slug: { type: string }
         nom: { type: string }
@@ -833,7 +906,16 @@ components:
           items: { $ref: "#/components/schemas/Facette" }
     FichesMeta:
       type: object
-      required: [total_publiees, total_fiches, pays, types, styles, facettes, couleurs_son]
+      required:
+        [
+          total_publiees,
+          total_fiches,
+          pays,
+          types,
+          styles,
+          facettes,
+          couleurs_son,
+        ]
       properties:
         total_publiees: { type: number }
         total_fiches: { type: number }
@@ -902,7 +984,8 @@ components:
       properties:
         statut:
           type: string
-          enum: [candidate, a_verifier, a_suivre, trop_etablie, rejetee, publiee]
+          enum:
+            [candidate, a_verifier, a_suivre, trop_etablie, rejetee, publiee]
     AccessPlan:
       type: string
       enum: [essentiel, atelier, signature]
@@ -940,7 +1023,15 @@ components:
           enum: [accepter, refuser]
     AtelierProject:
       type: object
-      required: [reference, type_instrument, budget_min_eur, budget_max_eur, styles, cree_le]
+      required:
+        [
+          reference,
+          type_instrument,
+          budget_min_eur,
+          budget_max_eur,
+          styles,
+          cree_le,
+        ]
       properties:
         reference: { type: string }
         type_instrument: { type: string }
@@ -953,7 +1044,19 @@ components:
         cree_le: { type: string }
     AtelierAccessRequest:
       type: object
-      required: [id, reference_projet, atelier_slug, atelier_nom, offre, montant_eur, statut, statut_paiement, cree_le, credits_relance]
+      required:
+        [
+          id,
+          reference_projet,
+          atelier_slug,
+          atelier_nom,
+          offre,
+          montant_eur,
+          statut,
+          statut_paiement,
+          cree_le,
+          credits_relance,
+        ]
       properties:
         id: { type: number }
         reference_projet: { type: string }
@@ -992,7 +1095,18 @@ components:
             $ref: "#/components/schemas/AtelierAccessRequest"
     MusicianProject:
       type: object
-      required: [reference, statut, type_instrument, budget_min_eur, budget_max_eur, styles, cree_le, demandes, courriel_confirmation]
+      required:
+        [
+          reference,
+          statut,
+          type_instrument,
+          budget_min_eur,
+          budget_max_eur,
+          styles,
+          cree_le,
+          demandes,
+          courriel_confirmation,
+        ]
       properties:
         reference: { type: string }
         statut:
@@ -1013,7 +1127,8 @@ components:
             $ref: "#/components/schemas/AtelierAccessRequest"
     AccessAdminSummary:
       type: object
-      required: [en_attente, acceptees, expirees, preautorisations, encaissements]
+      required:
+        [en_attente, acceptees, expirees, preautorisations, encaissements]
       properties:
         en_attente: { type: number }
         acceptees: { type: number }
@@ -1022,10 +1137,27 @@ components:
         encaissements: { type: number }
     AccessMaintenanceResult:
       type: object
-      required: [annulations, expirations, relances, projets_sommeil, execute_le]
+      required:
+        [
+          annulations,
+          expirations,
+          relances,
+          projets_sommeil,
+          sn13_purge,
+          execute_le,
+        ]
       properties:
         annulations: { type: number }
         expirations: { type: number }
         relances: { type: number }
         projets_sommeil: { type: number }
+        sn13_purge:
+          $ref: "#/components/schemas/Sn13PurgeMaintenance"
         execute_le: { type: string }
+    Sn13PurgeMaintenance:
+      type: object
+      required: [statut, evenements_supprimes, retabli]
+      properties:
+        statut: { type: string, enum: [succes, erreur] }
+        evenements_supprimes: { type: number }
+        retabli: { type: boolean }

@@ -651,11 +651,26 @@ export interface MusicianProject {
   demandes: AtelierAccessRequest[];
 }
 
+export type Sn13PurgeMaintenanceStatut = typeof Sn13PurgeMaintenanceStatut[keyof typeof Sn13PurgeMaintenanceStatut];
+
+
+export const Sn13PurgeMaintenanceStatut = {
+  succes: 'succes',
+  erreur: 'erreur',
+} as const;
+
+export interface Sn13PurgeMaintenance {
+  statut: Sn13PurgeMaintenanceStatut;
+  evenements_supprimes: number;
+  retabli: boolean;
+}
+
 export interface AccessMaintenanceResult {
   annulations: number;
   expirations: number;
   relances: number;
   projets_sommeil: number;
+  sn13_purge: Sn13PurgeMaintenance;
   execute_le: string;
 }
 

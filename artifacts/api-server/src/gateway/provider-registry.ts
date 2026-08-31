@@ -39,7 +39,8 @@ export type DataUniverseRequest = {
   keywordMode: "any" | "all";
 };
 
-export type Sn13CollectionStatus = "jamais" | "succes" | "vide" | "incomplet" | "erreur";
+export type Sn13CollectionStatus =
+  "jamais" | "succes" | "vide" | "incomplet" | "erreur";
 
 export type Sn13RecentStats = {
   fenetre_heures: number;
@@ -58,6 +59,14 @@ export type Sn13CallState = {
   appele_le: string | null;
   nombre: number | null;
   recents: Sn13RecentStats;
+};
+
+export type Sn13PurgeMaintenanceStatus = "succes" | "erreur";
+
+export type Sn13PurgeMaintenanceResult = {
+  statut: Sn13PurgeMaintenanceStatus;
+  evenements_supprimes: number;
+  retabli: boolean;
 };
 
 export type DataUniverseRequestResult = {
@@ -104,6 +113,9 @@ const MAX_SN13_ERROR_BODY_LENGTH = 4_000;
 const SN13_ALERT_DEDUPE_PREFIX = "sn13:degradation";
 const SN13_ALERT_STATE_KEY = "latest";
 const SN13_ALERT_LOCK_KEY = "novaluth:sn13:alert";
+const SN13_PURGE_ALERT_DEDUPE_PREFIX = "sn13:purge-failure";
+const SN13_PURGE_ALERT_STATE_KEY = "purge";
+const SN13_PURGE_ALERT_LOCK_KEY = "novaluth:sn13:purge-alert";
 function textValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -118,7 +130,10 @@ function requestIdFromValue(value: unknown): string | undefined {
   return undefined;
 }
 
-function sn13RequestId(response: OnDemandDataResponse, fallback: string): string {
+function sn13RequestId(
+  response: OnDemandDataResponse,
+  fallback: string,
+): string {
   return requestIdFromValue(response.meta) ?? fallback;
 }
 
@@ -144,7 +159,10 @@ function sanitizedErrorBody(value: unknown, apiKey: string): string {
     .slice(0, MAX_SN13_ERROR_BODY_LENGTH);
 }
 
-function errorBodyFromResponse(response: OnDemandDataResponse, apiKey: string): string {
+function errorBodyFromResponse(
+  response: OnDemandDataResponse,
+  apiKey: string,
+): string {
   return sanitizedErrorBody(
     {
       status: response.status,
@@ -181,7 +199,9 @@ function recentSn13Stats(now = Date.now()): Sn13RecentStats {
   };
 }
 
-async function persistedRecentSn13Stats(now = Date.now()): Promise<Sn13RecentStats> {
+async function persistedRecentSn13Stats(
+  now = Date.now(),
+): Promise<Sn13RecentStats> {
   const cutoffDate = new Date(now - sn13RecentWindowMs);
   const recentResult = await db.execute(sql`
     select
@@ -211,13 +231,116 @@ async function persistedRecentSn13Stats(now = Date.now()): Promise<Sn13RecentSta
   };
 }
 
-export async function purgeExpiredSn13CallEvents(now = Date.now()): Promise<number> {
+export async function purgeExpiredSn13CallEvents(
+  now = Date.now(),
+): Promise<number> {
   const cutoffDate = new Date(now - sn13RecentWindowMs);
   const deleted = await db
     .delete(novaluthSn13CallEventsTable)
     .where(sql`${novaluthSn13CallEventsTable.calledAt} < ${cutoffDate}`)
     .returning({ id: novaluthSn13CallEventsTable.id });
   return deleted.length;
+}
+
+async function updateSn13PurgeAlertState(
+  active: boolean,
+  now: number,
+): Promise<{ transitioned: boolean; episodeStartedAt: Date | null }> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${SN13_PURGE_ALERT_LOCK_KEY}))`,
+    );
+    await tx
+      .insert(novaluthSn13AlertStateTable)
+      .values({ key: SN13_PURGE_ALERT_STATE_KEY, active: false })
+      .onConflictDoNothing({ target: novaluthSn13AlertStateTable.key });
+
+    const stateResult = await tx.execute(sql`
+      select
+        active,
+        episode_started_at as "episodeStartedAt"
+      from novaluth_sn13_alert_state
+      where key = ${SN13_PURGE_ALERT_STATE_KEY}
+      for update
+    `);
+    const state = stateResult.rows[0] as
+      { active: boolean; episodeStartedAt: Date | string | null } | undefined;
+    if (!state)
+      throw new Error("L’état d’alerte de purge SN13 est introuvable.");
+
+    if (active) {
+      if (state.active) {
+        return {
+          transitioned: false,
+          episodeStartedAt: state.episodeStartedAt
+            ? new Date(state.episodeStartedAt)
+            : null,
+        };
+      }
+
+      const episodeStartedAt = new Date(now);
+      await tx
+        .update(novaluthSn13AlertStateTable)
+        .set({
+          active: true,
+          episodeStartedAt,
+          updatedAt: episodeStartedAt,
+        })
+        .where(eq(novaluthSn13AlertStateTable.key, SN13_PURGE_ALERT_STATE_KEY));
+
+      const recipient =
+        process.env.NOVALUTH_SN13_ALERT_EMAIL?.trim() ||
+        process.env.NOVALUTH_ALERT_EMAIL?.trim();
+      if (recipient) {
+        await enqueueNovaLuthEmail(
+          tx,
+          recipient,
+          {
+            event: "sn13_purge_failure",
+            reference: "SN13",
+            portalUrl: "",
+            sn13Purge: {
+              provider: "Data Universe",
+              windowHours: 24,
+            },
+          },
+          `${SN13_PURGE_ALERT_DEDUPE_PREFIX}:${episodeStartedAt.getTime()}`,
+        );
+      }
+      return { transitioned: true, episodeStartedAt };
+    }
+
+    if (!state.active) {
+      return {
+        transitioned: false,
+        episodeStartedAt: null,
+      };
+    }
+
+    await tx
+      .update(novaluthSn13AlertStateTable)
+      .set({
+        active: false,
+        episodeStartedAt: null,
+        updatedAt: new Date(now),
+      })
+      .where(eq(novaluthSn13AlertStateTable.key, SN13_PURGE_ALERT_STATE_KEY));
+    return { transitioned: true, episodeStartedAt: null };
+  });
+}
+
+export async function recordSn13PurgeFailure(
+  now = Date.now(),
+): Promise<boolean> {
+  const result = await updateSn13PurgeAlertState(true, now);
+  return result.transitioned;
+}
+
+export async function recordSn13PurgeSuccess(
+  now = Date.now(),
+): Promise<boolean> {
+  const result = await updateSn13PurgeAlertState(false, now);
+  return result.transitioned;
 }
 
 async function rememberSn13Call(
@@ -242,7 +365,9 @@ async function rememberSn13Call(
     // The in-memory history above is useful for the local diagnostics response,
     // but it cannot decide an alert episode when several server processes run.
     // Serialize the shared window and episode transition in PostgreSQL.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${SN13_ALERT_LOCK_KEY}))`);
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${SN13_ALERT_LOCK_KEY}))`,
+    );
 
     const [diagnostic] = await tx
       .insert(novaluthSn13DiagnosticsTable)
@@ -282,9 +407,9 @@ async function rememberSn13Call(
       calledAt: calledAtDate,
     });
     const cutoffDate = new Date(calledAt - sn13RecentWindowMs);
-    await tx.delete(novaluthSn13CallEventsTable).where(
-      sql`${novaluthSn13CallEventsTable.calledAt} < ${cutoffDate}`,
-    );
+    await tx
+      .delete(novaluthSn13CallEventsTable)
+      .where(sql`${novaluthSn13CallEventsTable.calledAt} < ${cutoffDate}`);
     const recentResult = await tx.execute(sql`
       select
         count(*)::int as total,
@@ -317,8 +442,7 @@ async function rememberSn13Call(
       for update
     `);
     const alertState = alertStateResult.rows[0] as
-      | { active: boolean; episodeStartedAt: Date | string | null }
-      | undefined;
+      { active: boolean; episodeStartedAt: Date | string | null } | undefined;
     if (!alertState) throw new Error("L’état d’alerte SN13 est introuvable.");
 
     const crossedAlertThreshold = thresholdReached && !alertState.active;
@@ -398,16 +522,22 @@ export async function lastSn13Call(): Promise<Sn13CallState> {
   };
 }
 
-export function setSn13ClientFactoryForTests(factory: Sn13ClientFactory | null): void {
+export function setSn13ClientFactoryForTests(
+  factory: Sn13ClientFactory | null,
+): void {
   if (process.env.NODE_ENV !== "test") {
-    throw new Error("Le client SN13 ne peut être remplacé qu’en environnement de test.");
+    throw new Error(
+      "Le client SN13 ne peut être remplacé qu’en environnement de test.",
+    );
   }
   sn13ClientFactory = factory ?? defaultSn13ClientFactory;
 }
 
 export function setSn13ClockForTests(clock: (() => number) | null): void {
   if (process.env.NODE_ENV !== "test") {
-    throw new Error("L’horloge SN13 ne peut être remplacée qu’en environnement de test.");
+    throw new Error(
+      "L’horloge SN13 ne peut être remplacée qu’en environnement de test.",
+    );
   }
   sn13Now = clock ?? (() => Date.now());
 }
@@ -427,7 +557,10 @@ export async function requestDataUniverse(
     const isSuccess = response.status.toLowerCase() === "success";
     const hasUsableData = Array.isArray(response.data);
     const nombre = isSuccess && hasUsableData ? response.data.length : null;
-    const corpsErreur = isSuccess && hasUsableData ? null : errorBodyFromResponse(response, apiKey);
+    const corpsErreur =
+      isSuccess && hasUsableData
+        ? null
+        : errorBodyFromResponse(response, apiKey);
     await rememberSn13Call(
       isSuccess
         ? hasUsableData
@@ -442,13 +575,18 @@ export async function requestDataUniverse(
     );
     return { response, requeteId, corpsErreur };
   } catch (error) {
-    const requeteId = requestIdFromValue((error as { metadata?: unknown })?.metadata) ?? fallbackRequestId;
+    const requeteId =
+      requestIdFromValue((error as { metadata?: unknown })?.metadata) ??
+      fallbackRequestId;
     const corpsErreur = errorBodyFromThrown(error, apiKey);
     await rememberSn13Call("erreur", requeteId, null, corpsErreur);
-    throw Object.assign(error instanceof Error ? error : new Error(corpsErreur), {
-      sn13RequestId: requeteId,
-      sn13ErrorBody: corpsErreur,
-    });
+    throw Object.assign(
+      error instanceof Error ? error : new Error(corpsErreur),
+      {
+        sn13RequestId: requeteId,
+        sn13ErrorBody: corpsErreur,
+      },
+    );
   }
 }
 
@@ -468,7 +606,10 @@ const inferenceModels = [
   "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
 ] as const;
 
-export const providerChains: Record<ProviderNeed, readonly ProviderDefinition[]> = {
+export const providerChains: Record<
+  ProviderNeed,
+  readonly ProviderDefinition[]
+> = {
   inference: [
     {
       key: "chutes",
@@ -484,7 +625,8 @@ export const providerChains: Record<ProviderNeed, readonly ProviderDefinition[]>
       pricing: "Selon la grille publique du fournisseur",
       source: "https://chutes.ai/",
       license: "Selon le modèle choisi",
-      reservation: "La disponibilité et les conditions du modèle peuvent changer.",
+      reservation:
+        "La disponibilité et les conditions du modèle peuvent changer.",
       models: inferenceModels,
     },
     {
@@ -605,28 +747,39 @@ export const providerChains: Record<ProviderNeed, readonly ProviderDefinition[]>
 export const excludedProviders = ["desearch-social"] as const;
 
 export function isProviderConfigured(provider: ProviderDefinition): boolean {
-  return provider.apiKeyEnv === null || Boolean(process.env[provider.apiKeyEnv]?.trim());
+  return (
+    provider.apiKeyEnv === null ||
+    Boolean(process.env[provider.apiKeyEnv]?.trim())
+  );
 }
 
 export function activeProviders(need: ProviderNeed): ProviderDefinition[] {
   return providerChains[need].filter(
     (provider) =>
-      !excludedProviders.includes(provider.key as (typeof excludedProviders)[number]) &&
-      isProviderConfigured(provider),
+      !excludedProviders.includes(
+        provider.key as (typeof excludedProviders)[number],
+      ) && isProviderConfigured(provider),
   );
 }
 
 export function authorizedModels(): string[] {
-  return [...new Set(providerChains.inference.flatMap((provider) => provider.models))];
+  return [
+    ...new Set(providerChains.inference.flatMap((provider) => provider.models)),
+  ];
 }
 
-export function providerHeaders(provider: ProviderDefinition): Record<string, string> {
+export function providerHeaders(
+  provider: ProviderDefinition,
+): Record<string, string> {
   const key = provider.apiKeyEnv ? process.env[provider.apiKeyEnv]?.trim() : "";
   if (!key || !provider.header) {
     return { "Content-Type": "application/json" };
   }
   if (provider.header === "bearer") {
-    return { Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+    return {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    };
   }
   if (provider.header === "x-api-key") {
     return { "X-API-KEY": key, "Content-Type": "application/json" };

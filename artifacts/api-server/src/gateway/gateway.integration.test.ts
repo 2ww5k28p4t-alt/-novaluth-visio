@@ -20,10 +20,16 @@ import { logger } from "../lib/logger";
 import {
   requestDataUniverse,
   activeProviders,
+  recordSn13PurgeFailure,
+  recordSn13PurgeSuccess,
   setSn13ClientFactoryForTests,
   type DataUniverseRequest,
 } from "./provider-registry";
-import { assertPublicPageUrl, readPublicPage, robotsTextAllows } from "./page-harvester";
+import {
+  assertPublicPageUrl,
+  readPublicPage,
+  robotsTextAllows,
+} from "./page-harvester";
 
 let apiServer: Server;
 let apiOrigin = "";
@@ -32,7 +38,10 @@ let robotsOrigin = "";
 let reservationServer: Server;
 let reservationOrigin = "";
 let previousNodeEnv: string | undefined;
-const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+const workspaceRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
 const sn13ProcessRunner = path.join(
   workspaceRoot,
   "artifacts/api-server/src/routes/sn13-diagnostic-process.integration.ts",
@@ -111,7 +120,11 @@ function runSn13Process(
     child.on("error", reject);
     child.on("close", (code) => {
       if (code !== 0) {
-        reject(new Error(`Le processus SN13 a échoué (${code}). ${errorOutput.slice(0, 500)}`));
+        reject(
+          new Error(
+            `Le processus SN13 a échoué (${code}). ${errorOutput.slice(0, 500)}`,
+          ),
+        );
         return;
       }
       if (mode === "write") {
@@ -144,7 +157,9 @@ before(async () => {
       return;
     }
     res.setHeader("Content-Type", "text/html");
-    res.end("<html><title>Atelier test</title><body>Ne devrait pas être lu.</body></html>");
+    res.end(
+      "<html><title>Atelier test</title><body>Ne devrait pas être lu.</body></html>",
+    );
   });
   reservationServer = createServer((req, res) => {
     if (req.url === "/robots.txt") {
@@ -158,12 +173,18 @@ before(async () => {
       return;
     }
     res.setHeader("Content-Type", "text/html");
-    res.end("<html><title>Réservé</title><body>Ne devrait pas être lu.</body></html>");
+    res.end(
+      "<html><title>Réservé</title><body>Ne devrait pas être lu.</body></html>",
+    );
   });
   await Promise.all([
     new Promise<void>((resolve) => apiServer.listen(0, "127.0.0.1", resolve)),
-    new Promise<void>((resolve) => robotsServer.listen(0, "127.0.0.1", resolve)),
-    new Promise<void>((resolve) => reservationServer.listen(0, "127.0.0.1", resolve)),
+    new Promise<void>((resolve) =>
+      robotsServer.listen(0, "127.0.0.1", resolve),
+    ),
+    new Promise<void>((resolve) =>
+      reservationServer.listen(0, "127.0.0.1", resolve),
+    ),
   ]);
   apiOrigin = originFor(apiServer);
   robotsOrigin = originFor(robotsServer);
@@ -171,7 +192,11 @@ before(async () => {
 });
 
 after(async () => {
-  await Promise.all([close(apiServer), close(robotsServer), close(reservationServer)]);
+  await Promise.all([
+    close(apiServer),
+    close(robotsServer),
+    close(reservationServer),
+  ]);
   if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = previousNodeEnv;
 });
@@ -181,7 +206,10 @@ test("anonymizes personal data before a provider call", () => {
     "Écrire à musicien@example.test ou appeler +33 6 12 34 56 78, 12 rue des Érables.",
   );
   assert.equal(result.removed, 3);
-  assert.doesNotMatch(result.text, /musicien@example\.test|\+33 6 12 34 56 78|rue des Érables/);
+  assert.doesNotMatch(
+    result.text,
+    /musicien@example\.test|\+33 6 12 34 56 78|rue des Érables/,
+  );
 });
 
 test("strips tokens and identifiers from provider-bound text", () => {
@@ -215,7 +243,10 @@ test("uses the most specific robots agent group", () => {
     "User-agent: NovaLuthBot",
     "Disallow: /private",
   ].join("\n");
-  assert.equal(robotsTextAllows(rules, "https://example.com/private/atelier"), false);
+  assert.equal(
+    robotsTextAllows(rules, "https://example.com/private/atelier"),
+    false,
+  );
 });
 
 test("switches a named provider chain without exposing its API key", async () => {
@@ -244,7 +275,9 @@ test("refuses robots and TDM-reserved pages through the signed gateway route", a
   const secret = "a".repeat(40);
   process.env.NOVALUTH_GATEWAY_SECRET = secret;
   try {
-    const requestBody = JSON.stringify({ url: `${robotsOrigin}/atelier-refuse` });
+    const requestBody = JSON.stringify({
+      url: `${robotsOrigin}/atelier-refuse`,
+    });
     const timestamp = String(Math.floor(Date.now() / 1000));
     const nonce = randomUUID();
     const signature = createHmac("sha256", secret)
@@ -286,7 +319,8 @@ test("refuses robots and TDM-reserved pages through the signed gateway route", a
       /réservation de fouille/,
     );
   } finally {
-    if (previousSecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    if (previousSecret === undefined)
+      delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousSecret;
   }
 });
@@ -295,7 +329,9 @@ test("notifies the team once when SN13 crosses the incomplete-response threshold
   const previousAlertEmail = process.env.NOVALUTH_ALERT_EMAIL;
   const previousSn13AlertEmail = process.env.NOVALUTH_SN13_ALERT_EMAIL;
   const dedupePattern = "sn13:degradation:%";
-  await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  await db
+    .delete(novaluthEmailOutboxTable)
+    .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
   await clearSn13AlertTracking();
   delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
   process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
@@ -333,7 +369,10 @@ test("notifies the team once when SN13 crosses the incomplete-response threshold
     assert.equal(alerts.length, 1);
     assert.equal(alerts[0]?.recipient, "equipe@example.test");
     assert.equal(alerts[0]?.event, "sn13_degradation");
-    assert.doesNotMatch(JSON.stringify(alerts[0]?.payload), /request|publication-array|secret|api[_-]?key/i);
+    assert.doesNotMatch(
+      JSON.stringify(alerts[0]?.payload),
+      /request|publication-array|secret|api[_-]?key/i,
+    );
 
     await requestDataUniverse(request);
     alerts = await db
@@ -342,12 +381,66 @@ test("notifies the team once when SN13 crosses the incomplete-response threshold
       .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
     assert.equal(alerts.length, 1);
   } finally {
-    await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await db
+      .delete(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
     await clearSn13AlertTracking();
     setSn13ClientFactoryForTests(null);
-    if (previousAlertEmail === undefined) delete process.env.NOVALUTH_ALERT_EMAIL;
+    if (previousAlertEmail === undefined)
+      delete process.env.NOVALUTH_ALERT_EMAIL;
     else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
-    if (previousSn13AlertEmail === undefined) delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    if (previousSn13AlertEmail === undefined)
+      delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
+  }
+});
+
+test("notifies the team once per SN13 purge failure episode and exposes recovery", async () => {
+  const previousAlertEmail = process.env.NOVALUTH_ALERT_EMAIL;
+  const previousSn13AlertEmail = process.env.NOVALUTH_SN13_ALERT_EMAIL;
+  const dedupePattern = "sn13:purge-failure:%";
+  const firstFailureAt = Date.now();
+
+  await db
+    .delete(novaluthEmailOutboxTable)
+    .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  await clearSn13AlertTracking();
+  delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+  process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
+
+  try {
+    assert.equal(await recordSn13PurgeFailure(firstFailureAt), true);
+    assert.equal(await recordSn13PurgeFailure(firstFailureAt + 1_000), false);
+
+    let alerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0]?.event, "sn13_purge_failure");
+    assert.equal(alerts[0]?.recipient, "equipe@example.test");
+    assert.match(alerts[0]?.dedupeKey ?? "", /^sn13:purge-failure:\d+$/);
+
+    assert.equal(await recordSn13PurgeSuccess(firstFailureAt + 2_000), true);
+    assert.equal(await recordSn13PurgeSuccess(firstFailureAt + 3_000), false);
+
+    assert.equal(await recordSn13PurgeFailure(firstFailureAt + 4_000), true);
+    alerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(alerts.length, 2);
+    assert.notEqual(alerts[0]?.dedupeKey, alerts[1]?.dedupeKey);
+  } finally {
+    await db
+      .delete(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await clearSn13AlertTracking();
+    if (previousAlertEmail === undefined)
+      delete process.env.NOVALUTH_ALERT_EMAIL;
+    else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
+    if (previousSn13AlertEmail === undefined)
+      delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
     else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
   }
 });
@@ -362,7 +455,9 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
   const firstSecret = `sn13-concurrent-alert-first-secret-${randomUUID()}`;
   const secondSecret = `sn13-concurrent-alert-second-secret-${randomUUID()}`;
 
-  await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  await db
+    .delete(novaluthEmailOutboxTable)
+    .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
   await db
     .delete(novaluthSn13DiagnosticsTable)
     .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
@@ -397,7 +492,8 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
     assert.equal(alerts[0]?.event, "sn13_degradation");
 
     const firstEpisodeKey = alerts[0]?.dedupeKey;
-    const nextEpisodeStartedAt = episodeStartedAt + 24 * 60 * 60 * 1_000 + 1_000;
+    const nextEpisodeStartedAt =
+      episodeStartedAt + 24 * 60 * 60 * 1_000 + 1_000;
     await runSn13Process(
       "write",
       `sn13-concurrent-alert-next-${randomUUID()}`,
@@ -416,15 +512,19 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
     assert.notEqual(nextAlerts[0]?.dedupeKey, nextAlerts[1]?.dedupeKey);
     assert.ok(nextAlerts.some((alert) => alert.dedupeKey === firstEpisodeKey));
   } finally {
-    await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await db
+      .delete(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
     await db.delete(novaluthSn13CallEventsTable);
     await db.delete(novaluthSn13AlertStateTable);
     await db
       .delete(novaluthSn13DiagnosticsTable)
       .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
-    if (previousAlertEmail === undefined) delete process.env.NOVALUTH_ALERT_EMAIL;
+    if (previousAlertEmail === undefined)
+      delete process.env.NOVALUTH_ALERT_EMAIL;
     else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
-    if (previousSn13AlertEmail === undefined) delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    if (previousSn13AlertEmail === undefined)
+      delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
     else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
   }
 });
@@ -437,7 +537,9 @@ test("récupère les compteurs SN13 persistés après un redémarrage", async ()
   const requestId = `sn13-restart-diagnostics-${randomUUID()}`;
   const secret = `sn13-restart-diagnostics-secret-${randomUUID()}`;
 
-  await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  await db
+    .delete(novaluthEmailOutboxTable)
+    .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
   await db
     .delete(novaluthSn13DiagnosticsTable)
     .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
@@ -466,15 +568,19 @@ test("récupère les compteurs SN13 persistés après un redémarrage", async ()
     assert.equal(restarted.recents.erreur, 0);
     assert.equal(restarted.recents.alerte, true);
   } finally {
-    await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await db
+      .delete(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
     await db.delete(novaluthSn13CallEventsTable);
     await db.delete(novaluthSn13AlertStateTable);
     await db
       .delete(novaluthSn13DiagnosticsTable)
       .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
-    if (previousAlertEmail === undefined) delete process.env.NOVALUTH_ALERT_EMAIL;
+    if (previousAlertEmail === undefined)
+      delete process.env.NOVALUTH_ALERT_EMAIL;
     else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
-    if (previousSn13AlertEmail === undefined) delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    if (previousSn13AlertEmail === undefined)
+      delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
     else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
   }
 });
@@ -612,8 +718,20 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
   const collect = async () => {
     const requestBody = JSON.stringify({
       source: "x",
-      usernames: ["atelier_un", "atelier_deux", "atelier_trois", "atelier_quatre", "atelier_cinq"],
-      mots_cles: ["lutherie", "luthier", "guitare artisanale", "handmade guitar", "custom guitar"],
+      usernames: [
+        "atelier_un",
+        "atelier_deux",
+        "atelier_trois",
+        "atelier_quatre",
+        "atelier_cinq",
+      ],
+      mots_cles: [
+        "lutherie",
+        "luthier",
+        "guitare artisanale",
+        "handmade guitar",
+        "custom guitar",
+      ],
       start_date: "2026-03-01",
       end_date: "2026-08-31",
       limite: 100,
@@ -664,7 +782,10 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
     assert.equal(afterSummary.collecte_sn13.statut, "erreur");
     assert.equal(afterSummary.collecte_sn13.requete_id, requestId);
     assert.match(afterSummary.collecte_sn13.corps_erreur ?? "", /\[REDACTED\]/);
-    assert.doesNotMatch(afterSummary.collecte_sn13.corps_erreur ?? "", new RegExp(sn13Key));
+    assert.doesNotMatch(
+      afterSummary.collecte_sn13.corps_erreur ?? "",
+      new RegExp(sn13Key),
+    );
     assert.equal(capturedRequests.length, 2);
     for (const request of capturedRequests) {
       assert.deepEqual(Object.keys(request).sort(), [
@@ -707,7 +828,8 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
     logger.info = originalLoggerInfo;
     setSn13ClientFactoryForTests(null);
     await clearSn13AlertTracking();
-    if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    if (previousGatewaySecret === undefined)
+      delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
     if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
     else process.env.SN13_API_KEY = previousSn13Key;
@@ -775,7 +897,8 @@ test("returns successful SN13 publications unchanged without using the fallback"
     });
   } finally {
     setSn13ClientFactoryForTests(null);
-    if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    if (previousGatewaySecret === undefined)
+      delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
     if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
     else process.env.SN13_API_KEY = previousSn13Key;
@@ -879,10 +1002,15 @@ test("marks malformed successful SN13 responses as incomplete", async () => {
     }
 
     const afterSummary = await adminSummary();
-    assert.ok(afterSummary.compteurs.candidate >= beforeSummary.compteurs.candidate);
+    assert.ok(
+      afterSummary.compteurs.candidate >= beforeSummary.compteurs.candidate,
+    );
     assert.equal(afterSummary.collecte_sn13.statut, "incomplet");
     assert.equal(afterSummary.collecte_sn13.requete_id, requestId);
-    assert.match(afterSummary.collecte_sn13.corps_erreur ?? "", /not-a-publication-array/);
+    assert.match(
+      afterSummary.collecte_sn13.corps_erreur ?? "",
+      /not-a-publication-array/,
+    );
     assert.equal(
       afterSummary.collecte_sn13.recents.total,
       beforeSummary.collecte_sn13.recents.total + 2,
@@ -891,11 +1019,23 @@ test("marks malformed successful SN13 responses as incomplete", async () => {
       afterSummary.collecte_sn13.recents.incomplet,
       beforeSummary.collecte_sn13.recents.incomplet + 2,
     );
-    assert.equal(afterSummary.collecte_sn13.recents.succes, beforeSummary.collecte_sn13.recents.succes);
-    assert.equal(afterSummary.collecte_sn13.recents.vide, beforeSummary.collecte_sn13.recents.vide);
-    assert.equal(afterSummary.collecte_sn13.recents.erreur, beforeSummary.collecte_sn13.recents.erreur);
+    assert.equal(
+      afterSummary.collecte_sn13.recents.succes,
+      beforeSummary.collecte_sn13.recents.succes,
+    );
+    assert.equal(
+      afterSummary.collecte_sn13.recents.vide,
+      beforeSummary.collecte_sn13.recents.vide,
+    );
+    assert.equal(
+      afterSummary.collecte_sn13.recents.erreur,
+      beforeSummary.collecte_sn13.recents.erreur,
+    );
     assert.equal(afterSummary.collecte_sn13.recents.alerte, true);
-    assert.doesNotMatch(JSON.stringify(afterSummary.collecte_sn13.recents), /not-a-publication-array/);
+    assert.doesNotMatch(
+      JSON.stringify(afterSummary.collecte_sn13.recents),
+      /not-a-publication-array/,
+    );
     assert.equal(sn13Audits.length, 1);
     assert.equal(sn13Audits[0]?.statut, 502);
     assert.equal(sn13Audits[0]?.etat, "incomplet");
@@ -904,7 +1044,8 @@ test("marks malformed successful SN13 responses as incomplete", async () => {
     logger.info = originalLoggerInfo;
     setSn13ClientFactoryForTests(null);
     await clearSn13AlertTracking();
-    if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    if (previousGatewaySecret === undefined)
+      delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
     if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
     else process.env.SN13_API_KEY = previousSn13Key;
@@ -979,7 +1120,9 @@ test("loads manual luthiers into candidate profiles when SN13 is unavailable", a
     const adminSummary = (await adminResponse.json()) as {
       fiches: Array<Record<string, unknown>>;
     };
-    const candidate = adminSummary.fiches.find((fiche) => fiche.slug === "atelier-clairiere");
+    const candidate = adminSummary.fiches.find(
+      (fiche) => fiche.slug === "atelier-clairiere",
+    );
     assert.equal(candidate?.statut, "candidate");
     assert.deepEqual(candidate?.source_donnees, [
       "saisie manuelle",
@@ -988,7 +1131,8 @@ test("loads manual luthiers into candidate profiles when SN13 is unavailable", a
     assert.equal(candidate?.provenance_facons, "saisie manuelle");
   } finally {
     setSn13ClientFactoryForTests(null);
-    if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    if (previousGatewaySecret === undefined)
+      delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
     if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
     else process.env.SN13_API_KEY = previousSn13Key;

@@ -1064,6 +1064,11 @@ export const RunAccessMaintenanceResponse = zod.object({
   "expirations": zod.number(),
   "relances": zod.number(),
   "projets_sommeil": zod.number(),
+  "sn13_purge": zod.object({
+  "statut": zod.enum(['succes', 'erreur']),
+  "evenements_supprimes": zod.number(),
+  "retabli": zod.boolean()
+}),
   "execute_le": zod.string()
 })
 

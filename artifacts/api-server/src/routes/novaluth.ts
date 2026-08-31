@@ -60,7 +60,11 @@ import {
   sortDirectory,
   type DirectorySort,
 } from "../lib/novaluth-facets";
-import { availableSoundColours, compareSound, soundFromLegacy } from "../lib/novaluth-sound";
+import {
+  availableSoundColours,
+  compareSound,
+  soundFromLegacy,
+} from "../lib/novaluth-sound";
 import {
   getNovaLuthPublicUrl,
   isNovaLuthEmailConfigured,
@@ -77,7 +81,13 @@ import {
   sendNovaLuthTelegramMessage,
 } from "../lib/novaluth-telegram";
 import { logger } from "../lib/logger";
-import { lastSn13Call, purgeExpiredSn13CallEvents } from "../gateway/provider-registry";
+import {
+  lastSn13Call,
+  purgeExpiredSn13CallEvents,
+  recordSn13PurgeFailure,
+  recordSn13PurgeSuccess,
+  type Sn13PurgeMaintenanceResult,
+} from "../gateway/provider-registry";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -125,17 +135,17 @@ function seedProfiles(): Promise<void> {
       .insert(novaluthProfilesTable)
       .values(
         novaluthSeed.map((fiche) => ({
-        slug: fiche.slug,
-        name: fiche.nom,
-        entityType: fiche.type,
-        country: fiche.pays,
-        city: fiche.ville,
-        status: fiche.statut,
-        innovationScore: fiche.innovation.niveau ?? fiche.score_innovation,
-        minimumPriceEur: fiche.prix_min_eur,
-        maximumPriceEur: fiche.prix_max_eur,
-        data: fiche,
-        isDemo: fiche.demonstration,
+          slug: fiche.slug,
+          name: fiche.nom,
+          entityType: fiche.type,
+          country: fiche.pays,
+          city: fiche.ville,
+          status: fiche.statut,
+          innovationScore: fiche.innovation.niveau ?? fiche.score_innovation,
+          minimumPriceEur: fiche.prix_min_eur,
+          maximumPriceEur: fiche.prix_max_eur,
+          data: fiche,
+          isDemo: fiche.demonstration,
         })),
       )
       .onConflictDoNothing();
@@ -145,10 +155,13 @@ function seedProfiles(): Promise<void> {
 
 function getFiche(data: unknown): Fiche {
   const raw = data as Record<string, unknown>;
-  const manualSource = Array.isArray(raw.source_donnees) && raw.source_donnees.includes("saisie manuelle");
-  const storedSound = raw.profil_sonore && typeof raw.profil_sonore === "object"
-    ? raw.profil_sonore as Record<string, unknown>
-    : {};
+  const manualSource =
+    Array.isArray(raw.source_donnees) &&
+    raw.source_donnees.includes("saisie manuelle");
+  const storedSound =
+    raw.profil_sonore && typeof raw.profil_sonore === "object"
+      ? (raw.profil_sonore as Record<string, unknown>)
+      : {};
   const demonstrationSource = raw.demonstration
     ? novaluthSeed.find((fiche) => fiche.slug === raw.slug)?.profil_sonore
     : undefined;
@@ -172,16 +185,22 @@ function getFiche(data: unknown): Fiche {
 }
 
 function normalized(values: readonly string[]) {
-  return values.map((value) => value.trim().toLocaleLowerCase("fr")).filter(Boolean);
+  return values
+    .map((value) => value.trim().toLocaleLowerCase("fr"))
+    .filter(Boolean);
 }
 
 function overlap(wanted: readonly string[], available: readonly string[]) {
   const requested = normalized(wanted);
   const possibilities = normalized(available);
   if (!requested.length) return 0;
-  return requested.filter((value) =>
-    possibilities.some((candidate) => candidate.includes(value) || value.includes(candidate)),
-  ).length / requested.length;
+  return (
+    requested.filter((value) =>
+      possibilities.some(
+        (candidate) => candidate.includes(value) || value.includes(candidate),
+      ),
+    ).length / requested.length
+  );
 }
 
 function evaluateMatch(brief: Brief, fiche: Fiche) {
@@ -203,7 +222,9 @@ function evaluateMatch(brief: Brief, fiche: Fiche) {
   );
   if (matchingModels.length) {
     score += 14;
-    points.push("Un modèle correspondant à votre type d’instrument est documenté.");
+    points.push(
+      "Un modèle correspondant à votre type d’instrument est documenté.",
+    );
   } else {
     warnings.push("Le type d’instrument demandé n’est pas documenté.");
   }
@@ -219,7 +240,9 @@ function evaluateMatch(brief: Brief, fiche: Fiche) {
       score += 10;
       points.push("Le délai annoncé respecte votre échéance.");
     } else {
-      warnings.push(`Délai moyen annoncé de ${fiche.delai_moyen_mois} mois, au-delà de votre limite.`);
+      warnings.push(
+        `Délai moyen annoncé de ${fiche.delai_moyen_mois} mois, au-delà de votre limite.`,
+      );
     }
   }
 
@@ -253,17 +276,23 @@ function evaluateMatch(brief: Brief, fiche: Fiche) {
   if (soughtFacets.length) {
     const documented = new Set(fiche.facons_travail);
     const shared = soughtFacets.filter((facet) => documented.has(facet));
-    score += Math.round(8 * shared.length / soughtFacets.length);
+    score += Math.round((8 * shared.length) / soughtFacets.length);
     if (shared.length) {
-      points.push(`Correspond à ce que vous cherchez : ${shared.map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`);
+      points.push(
+        `Correspond à ce que vous cherchez : ${shared.map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`,
+      );
     }
     const missing = soughtFacets.filter((facet) => !documented.has(facet));
     if (missing.length) {
-      warnings.push(`Non documenté chez cet atelier : ${missing.map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`);
+      warnings.push(
+        `Non documenté chez cet atelier : ${missing.map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`,
+      );
     }
   } else if (fiche.facons_travail.length) {
     score += 5;
-    points.push(`Manière de travailler documentée : ${fiche.facons_travail.slice(0, 3).map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`);
+    points.push(
+      `Manière de travailler documentée : ${fiche.facons_travail.slice(0, 3).map(facetLabel).join(", ").toLocaleLowerCase("fr")}.`,
+    );
   }
 
   if (brief.personnalisation) {
@@ -279,7 +308,9 @@ function evaluateMatch(brief: Brief, fiche: Fiche) {
     warnings.push("Fiche à confirmer directement auprès de l’artisan.");
   }
   if (fiche.demonstration) {
-    warnings.push("Fiche de démonstration, présente pour illustrer le service.");
+    warnings.push(
+      "Fiche de démonstration, présente pour illustrer le service.",
+    );
   }
 
   return {
@@ -309,7 +340,9 @@ async function recommendations(brief: Brief) {
     .where(eq(novaluthProfilesTable.status, publicStatus));
   return rows
     .map((row) => getFiche(row.data))
-    .filter((fiche) => soughtFacets.every((facet) => fiche.facons_travail.includes(facet)))
+    .filter((fiche) =>
+      soughtFacets.every((facet) => fiche.facons_travail.includes(facet)),
+    )
     .map((fiche) => evaluateMatch(brief, fiche))
     .filter((result) => result.correspondance > 0)
     .sort((left, right) => right.correspondance - left.correspondance)
@@ -333,11 +366,17 @@ function portalUrl(path: string) {
 async function notifyProjectEmail(
   project: Pick<NovaluthProject, "email" | "reference" | "musicianToken">,
   event: NovaLuthEmailEvent,
-  details: { atelierName?: string; plan?: string; accessEndsAt?: Date | null } = {},
+  details: {
+    atelierName?: string;
+    plan?: string;
+    accessEndsAt?: Date | null;
+  } = {},
   executor: NovaLuthDbExecutor = db,
   dedupeKey = `${event}:${project.reference}`,
 ) {
-  const privatePortalUrl = portalUrl(portalPath(project.reference, project.musicianToken));
+  const privatePortalUrl = portalUrl(
+    portalPath(project.reference, project.musicianToken),
+  );
   if (!privatePortalUrl) {
     logger.warn(
       { event, reference: project.reference },
@@ -362,7 +401,10 @@ async function notifyProjectEmail(
     : { sent: false as const, reason: queued.reason };
 }
 
-function projectForAtelier(project: NovaluthProject, includeDescription = false) {
+function projectForAtelier(
+  project: NovaluthProject,
+  includeDescription = false,
+) {
   const criteria = project.criteria as Brief;
   return {
     reference: project.reference,
@@ -403,7 +445,9 @@ async function requestForDisplay(
     expire_le: request.accessEndsAt?.toISOString() ?? null,
     credits_relance: request.followupCredits,
     derniere_relance_le: request.lastFollowupAt?.toISOString() ?? null,
-    projet: project ? projectForAtelier(project, includeProjectDescription) : undefined,
+    projet: project
+      ? projectForAtelier(project, includeProjectDescription)
+      : undefined,
   };
 }
 
@@ -435,7 +479,46 @@ export async function runMaintenance(
   const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
   const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   const inTwoDays = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
-  const sn13EventsDeleted = await purgeExpiredSn13CallEvents(now.getTime());
+  let sn13Purge: Sn13PurgeMaintenanceResult;
+  try {
+    const sn13EventsDeleted = await purgeExpiredSn13CallEvents(now.getTime());
+    let retabli = false;
+    try {
+      retabli = await recordSn13PurgeSuccess(now.getTime());
+    } catch (error) {
+      logger.error(
+        { err: error, trigger },
+        "NovaLuth SN13 purge recovery state update failed",
+      );
+    }
+    sn13Purge = {
+      statut: "succes",
+      evenements_supprimes: sn13EventsDeleted,
+      retabli,
+    };
+    if (retabli) {
+      logger.info({ trigger }, "NovaLuth SN13 purge recovered");
+    }
+  } catch (error) {
+    let alerted = false;
+    try {
+      alerted = await recordSn13PurgeFailure(now.getTime());
+    } catch (alertError) {
+      logger.error(
+        { err: alertError, trigger },
+        "NovaLuth SN13 purge failure alert could not be recorded",
+      );
+    }
+    logger.error(
+      { err: error, alerted, trigger },
+      "NovaLuth SN13 purge failed; access maintenance continues",
+    );
+    sn13Purge = {
+      statut: "erreur",
+      evenements_supprimes: 0,
+      retabli: false,
+    };
+  }
   let annulations = 0;
   let expirations = 0;
   let relances = 0;
@@ -602,12 +685,10 @@ export async function runMaintenance(
     expirations,
     relances,
     projets_sommeil: projetsSommeil,
+    sn13_purge: sn13Purge,
     execute_le: now.toISOString(),
   };
-  logger.info(
-    { trigger, sn13_evenements_supprimes: sn13EventsDeleted, ...result },
-    "NovaLuth access maintenance completed",
-  );
+  logger.info({ trigger, ...result }, "NovaLuth access maintenance completed");
   return result;
 }
 
@@ -618,7 +699,8 @@ export function startNovaLuthMaintenanceScheduler() {
   }
 
   const configuredInterval = Number(
-    process.env.NOVALUTH_MAINTENANCE_INTERVAL_MS ?? DEFAULT_MAINTENANCE_INTERVAL_MS,
+    process.env.NOVALUTH_MAINTENANCE_INTERVAL_MS ??
+      DEFAULT_MAINTENANCE_INTERVAL_MS,
   );
   const intervalMs =
     Number.isFinite(configuredInterval) && configuredInterval > 0
@@ -660,19 +742,37 @@ router.get("/fiches", async (req, res, next) => {
       pays: typeof req.query.pays === "string" ? req.query.pays : undefined,
       type: typeof req.query.type === "string" ? req.query.type : undefined,
       q: typeof req.query.q === "string" ? req.query.q : undefined,
-      instrument: typeof req.query.instrument === "string" ? req.query.instrument : undefined,
+      instrument:
+        typeof req.query.instrument === "string"
+          ? req.query.instrument
+          : undefined,
       style: typeof req.query.style === "string" ? req.query.style : undefined,
       zone: typeof req.query.zone === "string" ? req.query.zone : undefined,
-      budget_eur: typeof req.query.budget_eur === "string" ? Number(req.query.budget_eur) : undefined,
-      delai_max_mois: typeof req.query.delai_max_mois === "string" ? Number(req.query.delai_max_mois) : undefined,
-      relue_seulement: typeof req.query.relue_seulement === "string" ? req.query.relue_seulement === "true" : undefined,
-      facons: typeof req.query.facons === "string" ? req.query.facons : undefined,
+      budget_eur:
+        typeof req.query.budget_eur === "string"
+          ? Number(req.query.budget_eur)
+          : undefined,
+      delai_max_mois:
+        typeof req.query.delai_max_mois === "string"
+          ? Number(req.query.delai_max_mois)
+          : undefined,
+      relue_seulement:
+        typeof req.query.relue_seulement === "string"
+          ? req.query.relue_seulement === "true"
+          : undefined,
+      facons:
+        typeof req.query.facons === "string" ? req.query.facons : undefined,
       tri: typeof req.query.tri === "string" ? req.query.tri : undefined,
-      statut: typeof req.query.statut === "string" ? req.query.statut : undefined,
+      statut:
+        typeof req.query.statut === "string" ? req.query.statut : undefined,
     });
-    const conditions = [eq(novaluthProfilesTable.status, parsed.statut ?? publicStatus)];
-    if (parsed.pays) conditions.push(eq(novaluthProfilesTable.country, parsed.pays));
-    if (parsed.type) conditions.push(eq(novaluthProfilesTable.entityType, parsed.type));
+    const conditions = [
+      eq(novaluthProfilesTable.status, parsed.statut ?? publicStatus),
+    ];
+    if (parsed.pays)
+      conditions.push(eq(novaluthProfilesTable.country, parsed.pays));
+    if (parsed.type)
+      conditions.push(eq(novaluthProfilesTable.entityType, parsed.type));
     const rows = await db
       .select()
       .from(novaluthProfilesTable)
@@ -689,11 +789,17 @@ router.get("/fiches", async (req, res, next) => {
       reviewedOnly: parsed.relue_seulement,
       facets: normalizeFacetKeys((parsed.facons ?? "").split(",")),
     });
-    res.json(ListFichesResponse.parse(sortDirectory(filtered, (parsed.tri ?? "equitable") as DirectorySort)));
+    res.json(
+      ListFichesResponse.parse(
+        sortDirectory(filtered, (parsed.tri ?? "equitable") as DirectorySort),
+      ),
+    );
   } catch (error) {
     if (error instanceof NovaLuthTelegramError) {
       res
-        .status(error.statusCode && error.statusCode >= 400 ? error.statusCode : 502)
+        .status(
+          error.statusCode && error.statusCode >= 400 ? error.statusCode : 502,
+        )
         .json(
           error.telegramResponse ?? {
             ok: false,
@@ -723,7 +829,11 @@ router.get("/fiches/meta", async (_req, res, next) => {
       GetFichesMetaResponse.parse({
         total_publiees: published.length,
         total_fiches: rows.length,
-        pays: [...new Set(published.flatMap((fiche) => (fiche.pays ? [fiche.pays] : [])))].sort(),
+        pays: [
+          ...new Set(
+            published.flatMap((fiche) => (fiche.pays ? [fiche.pays] : [])),
+          ),
+        ].sort(),
         types,
         styles: availableStyles(published),
         facettes: availableFacetFamilies(published),
@@ -742,7 +852,12 @@ router.get("/fiches/:slug", async (req, res, next) => {
     const [row] = await db
       .select()
       .from(novaluthProfilesTable)
-      .where(and(eq(novaluthProfilesTable.slug, slug), eq(novaluthProfilesTable.status, publicStatus)));
+      .where(
+        and(
+          eq(novaluthProfilesTable.slug, slug),
+          eq(novaluthProfilesTable.status, publicStatus),
+        ),
+      );
     if (!row) {
       res.status(404).json({ error: "Fiche introuvable." });
       return;
@@ -778,7 +893,8 @@ router.post("/briefs", async (req, res, next) => {
     const brief = CreateBriefBody.parse(req.body) as Brief;
     if (brief.consentement_transmission === true && !brief.email) {
       res.status(400).json({
-        error: "Une adresse e-mail est nécessaire pour ouvrir un portail de suivi partagé.",
+        error:
+          "Une adresse e-mail est nécessaire pour ouvrir un portail de suivi partagé.",
       });
       return;
     }
@@ -788,7 +904,7 @@ router.post("/briefs", async (req, res, next) => {
         .insert(novaluthBriefsTable)
         .values({
           criteria: { ...brief, email: undefined },
-          email: brief.consentement_transmission ? brief.email ?? null : null,
+          email: brief.consentement_transmission ? (brief.email ?? null) : null,
           consent: Boolean(brief.consentement_transmission),
           recommendations: resultats,
         })
@@ -846,22 +962,36 @@ router.get("/admin/summary", async (req, res, next) => {
       db.select().from(novaluthAccessRequestsTable),
     ]);
     const compteurs = Object.fromEntries(
-      statuses.map((status) => [status, rows.filter((row) => row.status === status).length]),
+      statuses.map((status) => [
+        status,
+        rows.filter((row) => row.status === status).length,
+      ]),
     );
     res.json(
       GetAdminSummaryResponse.parse({
         compteurs,
         fiches: rows
-          .filter((row) => row.status !== "rejetee" && row.status !== "trop_etablie")
+          .filter(
+            (row) => row.status !== "rejetee" && row.status !== "trop_etablie",
+          )
           .map((row) => getFiche(row.data)),
         passerelle: "moteur de correspondance local",
         collecte_sn13: await lastSn13Call(),
         acces: {
-          en_attente: accessRows.filter((request) => request.status === "en_attente").length,
-          acceptees: accessRows.filter((request) => request.status === "acceptee").length,
-          expirees: accessRows.filter((request) => request.status === "expiree").length,
-          preautorisations: accessRows.filter((request) => request.paymentStatus === "preautorise").length,
-          encaissements: accessRows.filter((request) => request.paymentStatus === "encaisse").length,
+          en_attente: accessRows.filter(
+            (request) => request.status === "en_attente",
+          ).length,
+          acceptees: accessRows.filter(
+            (request) => request.status === "acceptee",
+          ).length,
+          expirees: accessRows.filter((request) => request.status === "expiree")
+            .length,
+          preautorisations: accessRows.filter(
+            (request) => request.paymentStatus === "preautorise",
+          ).length,
+          encaissements: accessRows.filter(
+            (request) => request.paymentStatus === "encaisse",
+          ).length,
         },
       }),
     );
@@ -936,7 +1066,9 @@ router.get("/projets/:reference/portail/:token", async (req, res, next) => {
         ),
       );
     if (!project) {
-      res.status(404).json({ error: "Ce lien de suivi est introuvable ou a expiré." });
+      res
+        .status(404)
+        .json({ error: "Ce lien de suivi est introuvable ou a expiré." });
       return;
     }
     const requests = await db
@@ -951,7 +1083,9 @@ router.get("/projets/:reference/portail/:token", async (req, res, next) => {
           ? "Les notifications de suivi sont envoyées à votre adresse renseignée."
           : "Votre adresse de suivi est enregistrée ; l’envoi des notifications est en cours de configuration."
         : "Conservez ce lien personnel pour suivre votre projet.",
-      demandes: await Promise.all(requests.map((request) => requestForDisplay(request, true))),
+      demandes: await Promise.all(
+        requests.map((request) => requestForDisplay(request, true)),
+      ),
     };
     res.json(GetMusicianProjectResponse.parse(response));
   } catch (error) {
@@ -959,87 +1093,104 @@ router.get("/projets/:reference/portail/:token", async (req, res, next) => {
   }
 });
 
-router.post("/projets/:reference/portail/:token/demandes/:requestId/decision", async (req, res, next) => {
-  try {
-    await runMaintenance();
-    const { reference, token, requestId } = DecideMusicianAccessRequestParams.parse(req.params);
-    const { decision } = DecideMusicianAccessRequestBody.parse(req.body);
-    const decided = await db.transaction(async (tx) => {
-      const [project] = await tx
-        .select()
-        .from(novaluthProjectsTable)
-        .where(
-          and(
-            eq(novaluthProjectsTable.reference, reference),
-            eq(novaluthProjectsTable.musicianToken, token),
-          ),
-        );
-      const [request] = await tx
-        .select()
-        .from(novaluthAccessRequestsTable)
-        .where(
-          and(
-            eq(novaluthAccessRequestsTable.id, requestId),
-            eq(novaluthAccessRequestsTable.projectReference, reference),
-          ),
-        );
-      if (!project || !request) return { error: "not_found" as const };
-      if (request.status !== "en_attente") return { error: "already_decided" as const };
+router.post(
+  "/projets/:reference/portail/:token/demandes/:requestId/decision",
+  async (req, res, next) => {
+    try {
+      await runMaintenance();
+      const { reference, token, requestId } =
+        DecideMusicianAccessRequestParams.parse(req.params);
+      const { decision } = DecideMusicianAccessRequestBody.parse(req.body);
+      const decided = await db.transaction(async (tx) => {
+        const [project] = await tx
+          .select()
+          .from(novaluthProjectsTable)
+          .where(
+            and(
+              eq(novaluthProjectsTable.reference, reference),
+              eq(novaluthProjectsTable.musicianToken, token),
+            ),
+          );
+        const [request] = await tx
+          .select()
+          .from(novaluthAccessRequestsTable)
+          .where(
+            and(
+              eq(novaluthAccessRequestsTable.id, requestId),
+              eq(novaluthAccessRequestsTable.projectReference, reference),
+            ),
+          );
+        if (!project || !request) return { error: "not_found" as const };
+        if (request.status !== "en_attente")
+          return { error: "already_decided" as const };
 
-      const now = new Date();
-      const accepted = decision === "accepter";
-      const [updated] = await tx
-        .update(novaluthAccessRequestsTable)
-        .set({
-          status: accepted ? "acceptee" : "refusee",
-          paymentStatus: accepted ? "encaisse" : "annule",
-          decidedAt: now,
-          accessEndsAt: accepted ? new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000) : null,
-        })
-        .where(
-          and(
-            eq(novaluthAccessRequestsTable.id, request.id),
-            eq(novaluthAccessRequestsTable.status, "en_attente"),
-            eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
-          ),
-        )
-        .returning();
-      if (!updated) return { error: "conflict" as const };
+        const now = new Date();
+        const accepted = decision === "accepter";
+        const [updated] = await tx
+          .update(novaluthAccessRequestsTable)
+          .set({
+            status: accepted ? "acceptee" : "refusee",
+            paymentStatus: accepted ? "encaisse" : "annule",
+            decidedAt: now,
+            accessEndsAt: accepted
+              ? new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000)
+              : null,
+          })
+          .where(
+            and(
+              eq(novaluthAccessRequestsTable.id, request.id),
+              eq(novaluthAccessRequestsTable.status, "en_attente"),
+              eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
+            ),
+          )
+          .returning();
+        if (!updated) return { error: "conflict" as const };
 
-      await tx
-        .update(novaluthProjectsTable)
-        .set({ lastActivityAt: now, status: "actif" })
-        .where(eq(novaluthProjectsTable.reference, reference));
-      await notifyProjectEmail(
-        project,
-        accepted ? "decision_accepted" : "decision_refused",
-        {
-          plan: request.plan,
-          accessEndsAt: updated.accessEndsAt,
-        },
-        tx,
-        `${accepted ? "decision_accepted" : "decision_refused"}:${request.id}`,
+        await tx
+          .update(novaluthProjectsTable)
+          .set({ lastActivityAt: now, status: "actif" })
+          .where(eq(novaluthProjectsTable.reference, reference));
+        await notifyProjectEmail(
+          project,
+          accepted ? "decision_accepted" : "decision_refused",
+          {
+            plan: request.plan,
+            accessEndsAt: updated.accessEndsAt,
+          },
+          tx,
+          `${accepted ? "decision_accepted" : "decision_refused"}:${request.id}`,
+        );
+        return { updated };
+      });
+      if ("error" in decided && decided.error === "not_found") {
+        res
+          .status(404)
+          .json({ error: "La demande ou le lien personnel est introuvable." });
+        return;
+      }
+      if ("error" in decided && decided.error === "already_decided") {
+        res
+          .status(400)
+          .json({ error: "Cette demande a déjà reçu une décision." });
+        return;
+      }
+      if ("error" in decided && decided.error === "conflict") {
+        res
+          .status(409)
+          .json({ error: "Cette demande a reçu une décision entre-temps." });
+        return;
+      }
+      req.log.info({ requestId, decision }, "NovaLuth access request decided");
+      res.json(
+        DecideMusicianAccessRequestResponse.parse(
+          await requestForDisplay(decided.updated, true),
+        ),
       );
-      return { updated };
-    });
-    if ("error" in decided && decided.error === "not_found") {
-      res.status(404).json({ error: "La demande ou le lien personnel est introuvable." });
-      return;
+    } catch (error) {
+      next(error);
     }
-    if ("error" in decided && decided.error === "already_decided") {
-      res.status(400).json({ error: "Cette demande a déjà reçu une décision." });
-      return;
-    }
-    if ("error" in decided && decided.error === "conflict") {
-      res.status(409).json({ error: "Cette demande a reçu une décision entre-temps." });
-      return;
-    }
-    req.log.info({ requestId, decision }, "NovaLuth access request decided");
-    res.json(DecideMusicianAccessRequestResponse.parse(await requestForDisplay(decided.updated, true)));
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
 
 router.post("/ateliers/:slug/session", async (req, res, next) => {
   try {
@@ -1053,7 +1204,12 @@ router.post("/ateliers/:slug/session", async (req, res, next) => {
     const [atelier] = await db
       .select()
       .from(novaluthProfilesTable)
-      .where(and(eq(novaluthProfilesTable.slug, slug), eq(novaluthProfilesTable.status, publicStatus)));
+      .where(
+        and(
+          eq(novaluthProfilesTable.slug, slug),
+          eq(novaluthProfilesTable.status, publicStatus),
+        ),
+      );
     if (!atelier) {
       res.status(404).json({ error: "Atelier introuvable." });
       return;
@@ -1081,20 +1237,33 @@ router.get("/ateliers/:slug/tableau-de-bord", async (req, res, next) => {
   try {
     await runMaintenance();
     const { slug } = GetAtelierDashboardParams.parse(req.params);
-    const session = await requireAtelierSession(slug, req.header("X-NovaLuth-Atelier-Session") ?? undefined);
+    const session = await requireAtelierSession(
+      slug,
+      req.header("X-NovaLuth-Atelier-Session") ?? undefined,
+    );
     if (!session) {
       res.status(401).json({ error: "Session atelier invalide ou expirée." });
       return;
     }
     const [[atelier], requests] = await Promise.all([
-      db.select().from(novaluthProfilesTable).where(eq(novaluthProfilesTable.slug, slug)),
-      db.select().from(novaluthAccessRequestsTable).where(eq(novaluthAccessRequestsTable.atelierSlug, slug)),
+      db
+        .select()
+        .from(novaluthProfilesTable)
+        .where(eq(novaluthProfilesTable.slug, slug)),
+      db
+        .select()
+        .from(novaluthAccessRequestsTable)
+        .where(eq(novaluthAccessRequestsTable.atelierSlug, slug)),
     ]);
     const displayed = await Promise.all(
-      requests.map((request) => requestForDisplay(request, request.status === "acceptee")),
+      requests.map((request) =>
+        requestForDisplay(request, request.status === "acceptee"),
+      ),
     );
     const activeCount = requests.filter((request) =>
-      activeRequestStatuses.includes(request.status as (typeof activeRequestStatuses)[number]),
+      activeRequestStatuses.includes(
+        request.status as (typeof activeRequestStatuses)[number],
+      ),
     ).length;
     res.json(
       GetAtelierDashboardResponse.parse({
@@ -1102,7 +1271,10 @@ router.get("/ateliers/:slug/tableau-de-bord", async (req, res, next) => {
         atelier_nom: atelier ? getFiche(atelier.data).nom : slug,
         places_restantes: Math.max(0, 3 - activeCount),
         demandes: displayed.filter((request) => request.statut !== "acceptee"),
-        carnets: displayed.filter((request) => request.statut === "acceptee" || request.statut === "expiree"),
+        carnets: displayed.filter(
+          (request) =>
+            request.statut === "acceptee" || request.statut === "expiree",
+        ),
       }),
     );
   } catch (error) {
@@ -1114,25 +1286,45 @@ router.get("/ateliers/:slug/projets", async (req, res, next) => {
   try {
     await runMaintenance();
     const { slug } = ListAtelierProjectsParams.parse(req.params);
-    const session = await requireAtelierSession(slug, req.header("X-NovaLuth-Atelier-Session") ?? undefined);
+    const session = await requireAtelierSession(
+      slug,
+      req.header("X-NovaLuth-Atelier-Session") ?? undefined,
+    );
     if (!session) {
       res.status(401).json({ error: "Session atelier invalide ou expirée." });
       return;
     }
     const [projects, ownRequests] = await Promise.all([
-      db.select().from(novaluthProjectsTable).where(eq(novaluthProjectsTable.status, "actif")),
-      db.select().from(novaluthAccessRequestsTable).where(eq(novaluthAccessRequestsTable.atelierSlug, slug)),
+      db
+        .select()
+        .from(novaluthProjectsTable)
+        .where(eq(novaluthProjectsTable.status, "actif")),
+      db
+        .select()
+        .from(novaluthAccessRequestsTable)
+        .where(eq(novaluthAccessRequestsTable.atelierSlug, slug)),
     ]);
     const requestedReferences = new Set(
       ownRequests
-        .filter((request) => activeRequestStatuses.includes(request.status as (typeof activeRequestStatuses)[number]))
+        .filter((request) =>
+          activeRequestStatuses.includes(
+            request.status as (typeof activeRequestStatuses)[number],
+          ),
+        )
         .map((request) => request.projectReference),
     );
     const compatible = projects.filter((project) => {
       const recommended = project.recommendedAteliers as string[];
-      return recommended.includes(slug) && !requestedReferences.has(project.reference);
+      return (
+        recommended.includes(slug) &&
+        !requestedReferences.has(project.reference)
+      );
     });
-    res.json(ListAtelierProjectsResponse.parse(compatible.map((project) => projectForAtelier(project))));
+    res.json(
+      ListAtelierProjectsResponse.parse(
+        compatible.map((project) => projectForAtelier(project)),
+      ),
+    );
   } catch (error) {
     next(error);
   }
@@ -1163,10 +1355,15 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
         .from(novaluthProfilesTable)
         .where(eq(novaluthProfilesTable.slug, slug));
       const current = activeRequests.filter((request) =>
-        activeRequestStatuses.includes(request.status as (typeof activeRequestStatuses)[number]),
+        activeRequestStatuses.includes(
+          request.status as (typeof activeRequestStatuses)[number],
+        ),
       );
       if (current.length >= 3) {
-        return { error: "Votre atelier dispose déjà de trois demandes ou carnets actifs." };
+        return {
+          error:
+            "Votre atelier dispose déjà de trois demandes ou carnets actifs.",
+        };
       }
       if (
         !target ||
@@ -1175,7 +1372,9 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
       ) {
         return { error: "Ce projet n’est pas disponible pour votre atelier." };
       }
-      if (current.some((request) => request.projectReference === target.reference)) {
+      if (
+        current.some((request) => request.projectReference === target.reference)
+      ) {
         return { error: "Une demande active existe déjà pour ce projet." };
       }
       const plan = accessPlans[input.offre];
@@ -1214,121 +1413,154 @@ router.post("/ateliers/:slug/demandes", async (req, res, next) => {
       return;
     }
     const request = created.request;
-    req.log.info({ requestId: request.id, atelier: slug, plan: input.offre }, "NovaLuth payment preauthorized");
+    req.log.info(
+      { requestId: request.id, atelier: slug, plan: input.offre },
+      "NovaLuth payment preauthorized",
+    );
     const displayedRequest = await requestForDisplay(request);
-    res.status(201).json(CreateAtelierAccessRequestResponse.parse(displayedRequest));
+    res
+      .status(201)
+      .json(CreateAtelierAccessRequestResponse.parse(displayedRequest));
   } catch (error) {
     next(error);
   }
 });
 
-router.post("/ateliers/:slug/demandes/:requestId/annulation", async (req, res, next) => {
-  try {
-    await runMaintenance();
-    const { slug, requestId } = CancelAtelierAccessRequestParams.parse(req.params);
-    const { session: token } = CancelAtelierAccessRequestBody.parse(req.body);
-    if (!(await requireAtelierSession(slug, token))) {
-      res.status(401).json({ error: "Session atelier invalide ou expirée." });
-      return;
-    }
-    const cancelled = await db.transaction(async (tx) => {
-      const [updated] = await tx
-        .update(novaluthAccessRequestsTable)
-        .set({ status: "annulee", paymentStatus: "annule", decidedAt: new Date() })
-        .where(
-          and(
-            eq(novaluthAccessRequestsTable.id, requestId),
-            eq(novaluthAccessRequestsTable.atelierSlug, slug),
-            eq(novaluthAccessRequestsTable.status, "en_attente"),
-            eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
-          ),
-        )
-        .returning();
-      if (!updated) return null;
-
-      const [project] = await tx
-        .select()
-        .from(novaluthProjectsTable)
-        .where(eq(novaluthProjectsTable.reference, updated.projectReference));
-      if (project) {
-        await notifyProjectEmail(
-          project,
-          "request_cancelled",
-          { plan: updated.plan },
-          tx,
-          `request_cancelled:${updated.id}`,
-        );
+router.post(
+  "/ateliers/:slug/demandes/:requestId/annulation",
+  async (req, res, next) => {
+    try {
+      await runMaintenance();
+      const { slug, requestId } = CancelAtelierAccessRequestParams.parse(
+        req.params,
+      );
+      const { session: token } = CancelAtelierAccessRequestBody.parse(req.body);
+      if (!(await requireAtelierSession(slug, token))) {
+        res.status(401).json({ error: "Session atelier invalide ou expirée." });
+        return;
       }
-      return updated;
-    });
-    if (!cancelled) {
-      res.status(400).json({ error: "Cette demande ne peut plus être annulée." });
-      return;
-    }
-    res.json(CancelAtelierAccessRequestResponse.parse(await requestForDisplay(cancelled)));
-  } catch (error) {
-    next(error);
-  }
-});
+      const cancelled = await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(novaluthAccessRequestsTable)
+          .set({
+            status: "annulee",
+            paymentStatus: "annule",
+            decidedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(novaluthAccessRequestsTable.id, requestId),
+              eq(novaluthAccessRequestsTable.atelierSlug, slug),
+              eq(novaluthAccessRequestsTable.status, "en_attente"),
+              eq(novaluthAccessRequestsTable.paymentStatus, "preautorise"),
+            ),
+          )
+          .returning();
+        if (!updated) return null;
 
-router.post("/ateliers/:slug/carnets/:requestId/relance", async (req, res, next) => {
-  try {
-    await runMaintenance();
-    const { slug, requestId } = UseAtelierFollowupCreditParams.parse(req.params);
-    const { session: token } = UseAtelierFollowupCreditBody.parse(req.body);
-    if (!(await requireAtelierSession(slug, token))) {
-      res.status(401).json({ error: "Session atelier invalide ou expirée." });
-      return;
-    }
-    const now = new Date();
-    const followedUp = await db.transaction(async (tx) => {
-      const [updated] = await tx
-        .update(novaluthAccessRequestsTable)
-        .set({
-          followupCredits: sql`${novaluthAccessRequestsTable.followupCredits} - 1`,
-          lastFollowupAt: now,
-        })
-        .where(
-          and(
-            eq(novaluthAccessRequestsTable.id, requestId),
-            eq(novaluthAccessRequestsTable.atelierSlug, slug),
-            eq(novaluthAccessRequestsTable.status, "acceptee"),
-            eq(novaluthAccessRequestsTable.paymentStatus, "encaisse"),
-            gt(novaluthAccessRequestsTable.followupCredits, 0),
-            gt(novaluthAccessRequestsTable.accessEndsAt, now),
-          ),
-        )
-        .returning();
-      if (!updated) return null;
-
-      await tx
-        .update(novaluthProjectsTable)
-        .set({ lastActivityAt: now, status: "actif" })
-        .where(eq(novaluthProjectsTable.reference, updated.projectReference));
-      const [project] = await tx
-        .select()
-        .from(novaluthProjectsTable)
-        .where(eq(novaluthProjectsTable.reference, updated.projectReference));
-      if (project) {
-        await notifyProjectEmail(
-          project,
-          "followup",
-          { plan: updated.plan, accessEndsAt: updated.accessEndsAt },
-          tx,
-          `followup:${updated.id}:${updated.lastFollowupAt?.toISOString() ?? now.toISOString()}`,
-        );
+        const [project] = await tx
+          .select()
+          .from(novaluthProjectsTable)
+          .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+        if (project) {
+          await notifyProjectEmail(
+            project,
+            "request_cancelled",
+            { plan: updated.plan },
+            tx,
+            `request_cancelled:${updated.id}`,
+          );
+        }
+        return updated;
+      });
+      if (!cancelled) {
+        res
+          .status(400)
+          .json({ error: "Cette demande ne peut plus être annulée." });
+        return;
       }
-      return updated;
-    });
-    if (!followedUp) {
-      res.status(400).json({ error: "Aucun crédit de relance disponible pour ce carnet actif." });
-      return;
+      res.json(
+        CancelAtelierAccessRequestResponse.parse(
+          await requestForDisplay(cancelled),
+        ),
+      );
+    } catch (error) {
+      next(error);
     }
-    res.json(UseAtelierFollowupCreditResponse.parse(await requestForDisplay(followedUp, true)));
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
+
+router.post(
+  "/ateliers/:slug/carnets/:requestId/relance",
+  async (req, res, next) => {
+    try {
+      await runMaintenance();
+      const { slug, requestId } = UseAtelierFollowupCreditParams.parse(
+        req.params,
+      );
+      const { session: token } = UseAtelierFollowupCreditBody.parse(req.body);
+      if (!(await requireAtelierSession(slug, token))) {
+        res.status(401).json({ error: "Session atelier invalide ou expirée." });
+        return;
+      }
+      const now = new Date();
+      const followedUp = await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(novaluthAccessRequestsTable)
+          .set({
+            followupCredits: sql`${novaluthAccessRequestsTable.followupCredits} - 1`,
+            lastFollowupAt: now,
+          })
+          .where(
+            and(
+              eq(novaluthAccessRequestsTable.id, requestId),
+              eq(novaluthAccessRequestsTable.atelierSlug, slug),
+              eq(novaluthAccessRequestsTable.status, "acceptee"),
+              eq(novaluthAccessRequestsTable.paymentStatus, "encaisse"),
+              gt(novaluthAccessRequestsTable.followupCredits, 0),
+              gt(novaluthAccessRequestsTable.accessEndsAt, now),
+            ),
+          )
+          .returning();
+        if (!updated) return null;
+
+        await tx
+          .update(novaluthProjectsTable)
+          .set({ lastActivityAt: now, status: "actif" })
+          .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+        const [project] = await tx
+          .select()
+          .from(novaluthProjectsTable)
+          .where(eq(novaluthProjectsTable.reference, updated.projectReference));
+        if (project) {
+          await notifyProjectEmail(
+            project,
+            "followup",
+            { plan: updated.plan, accessEndsAt: updated.accessEndsAt },
+            tx,
+            `followup:${updated.id}:${updated.lastFollowupAt?.toISOString() ?? now.toISOString()}`,
+          );
+        }
+        return updated;
+      });
+      if (!followedUp) {
+        res
+          .status(400)
+          .json({
+            error: "Aucun crédit de relance disponible pour ce carnet actif.",
+          });
+        return;
+      }
+      res.json(
+        UseAtelierFollowupCreditResponse.parse(
+          await requestForDisplay(followedUp, true),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 router.post("/admin/acces/entretien", async (req, res, next) => {
   try {
