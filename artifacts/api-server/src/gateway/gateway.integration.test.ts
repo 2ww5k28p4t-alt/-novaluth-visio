@@ -356,16 +356,15 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
     const afterSummary = await adminSummary();
 
     for (const result of [first, second]) {
-      assert.deepEqual(result.publications, []);
-      assert.equal(result.nombre, 0);
-      assert.equal(result.etat_collecte, "indisponible");
+      assert.equal(result.publications.length, 1);
+      assert.equal(result.nombre, 1);
+      assert.equal(result.etat_collecte, "donnees");
       assert.equal(result.fournisseur, "local-collecte");
       assert.deepEqual(result.secours, ["data-universe"]);
     }
-    assert.equal(
-      afterSummary.compteurs.candidate,
-      beforeSummary.compteurs.candidate,
-      "La collecte en erreur ne doit créer aucune fiche candidate.",
+    assert.ok(
+      afterSummary.compteurs.candidate >= beforeSummary.compteurs.candidate,
+      "La collecte locale doit conserver ou créer la candidate saisie.",
     );
     assert.equal(afterSummary.collecte_sn13.statut, "erreur");
     assert.equal(afterSummary.collecte_sn13.requete_id, requestId);
@@ -566,21 +565,25 @@ test("marks malformed successful SN13 responses as incomplete", async () => {
         body: requestBody,
       });
       assert.equal(response.status, 200);
-      return response.json();
+      return (await response.json()) as {
+        publications: unknown[];
+        nombre: number;
+        etat_collecte: string;
+        fournisseur: string;
+        secours: string[];
+      };
     };
 
     for (const result of [await collect(), await collect()]) {
-      assert.deepEqual(result, {
-        publications: [],
-        nombre: 0,
-        etat_collecte: "incomplet",
-        fournisseur: "local-collecte",
-        secours: ["data-universe"],
-      });
+      assert.equal(result.publications.length, 1);
+      assert.equal(result.nombre, 1);
+      assert.equal(result.etat_collecte, "donnees");
+      assert.equal(result.fournisseur, "local-collecte");
+      assert.deepEqual(result.secours, ["data-universe"]);
     }
 
     const afterSummary = await adminSummary();
-    assert.equal(afterSummary.compteurs.candidate, beforeSummary.compteurs.candidate);
+    assert.ok(afterSummary.compteurs.candidate >= beforeSummary.compteurs.candidate);
     assert.equal(afterSummary.collecte_sn13.statut, "incomplet");
     assert.equal(afterSummary.collecte_sn13.requete_id, requestId);
     assert.match(afterSummary.collecte_sn13.corps_erreur ?? "", /not-a-publication-array/);
@@ -603,6 +606,90 @@ test("marks malformed successful SN13 responses as incomplete", async () => {
     assert.equal(sn13Audits[0]?.requete_id, requestId);
   } finally {
     logger.info = originalLoggerInfo;
+    setSn13ClientFactoryForTests(null);
+    if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
+    if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
+    else process.env.SN13_API_KEY = previousSn13Key;
+  }
+});
+
+test("loads manual luthiers into candidate profiles when SN13 is unavailable", async () => {
+  const previousGatewaySecret = process.env.NOVALUTH_GATEWAY_SECRET;
+  const previousSn13Key = process.env.SN13_API_KEY;
+  const gatewaySecret = "gateway-local-collecte-test-secret".repeat(2);
+
+  process.env.NOVALUTH_GATEWAY_SECRET = gatewaySecret;
+  process.env.SN13_API_KEY = "sn13-local-collecte-test-secret";
+  setSn13ClientFactoryForTests(() => ({
+    onDemandData: async () => ({
+      status: "error",
+      data: [],
+      meta: { request_id: "sn13-local-collecte-request-001" },
+    }),
+  }));
+
+  try {
+    const requestBody = JSON.stringify({
+      source: "x",
+      usernames: [],
+      mots_cles: ["lutherie"],
+      start_date: "2026-08-01",
+      end_date: "2026-08-31",
+      limite: 10,
+      keyword_mode: "any",
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nonce = randomUUID();
+    const signature = createHmac("sha256", gatewaySecret)
+      .update(`POST./v1/collecte.${timestamp}.${nonce}.${requestBody}`)
+      .digest("hex");
+    const response = await fetch(`${apiOrigin}/v1/collecte`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-NovaLuth-Timestamp": timestamp,
+        "X-NovaLuth-Nonce": nonce,
+        "X-NovaLuth-Signature": signature,
+      },
+      body: requestBody,
+    });
+
+    assert.equal(response.status, 200);
+    const payload = (await response.json()) as {
+      publications: Array<Record<string, unknown>>;
+      nombre: number;
+      etat_collecte: string;
+      fournisseur: string;
+      secours: string[];
+    };
+    assert.equal(payload.nombre, 1);
+    assert.equal(payload.etat_collecte, "donnees");
+    assert.equal(payload.fournisseur, "local-collecte");
+    assert.deepEqual(payload.secours, ["data-universe"]);
+    assert.equal(payload.publications[0]?.slug, "atelier-clairiere");
+    assert.equal(payload.publications[0]?.statut, "candidate");
+    assert.deepEqual(payload.publications[0]?.source_donnees, [
+      "saisie manuelle",
+      "catalogue interne NovaLuth",
+    ]);
+    assert.equal(payload.publications[0]?.demonstration, false);
+
+    const adminResponse = await fetch(`${apiOrigin}/api/admin/summary`, {
+      headers: { "X-Admin-Token": "demo-admin" },
+    });
+    assert.equal(adminResponse.status, 200);
+    const adminSummary = (await adminResponse.json()) as {
+      fiches: Array<Record<string, unknown>>;
+    };
+    const candidate = adminSummary.fiches.find((fiche) => fiche.slug === "atelier-clairiere");
+    assert.equal(candidate?.statut, "candidate");
+    assert.deepEqual(candidate?.source_donnees, [
+      "saisie manuelle",
+      "catalogue interne NovaLuth",
+    ]);
+    assert.equal(candidate?.provenance_facons, "saisie manuelle");
+  } finally {
     setSn13ClientFactoryForTests(null);
     if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;

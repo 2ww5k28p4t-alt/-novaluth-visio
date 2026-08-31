@@ -145,6 +145,7 @@ function seedProfiles(): Promise<void> {
 
 function getFiche(data: unknown): Fiche {
   const raw = data as Record<string, unknown>;
+  const manualSource = Array.isArray(raw.source_donnees) && raw.source_donnees.includes("saisie manuelle");
   const storedSound = raw.profil_sonore && typeof raw.profil_sonore === "object"
     ? raw.profil_sonore as Record<string, unknown>
     : {};
@@ -166,7 +167,7 @@ function getFiche(data: unknown): Fiche {
   return {
     ...core,
     facons_travail: facetsForFiche(core),
-    provenance_facons: facetProvenance(core),
+    provenance_facons: manualSource ? "saisie manuelle" : facetProvenance(core),
   };
 }
 

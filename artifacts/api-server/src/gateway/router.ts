@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db } from "@workspace/db";
+import { db, novaluthProfilesTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { anonymize } from "./anonymize";
 import {
@@ -17,6 +17,7 @@ import {
 import { authenticateGatewayRequest, GatewayAuthError, gatewayIsConfigured } from "./auth";
 import { PageReadRefused, readPublicPage, urlForExternalPageFallback } from "./page-harvester";
 import { logger } from "../lib/logger";
+import { readLocalCollection } from "./local-collecte";
 
 const router: IRouter = Router();
 
@@ -457,16 +458,40 @@ router.post("/v1/collecte", async (req, res) => {
       try {
         if (provider.key === "local-collecte") {
           const remoteUnavailable = failures.includes("data-universe");
-          const fallbackState = collectionIssue ?? (remoteUnavailable ? "indisponible" : "vide");
+          const localFiches = await readLocalCollection();
+          if (localFiches.length > 0) {
+            await db
+              .insert(novaluthProfilesTable)
+              .values(
+                localFiches.map((fiche) => ({
+                  slug: fiche.slug,
+                  name: fiche.nom,
+                  entityType: fiche.type,
+                  country: fiche.pays ?? null,
+                  city: fiche.ville ?? null,
+                  status: "candidate",
+                  innovationScore: null,
+                  minimumPriceEur: fiche.prix_min_eur ?? null,
+                  maximumPriceEur: fiche.prix_max_eur ?? null,
+                  data: fiche,
+                  isDemo: false,
+                })),
+              )
+              .onConflictDoNothing();
+          }
+          const fallbackState =
+            localFiches.length > 0
+              ? "donnees"
+              : collectionIssue ?? (remoteUnavailable ? "indisponible" : "vide");
           audit(caller, "collecte", provider.key, 200, {
-            nombre: 0,
+            nombre: localFiches.length,
             secours: failures.length,
             etat: fallbackState,
             pii_retirees: safeKeywords.reduce((total, keyword) => total + keyword.removed, 0),
           });
           res.json({
-            publications: [],
-            nombre: 0,
+            publications: localFiches,
+            nombre: localFiches.length,
             etat_collecte: fallbackState,
             fournisseur: provider.key,
             secours: failures,

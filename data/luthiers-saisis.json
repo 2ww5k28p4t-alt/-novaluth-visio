@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "luthiers": [
+    {
+      "slug": "atelier-clairiere",
+      "nom": "Atelier Clairière",
+      "type": "luthier",
+      "annee_creation": 2024,
+      "pays": "France",
+      "ville": "Angers",
+      "site_web": null,
+      "reseaux": {},
+      "expedition_internationale": false,
+      "delai_moyen_mois": 6,
+      "prix_min_eur": 2200,
+      "prix_max_eur": 3900,
+      "production_annuelle": 10,
+      "approche_artisanale": "Atelier indépendant fabriquant des guitares sur commande avec des bois locaux.",
+      "modeles": [
+        {
+          "nom": "Clairière S",
+          "type": "electrique",
+          "inspiration": "Instrument compact aux lignes sobres.",
+          "prix_base_eur": 2200,
+          "personnalisable": true,
+          "specifications": {
+            "bois_corps": "frêne local",
+            "bois_manche": "érable",
+            "touche": "noyer",
+            "profil_manche": "C doux",
+            "diapason_mm": 648,
+            "nombre_cases": 22,
+            "type_micros": "simple bobinage",
+            "configuration_micros": "SS",
+            "chevalet": "fixe",
+            "poids_kg": 3.2
+          }
+        }
+      ],
+      "profil_sonore": {
+        "styles": ["folk", "blues", "indie"],
+        "niveau_sortie": "moyen",
+        "couleur": "equilibre",
+        "attaque": "franche",
+        "tenue": "longue",
+        "type_grain": "boisé et ouvert",
+        "description": "Une réponse équilibrée avec une attaque franche et une tenue longue."
+      },
+      "logistique": {
+        "expedie_france": true,
+        "expedie_europe": true,
+        "expedie_monde": false,
+        "transporteur": "Transport suivi avec assurance",
+        "garantie_annees": 2,
+        "politique_retour": "À définir avec l’atelier selon le niveau de personnalisation."
+      },
+      "innovation": {
+        "materiaux_alternatifs": ["frêne local", "noyer régional"],
+        "demarche_ecologique": "Sélection de bois régionaux et production en petite série.",
+        "technologie_proprietaire": null,
+        "edition_limitee": false,
+        "marqueurs": ["essences locales", "atelier individuel", "petite production"]
+      },
+      "ia": {
+        "tags": ["artisan", "circuit court"],
+        "mots_cles": ["folk", "blues", "bois local"],
+        "resume_ia": null,
+        "modele_utilise": "saisie manuelle",
+        "genere_le": null
+      },
+      "sources": ["catalogue interne NovaLuth"]
+    }
+  ]
+}

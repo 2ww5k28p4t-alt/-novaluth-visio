@@ -2,3 +2,4 @@
 - [Gateway page-reading boundary](gateway-page-reading-boundary.md) — Public-page retrieval must pin validated DNS, fail closed on site policies, and share replay/quota state.
 - [Transactional email outbox](transactional-email-outbox.md) — Notification events must be enqueued atomically and delivered at least once with provider idempotency.
 - [Admin summary normalization](admin-summary-normalization.md) — Stored profile payloads can predate derived fields; normalize them before response-schema validation.
+- [Database schema reconciliation](db-schema-reconciliation.md) — A compiled schema source can be newer than the development database constraints.
