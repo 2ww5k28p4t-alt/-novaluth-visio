@@ -14,11 +14,13 @@ import {
   novaluthEmailOutboxTable,
   novaluthProfilesTable,
   novaluthProjectsTable,
+  novaluthSn13CallEventsTable,
   novaluthSn13DiagnosticsTable,
   pool,
 } from "@workspace/db";
 import { novaluthSeed } from "../data/novaluth-seed";
 import app from "../app";
+import { runMaintenance } from "./novaluth";
 import {
   enqueueNovaLuthEmail,
   processNovaLuthEmailOutbox,
@@ -553,6 +555,61 @@ test("NovaLuth email outbox deduplicates and dead-letters repeated provider fail
   await db
     .delete(novaluthEmailOutboxTable)
     .where(eq(novaluthEmailOutboxTable.dedupeKey, dedupeKey));
+});
+
+test("purge les événements SN13 expirés lors de l’entretien sans nouvelle collecte", async () => {
+  const now = Date.now();
+  const [expired, atBoundary, recent] = await db
+    .insert(novaluthSn13CallEventsTable)
+    .values([
+      {
+        status: "erreur",
+        calledAt: new Date(now - 24 * 60 * 60 * 1_000 - 1),
+      },
+      {
+        status: "vide",
+        calledAt: new Date(now - 24 * 60 * 60 * 1_000),
+      },
+      {
+        status: "succes",
+        calledAt: new Date(now - 24 * 60 * 60 * 1_000 + 1),
+      },
+    ])
+    .returning({ id: novaluthSn13CallEventsTable.id });
+
+  try {
+    await runMaintenance("scheduled", new Date(now));
+
+    const remaining = await db
+      .select({ id: novaluthSn13CallEventsTable.id })
+      .from(novaluthSn13CallEventsTable)
+      .where(
+        inArray(novaluthSn13CallEventsTable.id, [
+          atBoundary.id,
+          recent.id,
+        ]),
+      );
+    assert.deepEqual(
+      new Set(remaining.map((event) => event.id)),
+      new Set([atBoundary.id, recent.id]),
+    );
+
+    const expiredRemaining = await db
+      .select({ id: novaluthSn13CallEventsTable.id })
+      .from(novaluthSn13CallEventsTable)
+      .where(inArray(novaluthSn13CallEventsTable.id, [expired.id]));
+    assert.equal(expiredRemaining.length, 0);
+  } finally {
+    await db
+      .delete(novaluthSn13CallEventsTable)
+      .where(
+        inArray(novaluthSn13CallEventsTable.id, [
+          expired.id,
+          atBoundary.id,
+          recent.id,
+        ]),
+      );
+  }
 });
 
 test("SN13 conserve le diagnostic le plus récent lors d’écritures simultanées", async () => {

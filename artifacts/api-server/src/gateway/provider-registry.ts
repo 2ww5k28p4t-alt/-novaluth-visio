@@ -211,6 +211,15 @@ async function persistedRecentSn13Stats(now = Date.now()): Promise<Sn13RecentSta
   };
 }
 
+export async function purgeExpiredSn13CallEvents(now = Date.now()): Promise<number> {
+  const cutoffDate = new Date(now - sn13RecentWindowMs);
+  const deleted = await db
+    .delete(novaluthSn13CallEventsTable)
+    .where(sql`${novaluthSn13CallEventsTable.calledAt} < ${cutoffDate}`)
+    .returning({ id: novaluthSn13CallEventsTable.id });
+  return deleted.length;
+}
+
 async function rememberSn13Call(
   statut: Exclude<Sn13CollectionStatus, "jamais">,
   requeteId: string,

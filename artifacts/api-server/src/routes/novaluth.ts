@@ -77,7 +77,7 @@ import {
   sendNovaLuthTelegramMessage,
 } from "../lib/novaluth-telegram";
 import { logger } from "../lib/logger";
-import { lastSn13Call } from "../gateway/provider-registry";
+import { lastSn13Call, purgeExpiredSn13CallEvents } from "../gateway/provider-registry";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -427,11 +427,15 @@ async function requireAtelierSession(slug: string, token: string | undefined) {
   return session;
 }
 
-export async function runMaintenance(trigger: "request" | "scheduled" = "request") {
-  const now = new Date();
+export async function runMaintenance(
+  trigger: "request" | "scheduled" = "request",
+  maintenanceNow = new Date(),
+) {
+  const now = maintenanceNow;
   const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
   const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   const inTwoDays = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+  const sn13EventsDeleted = await purgeExpiredSn13CallEvents(now.getTime());
   let annulations = 0;
   let expirations = 0;
   let relances = 0;
@@ -600,7 +604,10 @@ export async function runMaintenance(trigger: "request" | "scheduled" = "request
     projets_sommeil: projetsSommeil,
     execute_le: now.toISOString(),
   };
-  logger.info({ trigger, ...result }, "NovaLuth access maintenance completed");
+  logger.info(
+    { trigger, sn13_evenements_supprimes: sn13EventsDeleted, ...result },
+    "NovaLuth access maintenance completed",
+  );
   return result;
 }
 
