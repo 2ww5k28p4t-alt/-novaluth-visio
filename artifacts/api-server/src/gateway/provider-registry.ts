@@ -1,3 +1,5 @@
+import { Sn13Client, type OnDemandDataResponse } from "macrocosmos";
+
 export type ProviderNeed = "inference" | "recherche" | "lecture" | "collecte";
 
 export type ProviderDefinition = {
@@ -17,6 +19,27 @@ export type ProviderDefinition = {
 
 const envOr = (name: string, fallback: string) =>
   process.env[name]?.trim() || fallback;
+
+export type DataUniverseRequest = {
+  source: "X" | "Reddit";
+  usernames: string[];
+  keywords: string[];
+  startDate: string;
+  endDate: string;
+  limit: number;
+  keywordMode: "any" | "all";
+};
+
+export async function requestDataUniverse(
+  request: DataUniverseRequest,
+): Promise<OnDemandDataResponse> {
+  const apiKey = process.env.SN13_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("SN13_API_KEY non configurée");
+  }
+  const client = new Sn13Client({ apiKey });
+  return client.onDemandData(request);
+}
 
 const inferenceModels = [
   envOr("CHUTES_MODEL", "Qwen/Qwen3-32B-TEE"),

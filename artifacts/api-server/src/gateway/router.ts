@@ -9,6 +9,7 @@ import {
   providerChains,
   providerHeaders,
   publicProviderState,
+  requestDataUniverse,
   type ProviderDefinition,
 } from "./provider-registry";
 import { authenticateGatewayRequest, GatewayAuthError, gatewayIsConfigured } from "./auth";
@@ -114,6 +115,14 @@ function requiredText(value: unknown, name: string, max: number): string {
 
 function optionalText(value: unknown, max: number): string | undefined {
   return value === undefined ? undefined : requiredText(value, "champ texte", max);
+}
+
+function collectionDate(value: unknown, name: string): string {
+  const text = requiredText(value, name, 40);
+  if (Number.isNaN(new Date(text).getTime())) {
+    throw new GatewayAuthError(422, `${name} invalide.`);
+  }
+  return text;
 }
 
 async function providerRequest(
@@ -386,20 +395,40 @@ router.post("/v1/collecte", async (req, res) => {
     if (safeKeywords.some((keyword) => keyword.removed > 0)) {
       throw new GatewayAuthError(422, "La collecte contient des données personnelles ou sensibles.");
     }
+    const usernamesInput = input.usernames === undefined ? [] : input.usernames;
+    if (!Array.isArray(usernamesInput) || usernamesInput.length > 5) {
+      throw new GatewayAuthError(422, "usernames invalide.");
+    }
+    const usernames = usernamesInput.map((value) => requiredText(value, "username", 100));
     const jours = input.jours === undefined ? 3 : Number(input.jours);
     const limit = input.limite === undefined ? 300 : Number(input.limite);
     if (!Number.isInteger(jours) || jours < 1 || jours > 366 || !Number.isInteger(limit) || limit < 10 || limit > 1000) {
       throw new GatewayAuthError(422, "Paramètres de collecte invalides.");
     }
-    const keywordMode =
+    const keywordMode = (
       input.keyword_mode === undefined
         ? "any"
-        : requiredText(input.keyword_mode, "keyword_mode", 10).toLowerCase();
+        : requiredText(input.keyword_mode, "keyword_mode", 10).toLowerCase()
+    ) as "any" | "all";
     if (!["any", "all"].includes(keywordMode)) {
       throw new GatewayAuthError(422, "keyword_mode invalide.");
     }
-    const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - jours * 24 * 60 * 60 * 1000);
+    const requestedStartDate =
+      input.start_date === undefined ? undefined : collectionDate(input.start_date, "start_date");
+    const requestedEndDate =
+      input.end_date === undefined ? undefined : collectionDate(input.end_date, "end_date");
+    if (Boolean(requestedStartDate) !== Boolean(requestedEndDate)) {
+      throw new GatewayAuthError(422, "start_date et end_date doivent être fournis ensemble.");
+    }
+    const endDate = requestedEndDate ? new Date(requestedEndDate) : new Date();
+    const startDate = requestedStartDate
+      ? new Date(requestedStartDate)
+      : new Date(endDate.getTime() - jours * 24 * 60 * 60 * 1000);
+    if (startDate > endDate) {
+      throw new GatewayAuthError(422, "La période de collecte est invalide.");
+    }
+    const startDateForProvider = requestedStartDate ?? startDate.toISOString();
+    const endDateForProvider = requestedEndDate ?? endDate.toISOString();
     await takeQuota("collecte");
     const providers = activeProviders("collecte");
     if (!providers.length) throw new GatewayAuthError(503, "Aucun fournisseur de collecte configuré.");
@@ -415,29 +444,50 @@ router.post("/v1/collecte", async (req, res) => {
           res.json({ publications: [], nombre: 0, fournisseur: provider.key, secours: failures });
           return;
         }
-        const response = await providerRequest(
-          provider,
-          {
+        let publications: unknown[];
+        if (provider.key === "data-universe") {
+          const response = await requestDataUniverse({
             source: source === "x" ? "X" : "Reddit",
-            usernames: [],
+            usernames,
             keywords: safeKeywords.map((keyword) => keyword.text),
-            start_date: startDate.toISOString(),
-            end_date: endDate.toISOString(),
+            startDate: startDateForProvider,
+            endDate: endDateForProvider,
             limit,
-            keyword_mode: keywordMode,
-          },
-          180_000,
-        );
-        if (!response.ok) {
-          failures.push(provider.key);
-          const errorBody = await response.text();
-          audit(caller, "collecte", provider.key, response.status, {
-            erreur: errorBody,
+            keywordMode,
           });
-          continue;
+          if (response.status.toLowerCase() !== "success") {
+            failures.push(provider.key);
+            audit(caller, "collecte", provider.key, 502, {
+              erreur: JSON.stringify(response),
+            });
+            continue;
+          }
+          publications = Array.isArray(response.data) ? response.data : [];
+        } else {
+          const response = await providerRequest(
+            provider,
+            {
+              source: source === "x" ? "X" : "Reddit",
+              usernames,
+              keywords: safeKeywords.map((keyword) => keyword.text),
+              start_date: startDateForProvider,
+              end_date: endDateForProvider,
+              limit,
+              keyword_mode: keywordMode,
+            },
+            180_000,
+          );
+          if (!response.ok) {
+            failures.push(provider.key);
+            const errorBody = await response.text();
+            audit(caller, "collecte", provider.key, response.status, {
+              erreur: errorBody,
+            });
+            continue;
+          }
+          const data = (await response.json()) as { data?: unknown[] };
+          publications = Array.isArray(data.data) ? data.data : [];
         }
-        const data = (await response.json()) as { data?: unknown[] };
-        const publications = Array.isArray(data.data) ? data.data : [];
         audit(caller, "collecte", `${provider.key}:${source}`, 200, {
           nombre: publications.length,
           pii_retirees: safeKeywords.reduce((total, keyword) => total + keyword.removed, 0),
