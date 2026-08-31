@@ -878,7 +878,7 @@ components:
       properties:
         statut:
           type: string
-          enum: [jamais, succes, vide, erreur]
+          enum: [jamais, succes, vide, incomplet, erreur]
         requete_id: { type: ["string", "null"] }
         corps_erreur: { type: ["string", "null"] }
         appele_le: { type: ["string", "null"] }

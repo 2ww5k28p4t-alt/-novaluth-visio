@@ -13,5 +13,6 @@ export const Sn13CallStateStatut = {
   jamais: 'jamais',
   succes: 'succes',
   vide: 'vide',
+  incomplet: 'incomplet',
   erreur: 'erreur',
 } as const;

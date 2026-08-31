@@ -31,7 +31,7 @@ export type DataUniverseRequest = {
   keywordMode: "any" | "all";
 };
 
-export type Sn13CollectionStatus = "jamais" | "succes" | "vide" | "erreur";
+export type Sn13CollectionStatus = "jamais" | "succes" | "vide" | "incomplet" | "erreur";
 
 export type Sn13CallState = {
   statut: Sn13CollectionStatus;
@@ -161,10 +161,17 @@ export async function requestDataUniverse(
     const response = await client.onDemandData(request);
     const requeteId = sn13RequestId(response, fallbackRequestId);
     const isSuccess = response.status.toLowerCase() === "success";
-    const nombre = isSuccess && Array.isArray(response.data) ? response.data.length : null;
-    const corpsErreur = isSuccess ? null : errorBodyFromResponse(response, apiKey);
+    const hasUsableData = Array.isArray(response.data);
+    const nombre = isSuccess && hasUsableData ? response.data.length : null;
+    const corpsErreur = isSuccess && hasUsableData ? null : errorBodyFromResponse(response, apiKey);
     rememberSn13Call(
-      isSuccess ? (nombre === 0 ? "vide" : "succes") : "erreur",
+      isSuccess
+        ? hasUsableData
+          ? nombre === 0
+            ? "vide"
+            : "succes"
+          : "incomplet"
+        : "erreur",
       requeteId,
       nombre,
       corpsErreur,

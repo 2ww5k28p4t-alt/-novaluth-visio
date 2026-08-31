@@ -452,20 +452,22 @@ router.post("/v1/collecte", async (req, res) => {
     const providers = activeProviders("collecte");
     if (!providers.length) throw new GatewayAuthError(503, "Aucun fournisseur de collecte configuré.");
     const failures: string[] = [];
+    let collectionIssue: "indisponible" | "incomplet" | null = null;
     for (const provider of providers) {
       try {
         if (provider.key === "local-collecte") {
           const remoteUnavailable = failures.includes("data-universe");
+          const fallbackState = collectionIssue ?? (remoteUnavailable ? "indisponible" : "vide");
           audit(caller, "collecte", provider.key, 200, {
             nombre: 0,
             secours: failures.length,
-            etat: remoteUnavailable ? "indisponible" : "vide",
+            etat: fallbackState,
             pii_retirees: safeKeywords.reduce((total, keyword) => total + keyword.removed, 0),
           });
           res.json({
             publications: [],
             nombre: 0,
-            etat_collecte: remoteUnavailable ? "indisponible" : "vide",
+            etat_collecte: fallbackState,
             fournisseur: provider.key,
             secours: failures,
           });
@@ -483,9 +485,13 @@ router.post("/v1/collecte", async (req, res) => {
             keywordMode,
           });
           const response = result.response;
-          if (response.status.toLowerCase() !== "success") {
+          const responseIsSuccess = response.status.toLowerCase() === "success";
+          const responseIsIncomplete = responseIsSuccess && !Array.isArray(response.data);
+          if (!responseIsSuccess || responseIsIncomplete) {
             failures.push(provider.key);
+            collectionIssue = responseIsIncomplete ? "incomplet" : "indisponible";
             audit(caller, "collecte", provider.key, 502, {
+              etat: collectionIssue,
               erreur: result.corpsErreur,
               requete_id: result.requeteId,
               dedupeKey: `sn13:${response.status}:${sn13ErrorFingerprint(result.corpsErreur ?? "")}`,

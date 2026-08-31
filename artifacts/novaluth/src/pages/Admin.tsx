@@ -155,6 +155,7 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
     jamais: { label: "Aucun appel", className: "text-muted-foreground" },
     succes: { label: "Données reçues", className: "text-green-700" },
     vide: { label: "Réponse vide", className: "text-amber-700" },
+    incomplet: { label: "Réponse incomplète", className: "text-orange-700" },
     erreur: { label: "Erreur SN13", className: "text-destructive" },
   }[summary.collecte_sn13.statut] ?? {
     label: summary.collecte_sn13.statut,

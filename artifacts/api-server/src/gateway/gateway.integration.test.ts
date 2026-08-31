@@ -420,3 +420,100 @@ test("returns successful SN13 publications unchanged without using the fallback"
     else process.env.SN13_API_KEY = previousSn13Key;
   }
 });
+
+test("marks malformed successful SN13 responses as incomplete", async () => {
+  const previousGatewaySecret = process.env.NOVALUTH_GATEWAY_SECRET;
+  const previousSn13Key = process.env.SN13_API_KEY;
+  const gatewaySecret = "gateway-incomplete-test-secret".repeat(2);
+  const requestId = "sn13-incomplete-request-001";
+  const originalLoggerInfo = logger.info;
+  const sn13Audits: Record<string, unknown>[] = [];
+
+  process.env.NOVALUTH_GATEWAY_SECRET = gatewaySecret;
+  process.env.SN13_API_KEY = "sn13-incomplete-test-secret";
+  setSn13ClientFactoryForTests(() => ({
+    onDemandData: async () => ({
+      status: "success",
+      data: "not-a-publication-array" as unknown as [],
+      meta: { request_id: requestId },
+    }),
+  }));
+  logger.info = ((details: unknown, message?: string) => {
+    if (
+      message === "NovaLuth gateway audit" &&
+      details &&
+      typeof details === "object" &&
+      (details as Record<string, unknown>).cible === "data-universe"
+    ) {
+      sn13Audits.push(details as Record<string, unknown>);
+    }
+  }) as typeof logger.info;
+
+  const adminSummary = async () => {
+    const response = await fetch(`${apiOrigin}/api/admin/summary`, {
+      headers: { "X-Admin-Token": "demo-admin" },
+    });
+    assert.equal(response.status, 200);
+    return (await response.json()) as {
+      compteurs: Record<string, number>;
+      collecte_sn13: {
+        statut: string;
+        requete_id: string | null;
+        corps_erreur: string | null;
+      };
+    };
+  };
+
+  try {
+    const beforeSummary = await adminSummary();
+    const requestBody = JSON.stringify({
+      source: "x",
+      usernames: [],
+      mots_cles: ["lutherie"],
+      start_date: "2026-03-01",
+      end_date: "2026-08-31",
+      limite: 100,
+      keyword_mode: "any",
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nonce = randomUUID();
+    const signature = createHmac("sha256", gatewaySecret)
+      .update(`POST./v1/collecte.${timestamp}.${nonce}.${requestBody}`)
+      .digest("hex");
+    const response = await fetch(`${apiOrigin}/v1/collecte`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-NovaLuth-Timestamp": timestamp,
+        "X-NovaLuth-Nonce": nonce,
+        "X-NovaLuth-Signature": signature,
+      },
+      body: requestBody,
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      publications: [],
+      nombre: 0,
+      etat_collecte: "incomplet",
+      fournisseur: "local-collecte",
+      secours: ["data-universe"],
+    });
+
+    const afterSummary = await adminSummary();
+    assert.equal(afterSummary.compteurs.candidate, beforeSummary.compteurs.candidate);
+    assert.equal(afterSummary.collecte_sn13.statut, "incomplet");
+    assert.equal(afterSummary.collecte_sn13.requete_id, requestId);
+    assert.match(afterSummary.collecte_sn13.corps_erreur ?? "", /not-a-publication-array/);
+    assert.equal(sn13Audits.length, 1);
+    assert.equal(sn13Audits[0]?.statut, 502);
+    assert.equal(sn13Audits[0]?.etat, "incomplet");
+    assert.equal(sn13Audits[0]?.requete_id, requestId);
+  } finally {
+    logger.info = originalLoggerInfo;
+    setSn13ClientFactoryForTests(null);
+    if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
+    if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
+    else process.env.SN13_API_KEY = previousSn13Key;
+  }
+});
