@@ -8,10 +8,12 @@
 import type { AccessAdminSummary } from './accessAdminSummary';
 import type { AdminSummaryCompteurs } from './adminSummaryCompteurs';
 import type { Fiche } from './fiche';
+import type { Sn13CallState } from './sn13CallState';
 
 export interface AdminSummary {
   compteurs: AdminSummaryCompteurs;
   fiches: Fiche[];
   passerelle: string;
+  collecte_sn13: Sn13CallState;
   acces: AccessAdminSummary;
 }

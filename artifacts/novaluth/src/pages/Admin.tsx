@@ -151,6 +151,16 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
 
   if (!summary) return null;
 
+  const sn13Status = {
+    jamais: { label: "Aucun appel", className: "text-muted-foreground" },
+    succes: { label: "Données reçues", className: "text-green-700" },
+    vide: { label: "Réponse vide", className: "text-amber-700" },
+    erreur: { label: "Erreur SN13", className: "text-destructive" },
+  }[summary.collecte_sn13.statut] ?? {
+    label: summary.collecte_sn13.statut,
+    className: "text-muted-foreground",
+  };
+
   return (
     <div className="container mx-auto px-4 py-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-4">
@@ -207,6 +217,56 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
             ))}
           </div>
         </section>
+
+      <section className="bg-card border border-border/50 p-6 mb-12">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
+          <div>
+            <h2 className="text-xl font-serif text-primary">Collecte SN13</h2>
+            <p className="text-sm text-muted-foreground">
+              Dernier appel distant ; le secours local reste non publiant.
+            </p>
+          </div>
+          <Badge variant="outline" className={`rounded-none ${sn13Status.className}`}>
+            {sn13Status.label}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+          <div className="border border-border/50 bg-background p-3">
+            <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+              Identifiant de requête
+            </span>
+            <span className="font-mono text-xs break-all">
+              {summary.collecte_sn13.requete_id ?? "—"}
+            </span>
+          </div>
+          <div className="border border-border/50 bg-background p-3">
+            <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+              Appelé le
+            </span>
+            <span>
+              {summary.collecte_sn13.appele_le
+                ? new Date(summary.collecte_sn13.appele_le).toLocaleString("fr-FR")
+                : "—"}
+            </span>
+          </div>
+          <div className="border border-border/50 bg-background p-3">
+            <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+              Publications
+            </span>
+            <span>{summary.collecte_sn13.nombre ?? "—"}</span>
+          </div>
+        </div>
+        {summary.collecte_sn13.corps_erreur ? (
+          <div className="mt-4 border border-destructive/30 bg-destructive/5 p-4">
+            <span className="block text-xs uppercase tracking-wider text-destructive mb-2">
+              Corps d’erreur (secret masqué)
+            </span>
+            <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+              {summary.collecte_sn13.corps_erreur}
+            </pre>
+          </div>
+        ) : null}
+      </section>
 
       <div className="bg-card border border-border/50">
         <div className="p-6 border-b border-border/50 flex justify-between items-center">

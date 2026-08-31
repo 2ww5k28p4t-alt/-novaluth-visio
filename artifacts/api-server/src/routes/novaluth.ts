@@ -77,6 +77,7 @@ import {
   sendNovaLuthTelegramMessage,
 } from "../lib/novaluth-telegram";
 import { logger } from "../lib/logger";
+import { lastSn13Call } from "../gateway/provider-registry";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -844,8 +845,9 @@ router.get("/admin/summary", async (req, res, next) => {
         compteurs,
         fiches: rows
           .filter((row) => row.status !== "rejetee" && row.status !== "trop_etablie")
-          .map((row) => row.data),
+          .map((row) => getFiche(row.data)),
         passerelle: "moteur de correspondance local",
+        collecte_sn13: lastSn13Call(),
         acces: {
           en_attente: accessRows.filter((request) => request.status === "en_attente").length,
           acceptees: accessRows.filter((request) => request.status === "acceptee").length,

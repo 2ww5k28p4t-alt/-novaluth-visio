@@ -942,6 +942,13 @@ export const GetAdminSummaryResponse = zod.object({
   "provenance_facons": zod.string()
 })),
   "passerelle": zod.string(),
+  "collecte_sn13": zod.object({
+  "statut": zod.enum(['jamais', 'succes', 'vide', 'erreur']),
+  "requete_id": zod.string().nullable(),
+  "corps_erreur": zod.string().nullable(),
+  "appele_le": zod.string().nullable(),
+  "nombre": zod.number().nullable()
+}),
   "acces": zod.object({
   "en_attente": zod.number(),
   "acceptees": zod.number(),

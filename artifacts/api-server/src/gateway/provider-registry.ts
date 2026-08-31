@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Sn13Client, type OnDemandDataResponse } from "macrocosmos";
 
 export type ProviderNeed = "inference" | "recherche" | "lecture" | "collecte";
@@ -30,15 +31,151 @@ export type DataUniverseRequest = {
   keywordMode: "any" | "all";
 };
 
+export type Sn13CollectionStatus = "jamais" | "succes" | "vide" | "erreur";
+
+export type Sn13CallState = {
+  statut: Sn13CollectionStatus;
+  requete_id: string | null;
+  corps_erreur: string | null;
+  appele_le: string | null;
+  nombre: number | null;
+};
+
+export type DataUniverseRequestResult = {
+  response: OnDemandDataResponse;
+  requeteId: string;
+  corpsErreur: string | null;
+};
+
+const initialSn13CallState: Sn13CallState = {
+  statut: "jamais",
+  requete_id: null,
+  corps_erreur: null,
+  appele_le: null,
+  nombre: null,
+};
+
+let lastSn13CallState: Sn13CallState = initialSn13CallState;
+
+function textValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function requestIdFromValue(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["request_id", "requestId", "request-id", "id"]) {
+    const candidate = textValue(record[key]);
+    if (candidate) return candidate.slice(0, 200);
+  }
+  return undefined;
+}
+
+function sn13RequestId(response: OnDemandDataResponse, fallback: string): string {
+  return requestIdFromValue(response.meta) ?? fallback;
+}
+
+function sanitizedErrorBody(value: unknown, apiKey: string): string {
+  let body: string;
+  if (typeof value === "string") {
+    body = value;
+  } else {
+    try {
+      body = JSON.stringify(value) ?? String(value);
+    } catch {
+      body = String(value);
+    }
+  }
+  const escapedApiKey = apiKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return body
+    .replace(new RegExp(escapedApiKey, "g"), "[REDACTED]")
+    .replace(/Bearer\s+[^\s"',}]+/gi, "Bearer [REDACTED]")
+    .replace(
+      /(["']?(?:api[_-]?key|authorization|token|secret)["']?\s*[:=]\s*["']?)[^"',}\s]+/gi,
+      "$1[REDACTED]",
+    )
+    .slice(0, 4_000);
+}
+
+function errorBodyFromResponse(response: OnDemandDataResponse, apiKey: string): string {
+  return sanitizedErrorBody(
+    {
+      status: response.status,
+      data: response.data,
+      meta: response.meta,
+    },
+    apiKey,
+  );
+}
+
+function errorBodyFromThrown(error: unknown, apiKey: string): string {
+  if (error instanceof Error) {
+    return sanitizedErrorBody(`${error.name}: ${error.message}`, apiKey);
+  }
+  return sanitizedErrorBody(error, apiKey);
+}
+
+function rememberSn13Call(
+  statut: Exclude<Sn13CollectionStatus, "jamais">,
+  requeteId: string,
+  nombre: number | null,
+  corpsErreur: string | null,
+) {
+  lastSn13CallState = {
+    statut,
+    requete_id: requeteId,
+    corps_erreur: corpsErreur,
+    appele_le: new Date().toISOString(),
+    nombre,
+  };
+}
+
+export function lastSn13Call(): Sn13CallState {
+  return { ...lastSn13CallState };
+}
+
 export async function requestDataUniverse(
   request: DataUniverseRequest,
-): Promise<OnDemandDataResponse> {
+): Promise<DataUniverseRequestResult> {
   const apiKey = process.env.SN13_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("SN13_API_KEY non configurée");
   }
+  const fallbackRequestId = randomUUID();
   const client = new Sn13Client({ apiKey });
-  return client.onDemandData(request);
+  try {
+    const response = await client.onDemandData(request);
+    const requeteId = sn13RequestId(response, fallbackRequestId);
+    const isSuccess = response.status.toLowerCase() === "success";
+    const nombre = isSuccess && Array.isArray(response.data) ? response.data.length : null;
+    const corpsErreur = isSuccess ? null : errorBodyFromResponse(response, apiKey);
+    rememberSn13Call(
+      isSuccess ? (nombre === 0 ? "vide" : "succes") : "erreur",
+      requeteId,
+      nombre,
+      corpsErreur,
+    );
+    return { response, requeteId, corpsErreur };
+  } catch (error) {
+    const requeteId = requestIdFromValue((error as { metadata?: unknown })?.metadata) ?? fallbackRequestId;
+    const corpsErreur = errorBodyFromThrown(error, apiKey);
+    rememberSn13Call("erreur", requeteId, null, corpsErreur);
+    throw Object.assign(error instanceof Error ? error : new Error(corpsErreur), {
+      sn13RequestId: requeteId,
+      sn13ErrorBody: corpsErreur,
+    });
+  }
+}
+
+export function sn13ErrorBody(error: unknown): string | undefined {
+  return textValue((error as { sn13ErrorBody?: unknown })?.sn13ErrorBody);
+}
+
+export function sn13ErrorFingerprint(errorBody: string): string {
+  return errorBody.replace(
+    /(["']?request[_-]?id["']?\s*[:=]\s*["']?)[^"',}\s]+/gi,
+    "$1[REQUEST_ID]",
+  );
 }
 
 const inferenceModels = [
@@ -174,7 +311,7 @@ export const providerChains: Record<ProviderNeed, readonly ProviderDefinition[]>
       source: "Registre public NovaLuth",
       license: "Code NovaLuth",
       reservation:
-        "Secours sans collecte distante : renvoie une liste vide et ne publie jamais dans l’annuaire.",
+        "Secours sans collecte distante : renvoie une liste vide avec un état explicite et ne publie jamais dans l’annuaire.",
       models: [],
     },
   ],

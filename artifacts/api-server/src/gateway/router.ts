@@ -6,6 +6,8 @@ import {
   activeProviders,
   authorizedModels,
   isProviderConfigured,
+  sn13ErrorBody,
+  sn13ErrorFingerprint,
   providerChains,
   providerHeaders,
   publicProviderState,
@@ -24,6 +26,9 @@ const limits = {
   page: Number(process.env.NOVALUTH_LIMIT_PAGE_PER_DAY ?? 100),
   collecte: Number(process.env.NOVALUTH_LIMIT_COLLECTION_PER_DAY ?? 50),
 };
+
+const recentDeduplicatedAudit = new Map<string, number>();
+const AUDIT_DEDUPLICATION_WINDOW_MS = 5 * 60 * 1000;
 
 function publicHealth() {
   return {
@@ -75,6 +80,20 @@ function audit(
   status: number,
   extra: Record<string, unknown> = {},
 ) {
+  const { dedupeKey, ...details } = extra as Record<string, unknown> & { dedupeKey?: unknown };
+  if (typeof dedupeKey === "string" && dedupeKey) {
+    const now = Date.now();
+    for (const [key, loggedAt] of recentDeduplicatedAudit) {
+      if (now - loggedAt >= AUDIT_DEDUPLICATION_WINDOW_MS) {
+        recentDeduplicatedAudit.delete(key);
+      }
+    }
+    const previous = recentDeduplicatedAudit.get(dedupeKey);
+    if (previous !== undefined && now - previous < AUDIT_DEDUPLICATION_WINDOW_MS) {
+      return;
+    }
+    recentDeduplicatedAudit.set(dedupeKey, now);
+  }
   logger.info(
     {
       passerelle: true,
@@ -82,7 +101,7 @@ function audit(
       operation,
       cible: target,
       statut: status,
-      ...extra,
+      ...details,
     },
     "NovaLuth gateway audit",
   );
@@ -436,17 +455,25 @@ router.post("/v1/collecte", async (req, res) => {
     for (const provider of providers) {
       try {
         if (provider.key === "local-collecte") {
+          const remoteUnavailable = failures.includes("data-universe");
           audit(caller, "collecte", provider.key, 200, {
             nombre: 0,
             secours: failures.length,
+            etat: remoteUnavailable ? "indisponible" : "vide",
             pii_retirees: safeKeywords.reduce((total, keyword) => total + keyword.removed, 0),
           });
-          res.json({ publications: [], nombre: 0, fournisseur: provider.key, secours: failures });
+          res.json({
+            publications: [],
+            nombre: 0,
+            etat_collecte: remoteUnavailable ? "indisponible" : "vide",
+            fournisseur: provider.key,
+            secours: failures,
+          });
           return;
         }
         let publications: unknown[];
         if (provider.key === "data-universe") {
-          const response = await requestDataUniverse({
+          const result = await requestDataUniverse({
             source: source === "x" ? "X" : "Reddit",
             usernames,
             keywords: safeKeywords.map((keyword) => keyword.text),
@@ -455,10 +482,13 @@ router.post("/v1/collecte", async (req, res) => {
             limit,
             keywordMode,
           });
+          const response = result.response;
           if (response.status.toLowerCase() !== "success") {
             failures.push(provider.key);
             audit(caller, "collecte", provider.key, 502, {
-              erreur: JSON.stringify(response),
+              erreur: result.corpsErreur,
+              requete_id: result.requeteId,
+              dedupeKey: `sn13:${response.status}:${sn13ErrorFingerprint(result.corpsErreur ?? "")}`,
             });
             continue;
           }
@@ -490,22 +520,32 @@ router.post("/v1/collecte", async (req, res) => {
         }
         audit(caller, "collecte", `${provider.key}:${source}`, 200, {
           nombre: publications.length,
+          etat: publications.length === 0 ? "vide" : "donnees",
           pii_retirees: safeKeywords.reduce((total, keyword) => total + keyword.removed, 0),
         });
         res.json({
           publications,
           nombre: publications.length,
+          etat_collecte: publications.length === 0 ? "vide" : "donnees",
           fournisseur: provider.key,
           secours: failures,
         });
         return;
       } catch (error) {
         failures.push(provider.key);
+        const providerErrorBody =
+          sn13ErrorBody(error) ??
+          (error instanceof Error ? `${error.name}: ${error.message}` : String(error));
         audit(caller, "collecte", provider.key, 502, {
-          erreur:
-            error instanceof Error
-              ? `${error.name}: ${error.message}`
-              : String(error),
+          erreur: providerErrorBody,
+          ...((error as { sn13RequestId?: unknown }).sn13RequestId
+            ? { requete_id: (error as { sn13RequestId: string }).sn13RequestId }
+            : {}),
+          ...(provider.key === "data-universe"
+            ? {
+                dedupeKey: `sn13:exception:${sn13ErrorFingerprint(providerErrorBody)}`,
+              }
+            : {}),
         });
       }
     }

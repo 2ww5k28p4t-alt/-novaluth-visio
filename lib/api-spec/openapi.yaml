@@ -859,7 +859,7 @@ components:
               libelle: { type: string }
     AdminSummary:
       type: object
-      required: [compteurs, fiches, passerelle, acces]
+      required: [compteurs, fiches, passerelle, collecte_sn13, acces]
       properties:
         compteurs:
           type: object
@@ -868,8 +868,21 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Fiche" }
         passerelle: { type: string }
+        collecte_sn13:
+          $ref: "#/components/schemas/Sn13CallState"
         acces:
           $ref: "#/components/schemas/AccessAdminSummary"
+    Sn13CallState:
+      type: object
+      required: [statut, requete_id, corps_erreur, appele_le, nombre]
+      properties:
+        statut:
+          type: string
+          enum: [jamais, succes, vide, erreur]
+        requete_id: { type: ["string", "null"] }
+        corps_erreur: { type: ["string", "null"] }
+        appele_le: { type: ["string", "null"] }
+        nombre: { type: ["number", "null"] }
     StatusUpdate:
       type: object
       required: [statut]

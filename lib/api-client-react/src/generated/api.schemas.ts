@@ -449,6 +449,28 @@ export interface FichesMeta {
 
 export type AdminSummaryCompteurs = {[key: string]: number};
 
+export type Sn13CallStateStatut = typeof Sn13CallStateStatut[keyof typeof Sn13CallStateStatut];
+
+
+export const Sn13CallStateStatut = {
+  jamais: 'jamais',
+  succes: 'succes',
+  vide: 'vide',
+  erreur: 'erreur',
+} as const;
+
+export interface Sn13CallState {
+  statut: Sn13CallStateStatut;
+  /** @nullable */
+  requete_id: string | null;
+  /** @nullable */
+  corps_erreur: string | null;
+  /** @nullable */
+  appele_le: string | null;
+  /** @nullable */
+  nombre: number | null;
+}
+
 export interface AccessAdminSummary {
   en_attente: number;
   acceptees: number;
@@ -461,6 +483,7 @@ export interface AdminSummary {
   compteurs: AdminSummaryCompteurs;
   fiches: Fiche[];
   passerelle: string;
+  collecte_sn13: Sn13CallState;
   acces: AccessAdminSummary;
 }
 
