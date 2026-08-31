@@ -4,4 +4,5 @@
 - [Admin summary normalization](admin-summary-normalization.md) — Stored profile payloads can predate derived fields; normalize them before response-schema validation.
 - [Database schema reconciliation](db-schema-reconciliation.md) — A compiled schema source can be newer than the development database constraints.
 - [Development check constraints](development-check-constraints.md) — Verify active PostgreSQL CHECK constraints after schema changes; Drizzle push may leave an older constraint in place.
+- [Inline TypeScript commands](inline-tsx-resolution.md) — Inline tsx evaluation resolves imports from its invoking package, not reliably from the changed working directory.
 - [Monorepo build environment](monorepo-build-environment.md) — Full builds need artifact-specific PORT and BASE_PATH variables for Vite configuration loading.

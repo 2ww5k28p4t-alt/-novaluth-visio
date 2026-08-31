@@ -69,6 +69,41 @@
         "genere_le": null
       },
       "sources": ["catalogue interne NovaLuth"]
+    },
+    {
+      "slug": "gritty-guitars",
+      "nom": "Gritty Guitars",
+      "type": "luthier",
+      "annee_creation": 2020,
+      "pays": "France",
+      "ville": "Cestas",
+      "site_web": "https://www.gritty-guitare.fr/",
+      "reseaux": {},
+      "delai_moyen_mois": null,
+      "prix_min_eur": null,
+      "prix_max_eur": null,
+      "approche_artisanale": "Gritty Guitars est un atelier situé à Cestas, en France, créé en 2020. L’atelier propose un modèle de guitare électrique personnalisable.",
+      "modeles": [
+        {
+          "nom": "Guitare électrique personnalisable",
+          "type": "electrique",
+          "inspiration": null,
+          "prix_base_eur": null,
+          "personnalisable": true,
+          "specifications": {}
+        }
+      ],
+      "profil_sonore": {},
+      "logistique": {},
+      "innovation": {},
+      "ia": {
+        "tags": [],
+        "mots_cles": [],
+        "resume_ia": null,
+        "modele_utilise": null,
+        "genere_le": null
+      },
+      "sources": ["https://www.gritty-guitare.fr/"]
     }
   ]
 }
