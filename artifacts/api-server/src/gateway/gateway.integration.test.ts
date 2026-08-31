@@ -7,7 +7,13 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { eq, like } from "drizzle-orm";
-import { db, novaluthEmailOutboxTable, novaluthSn13DiagnosticsTable } from "@workspace/db";
+import {
+  db,
+  novaluthEmailOutboxTable,
+  novaluthSn13AlertStateTable,
+  novaluthSn13CallEventsTable,
+  novaluthSn13DiagnosticsTable,
+} from "@workspace/db";
 import app from "../app";
 import { anonymize } from "./anonymize";
 import { logger } from "../lib/logger";
@@ -42,6 +48,11 @@ function close(server: Server) {
   return new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
+}
+
+async function clearSn13AlertTracking() {
+  await db.delete(novaluthSn13CallEventsTable);
+  await db.delete(novaluthSn13AlertStateTable);
 }
 
 type Sn13ProcessOptions = {
@@ -260,6 +271,7 @@ test("notifies the team once when SN13 crosses the incomplete-response threshold
   const previousSn13AlertEmail = process.env.NOVALUTH_SN13_ALERT_EMAIL;
   const dedupePattern = "sn13:degradation:%";
   await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  await clearSn13AlertTracking();
   delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
   process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
   setSn13ClientFactoryForTests(() => ({
@@ -306,6 +318,7 @@ test("notifies the team once when SN13 crosses the incomplete-response threshold
     assert.equal(alerts.length, 1);
   } finally {
     await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await clearSn13AlertTracking();
     setSn13ClientFactoryForTests(null);
     if (previousAlertEmail === undefined) delete process.env.NOVALUTH_ALERT_EMAIL;
     else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
@@ -328,6 +341,8 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
   await db
     .delete(novaluthSn13DiagnosticsTable)
     .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+  await db.delete(novaluthSn13CallEventsTable);
+  await db.delete(novaluthSn13AlertStateTable);
   delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
   process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
 
@@ -341,7 +356,7 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
       }),
       runSn13Process(secondRequestId, secondSecret, {
         status: "incomplet",
-        calledAt: episodeStartedAt,
+        calledAt: episodeStartedAt + 7,
         calls: 2,
         betweenCallsDelayMs: 100,
       }),
@@ -352,11 +367,32 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
       .from(novaluthEmailOutboxTable)
       .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
     assert.equal(alerts.length, 1);
-    assert.equal(alerts[0]?.dedupeKey, `sn13:degradation:${episodeStartedAt}`);
+    assert.match(alerts[0]?.dedupeKey ?? "", /^sn13:degradation:\d+$/);
     assert.equal(alerts[0]?.recipient, "equipe@example.test");
     assert.equal(alerts[0]?.event, "sn13_degradation");
+
+    const firstEpisodeKey = alerts[0]?.dedupeKey;
+    const nextEpisodeStartedAt = episodeStartedAt + 24 * 60 * 60 * 1_000 + 1_000;
+    await runSn13Process(
+      `sn13-concurrent-alert-next-${randomUUID()}`,
+      `sn13-concurrent-alert-next-secret-${randomUUID()}`,
+      {
+        status: "incomplet",
+        calledAt: nextEpisodeStartedAt,
+        calls: 2,
+      },
+    );
+    const nextAlerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(nextAlerts.length, 2);
+    assert.notEqual(nextAlerts[0]?.dedupeKey, nextAlerts[1]?.dedupeKey);
+    assert.ok(nextAlerts.some((alert) => alert.dedupeKey === firstEpisodeKey));
   } finally {
     await db.delete(novaluthEmailOutboxTable).where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await db.delete(novaluthSn13CallEventsTable);
+    await db.delete(novaluthSn13AlertStateTable);
     await db
       .delete(novaluthSn13DiagnosticsTable)
       .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
@@ -524,6 +560,7 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
   } finally {
     logger.info = originalLoggerInfo;
     setSn13ClientFactoryForTests(null);
+    await clearSn13AlertTracking();
     if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
     if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
@@ -720,6 +757,7 @@ test("marks malformed successful SN13 responses as incomplete", async () => {
   } finally {
     logger.info = originalLoggerInfo;
     setSn13ClientFactoryForTests(null);
+    await clearSn13AlertTracking();
     if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
     if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;

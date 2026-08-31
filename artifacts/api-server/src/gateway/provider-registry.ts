@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { Sn13Client, type OnDemandDataResponse } from "macrocosmos";
-import { db, novaluthSn13DiagnosticsTable } from "@workspace/db";
+import {
+  db,
+  novaluthSn13AlertStateTable,
+  novaluthSn13CallEventsTable,
+  novaluthSn13DiagnosticsTable,
+} from "@workspace/db";
 import { enqueueNovaLuthEmail } from "../lib/novaluth-email-outbox";
 
 export type ProviderNeed = "inference" | "recherche" | "lecture" | "collecte";
@@ -93,11 +98,12 @@ const sn13RecentHistory: Array<{
   statut: Exclude<Sn13CollectionStatus, "jamais">;
 }> = [];
 let lastSn13CallState: Sn13CallState = initialSn13CallState;
-let sn13AlertEpisodeStartedAt: number | null = null;
 
 const SN13_DIAGNOSTIC_KEY = "latest";
 const MAX_SN13_ERROR_BODY_LENGTH = 4_000;
 const SN13_ALERT_DEDUPE_PREFIX = "sn13:degradation";
+const SN13_ALERT_STATE_KEY = "latest";
+const SN13_ALERT_LOCK_KEY = "novaluth:sn13:alert";
 function textValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -182,15 +188,8 @@ async function rememberSn13Call(
   corpsErreur: string | null,
 ) {
   const calledAt = sn13Now();
-  const previousStats = recentSn13Stats(calledAt);
   sn13RecentHistory.push({ at: calledAt, statut });
   const recentStats = recentSn13Stats(calledAt);
-  const crossedAlertThreshold = !previousStats.alerte && recentStats.alerte;
-  const alertEpisodeStartedAt = crossedAlertThreshold
-    ? calledAt
-    : recentStats.alerte
-      ? sn13AlertEpisodeStartedAt
-      : null;
   const state: Sn13CallState = {
     statut,
     requete_id: requeteId,
@@ -201,6 +200,11 @@ async function rememberSn13Call(
   };
   const calledAtDate = new Date(calledAt);
   const persisted = await db.transaction(async (tx) => {
+    // The in-memory history above is useful for the local diagnostics response,
+    // but it cannot decide an alert episode when several server processes run.
+    // Serialize the shared window and episode transition in PostgreSQL.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${SN13_ALERT_LOCK_KEY}))`);
+
     const [diagnostic] = await tx
       .insert(novaluthSn13DiagnosticsTable)
       .values({
@@ -234,12 +238,80 @@ async function rememberSn13Call(
       })
       .returning({ key: novaluthSn13DiagnosticsTable.key });
 
-    if (!diagnostic) return false;
+    await tx.insert(novaluthSn13CallEventsTable).values({
+      status: state.statut,
+      calledAt: calledAtDate,
+    });
+    const cutoffDate = new Date(calledAt - sn13RecentWindowMs);
+    await tx.delete(novaluthSn13CallEventsTable).where(
+      sql`${novaluthSn13CallEventsTable.calledAt} < ${cutoffDate}`,
+    );
+    const recentResult = await tx.execute(sql`
+      select
+        count(*)::int as total,
+        count(*) filter (where status = 'succes')::int as succes,
+        count(*) filter (where status = 'vide')::int as vide,
+        count(*) filter (where status = 'incomplet')::int as incomplet,
+        count(*) filter (where status = 'erreur')::int as erreur
+      from novaluth_sn13_call_events
+      where called_at >= ${cutoffDate}
+    `);
+    const recent = recentResult.rows[0] as {
+      total: number;
+      succes: number;
+      vide: number;
+      incomplet: number;
+      erreur: number;
+    };
+    const thresholdReached = recent.incomplet >= sn13IncompleteAlertThreshold;
+
+    await tx
+      .insert(novaluthSn13AlertStateTable)
+      .values({ key: SN13_ALERT_STATE_KEY, active: false })
+      .onConflictDoNothing({ target: novaluthSn13AlertStateTable.key });
+    const alertStateResult = await tx.execute(sql`
+      select
+        active,
+        episode_started_at as "episodeStartedAt"
+      from novaluth_sn13_alert_state
+      where key = ${SN13_ALERT_STATE_KEY}
+      for update
+    `);
+    const alertState = alertStateResult.rows[0] as
+      | { active: boolean; episodeStartedAt: Date | string | null }
+      | undefined;
+    if (!alertState) throw new Error("L’état d’alerte SN13 est introuvable.");
+
+    const crossedAlertThreshold = thresholdReached && !alertState.active;
+    const episodeStartedAt = crossedAlertThreshold
+      ? calledAtDate
+      : alertState.episodeStartedAt
+        ? new Date(alertState.episodeStartedAt)
+        : null;
+    if (thresholdReached) {
+      await tx
+        .update(novaluthSn13AlertStateTable)
+        .set({
+          active: true,
+          episodeStartedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(novaluthSn13AlertStateTable.key, SN13_ALERT_STATE_KEY));
+    } else if (alertState.active) {
+      await tx
+        .update(novaluthSn13AlertStateTable)
+        .set({
+          active: false,
+          episodeStartedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(novaluthSn13AlertStateTable.key, SN13_ALERT_STATE_KEY));
+    }
 
     const recipient =
       process.env.NOVALUTH_SN13_ALERT_EMAIL?.trim() ||
       process.env.NOVALUTH_ALERT_EMAIL?.trim();
-    if (crossedAlertThreshold && recipient && alertEpisodeStartedAt !== null) {
+    if (crossedAlertThreshold && recipient && episodeStartedAt !== null) {
       await enqueueNovaLuthEmail(
         tx,
         recipient,
@@ -249,21 +321,20 @@ async function rememberSn13Call(
           portalUrl: "",
           sn13: {
             provider: "Data Universe",
-            windowHours: recentStats.fenetre_heures,
-            total: recentStats.total,
-            success: recentStats.succes,
-            empty: recentStats.vide,
-            incomplete: recentStats.incomplet,
-            error: recentStats.erreur,
+            windowHours: 24,
+            total: recent.total,
+            success: recent.succes,
+            empty: recent.vide,
+            incomplete: recent.incomplet,
+            error: recent.erreur,
           },
         },
-        `${SN13_ALERT_DEDUPE_PREFIX}:${alertEpisodeStartedAt}`,
+        `${SN13_ALERT_DEDUPE_PREFIX}:${episodeStartedAt.getTime()}`,
       );
     }
-    return true;
+    return Boolean(diagnostic);
   });
   if (persisted) {
-    sn13AlertEpisodeStartedAt = alertEpisodeStartedAt;
     lastSn13CallState = state;
   }
 }

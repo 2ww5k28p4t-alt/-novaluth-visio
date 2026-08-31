@@ -1,5 +1,14 @@
 import { sql } from "drizzle-orm";
-import { check, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  check,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 export const novaluthGatewayNoncesTable = pgTable("novaluth_gateway_nonces", {
   nonce: text("nonce").primaryKey(),
@@ -54,3 +63,26 @@ export const novaluthSn13DiagnosticsTable = pgTable(
     ),
   ],
 );
+
+export const novaluthSn13CallEventsTable = pgTable(
+  "novaluth_sn13_call_events",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    status: text("status").notNull(),
+    calledAt: timestamp("called_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("novaluth_sn13_call_events_called_at_idx").on(table.calledAt),
+    check(
+      "novaluth_sn13_call_events_status_check",
+      sql`${table.status} in ('succes', 'vide', 'incomplet', 'erreur')`,
+    ),
+  ],
+);
+
+export const novaluthSn13AlertStateTable = pgTable("novaluth_sn13_alert_state", {
+  key: text("key").primaryKey(),
+  active: boolean("active").notNull().default(false),
+  episodeStartedAt: timestamp("episode_started_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
