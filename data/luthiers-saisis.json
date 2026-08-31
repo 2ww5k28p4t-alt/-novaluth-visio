@@ -13,10 +13,10 @@
       "delai_moyen_mois": null,
       "prix_min_eur": null,
       "prix_max_eur": null,
-      "approche_artisanale": "Gritty Guitars est un atelier situé à Cestas, en France, créé en 2020. L’atelier propose un modèle de guitare électrique personnalisable.",
+      "approche_artisanale": "Atelier fondé en 2020 à Cestas, en Gironde, par Nicolas Brouillet, luthier autodidacte issu de l’ébénisterie d’art. Il fabrique des guitares et des basses électriques sur mesure, assure l’entretien et le bobinage de micros, et propose des stages de lutherie ainsi que la location d’instruments.",
       "modeles": [
         {
-          "nom": "Guitare électrique personnalisable",
+          "nom": "Guitare électrique sur mesure",
           "type": "electrique",
           "inspiration": null,
           "prix_base_eur": null,
@@ -26,7 +26,15 @@
       ],
       "profil_sonore": {},
       "logistique": {},
-      "innovation": {},
+      "innovation": {
+        "marqueurs": [
+          "atelier individuel",
+          "fabrication sur mesure",
+          "bobinage de micros",
+          "stages de lutherie",
+          "location d'instruments"
+        ]
+      },
       "ia": {
         "tags": [],
         "mots_cles": [],
