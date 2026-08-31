@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { eq, inArray } from "drizzle-orm";
 import {
   db,
@@ -11,6 +14,7 @@ import {
   novaluthEmailOutboxTable,
   novaluthProfilesTable,
   novaluthProjectsTable,
+  novaluthSn13DiagnosticsTable,
   pool,
 } from "@workspace/db";
 import { novaluthSeed } from "../data/novaluth-seed";
@@ -42,6 +46,15 @@ const deliveredEmails: Array<{
 }> = [];
 let resendMode: "success" | "temporary" | "permanent" = "success";
 const nativeFetch = globalThis.fetch;
+const workspaceRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
+const sn13ProcessRunner = path.join(
+  workspaceRoot,
+  "artifacts/api-server/src/routes/sn13-diagnostic-process.integration.ts",
+);
+const tsxBinary = path.join(workspaceRoot, "scripts/node_modules/.bin/tsx");
 const originalEmailConfig = {
   apiKey: process.env.RESEND_API_KEY,
   from: process.env.NOVALUTH_EMAIL_FROM,
@@ -161,6 +174,56 @@ async function requestAccess(
       reference_projet: project.reference,
       offre: offer,
     }),
+  });
+}
+
+type Sn13DiagnosticSnapshot = {
+  statut: string;
+  requete_id: string | null;
+  appele_le: string | null;
+  corps_erreur: string | null;
+};
+
+function runSn13Process(
+  mode: "write" | "read",
+  requestId: string,
+  secret: string,
+): Promise<Sn13DiagnosticSnapshot> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(tsxBinary, [sn13ProcessRunner, mode], {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        SN13_DIAGNOSTIC_TEST_REQUEST_ID: requestId,
+        SN13_DIAGNOSTIC_TEST_SECRET: secret,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    let errorOutput = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      errorOutput += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Le processus SN13 ${mode} a échoué (${code}). ${errorOutput.slice(0, 500)}`,
+          ),
+        );
+        return;
+      }
+      try {
+        resolve(JSON.parse(output) as Sn13DiagnosticSnapshot);
+      } catch {
+        reject(new Error(`Réponse JSON invalide du processus SN13 ${mode}.`));
+      }
+    });
   });
 }
 
@@ -480,4 +543,36 @@ test("NovaLuth email outbox deduplicates and dead-letters repeated provider fail
   await db
     .delete(novaluthEmailOutboxTable)
     .where(eq(novaluthEmailOutboxTable.dedupeKey, dedupeKey));
+});
+
+test("SN13 conserve son dernier diagnostic entre deux processus", async () => {
+  const requestId = `sn13-multi-process-${randomUUID()}`;
+  const secret = `sn13-multi-process-secret-${randomUUID()}`;
+
+  await db
+    .delete(novaluthSn13DiagnosticsTable)
+    .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+  try {
+    const written = await runSn13Process("write", requestId, secret);
+    const read = await runSn13Process("read", requestId, secret);
+
+    assert.deepEqual(
+      read,
+      written,
+      "Le second processus doit relire exactement les champs durables écrits par le premier.",
+    );
+    assert.equal(read.statut, "erreur");
+    assert.equal(read.requete_id, requestId);
+    assert.match(
+      read.appele_le ?? "",
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
+    assert.match(read.corps_erreur ?? "", /\[REDACTED\]/);
+    assert.doesNotMatch(read.corps_erreur ?? "", new RegExp(secret));
+    assert.doesNotMatch(JSON.stringify(read), new RegExp(secret));
+  } finally {
+    await db
+      .delete(novaluthSn13DiagnosticsTable)
+      .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+  }
 });
