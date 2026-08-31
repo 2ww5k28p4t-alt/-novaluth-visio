@@ -403,6 +403,76 @@ test("crée une seule alerte SN13 quand deux processus franchissent le seuil sim
   }
 });
 
+test("conserve une alerte SN13 après un redémarrage entre deux franchissements", async () => {
+  const previousAlertEmail = process.env.NOVALUTH_ALERT_EMAIL;
+  const previousSn13AlertEmail = process.env.NOVALUTH_SN13_ALERT_EMAIL;
+  const dedupePattern = "sn13:degradation:%";
+  const episodeStartedAt = Date.now();
+  const firstRequestId = `sn13-restart-alert-first-${randomUUID()}`;
+  const secondRequestId = `sn13-restart-alert-second-${randomUUID()}`;
+  const firstSecret = `sn13-restart-alert-first-secret-${randomUUID()}`;
+  const secondSecret = `sn13-restart-alert-second-secret-${randomUUID()}`;
+
+  await db
+    .delete(novaluthEmailOutboxTable)
+    .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+  await db
+    .delete(novaluthSn13DiagnosticsTable)
+    .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+  await db.delete(novaluthSn13CallEventsTable);
+  await db.delete(novaluthSn13AlertStateTable);
+  delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+  process.env.NOVALUTH_ALERT_EMAIL = "equipe@example.test";
+
+  try {
+    await runSn13Process(firstRequestId, firstSecret, {
+      status: "incomplet",
+      calledAt: episodeStartedAt,
+      calls: 1,
+    });
+
+    let alerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(alerts.length, 0);
+
+    // The first process has exited; this second process simulates the server restart.
+    await runSn13Process(secondRequestId, secondSecret, {
+      status: "incomplet",
+      calledAt: episodeStartedAt + 1,
+      calls: 1,
+    });
+
+    alerts = await db
+      .select()
+      .from(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    assert.equal(alerts.length, 1);
+    assert.equal(
+      alerts[0]?.dedupeKey,
+      `sn13:degradation:${episodeStartedAt + 1}`,
+    );
+    assert.equal(alerts[0]?.recipient, "equipe@example.test");
+    assert.equal(alerts[0]?.event, "sn13_degradation");
+  } finally {
+    await db
+      .delete(novaluthEmailOutboxTable)
+      .where(like(novaluthEmailOutboxTable.dedupeKey, dedupePattern));
+    await db.delete(novaluthSn13CallEventsTable);
+    await db.delete(novaluthSn13AlertStateTable);
+    await db
+      .delete(novaluthSn13DiagnosticsTable)
+      .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
+    if (previousAlertEmail === undefined)
+      delete process.env.NOVALUTH_ALERT_EMAIL;
+    else process.env.NOVALUTH_ALERT_EMAIL = previousAlertEmail;
+    if (previousSn13AlertEmail === undefined)
+      delete process.env.NOVALUTH_SN13_ALERT_EMAIL;
+    else process.env.NOVALUTH_SN13_ALERT_EMAIL = previousSn13AlertEmail;
+  }
+});
+
 test("keeps SN13 failures visible and redacted without duplicating their audit", async () => {
   const previousGatewaySecret = process.env.NOVALUTH_GATEWAY_SECRET;
   const previousSn13Key = process.env.SN13_API_KEY;
