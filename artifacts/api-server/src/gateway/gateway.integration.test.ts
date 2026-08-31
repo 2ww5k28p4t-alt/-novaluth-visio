@@ -352,3 +352,71 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
     else process.env.SN13_API_KEY = previousSn13Key;
   }
 });
+
+test("returns successful SN13 publications unchanged without using the fallback", async () => {
+  const previousGatewaySecret = process.env.NOVALUTH_GATEWAY_SECRET;
+  const previousSn13Key = process.env.SN13_API_KEY;
+  const gatewaySecret = "gateway-success-test-secret".repeat(2);
+  const publication = {
+    id: "sn13-post-001",
+    text: "Guitare artisanale en érable ondé",
+    username: "atelier_lumiere",
+    created_at: "2026-08-30T12:00:00Z",
+    metadata: {
+      source: "X",
+      tags: ["lutherie", "guitare"],
+    },
+  };
+
+  process.env.NOVALUTH_GATEWAY_SECRET = gatewaySecret;
+  process.env.SN13_API_KEY = "sn13-success-test-secret";
+  setSn13ClientFactoryForTests(() => ({
+    onDemandData: async () => ({
+      status: "success",
+      data: [publication],
+      meta: { request_id: "sn13-success-request-001" },
+    }),
+  }));
+
+  try {
+    const requestBody = JSON.stringify({
+      source: "x",
+      usernames: [],
+      mots_cles: ["lutherie"],
+      start_date: "2026-03-01",
+      end_date: "2026-08-31",
+      limite: 100,
+      keyword_mode: "any",
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nonce = randomUUID();
+    const signature = createHmac("sha256", gatewaySecret)
+      .update(`POST./v1/collecte.${timestamp}.${nonce}.${requestBody}`)
+      .digest("hex");
+    const response = await fetch(`${apiOrigin}/v1/collecte`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-NovaLuth-Timestamp": timestamp,
+        "X-NovaLuth-Nonce": nonce,
+        "X-NovaLuth-Signature": signature,
+      },
+      body: requestBody,
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      publications: [publication],
+      nombre: 1,
+      etat_collecte: "donnees",
+      fournisseur: "data-universe",
+      secours: [],
+    });
+  } finally {
+    setSn13ClientFactoryForTests(null);
+    if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
+    if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
+    else process.env.SN13_API_KEY = previousSn13Key;
+  }
+});
