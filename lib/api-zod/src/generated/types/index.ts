@@ -70,6 +70,7 @@ export * from './recommendationResponse';
 export * from './recommendationType';
 export * from './sn13CallState';
 export * from './sn13CallStateStatut';
+export * from './sn13RecentStats';
 export * from './specification';
 export * from './statusUpdate';
 export * from './statusUpdateStatut';

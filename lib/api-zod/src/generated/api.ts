@@ -947,7 +947,16 @@ export const GetAdminSummaryResponse = zod.object({
   "requete_id": zod.string().nullable(),
   "corps_erreur": zod.string().nullable(),
   "appele_le": zod.string().nullable(),
-  "nombre": zod.number().nullable()
+  "nombre": zod.number().nullable(),
+  "recents": zod.object({
+  "fenetre_heures": zod.number(),
+  "total": zod.number(),
+  "succes": zod.number(),
+  "vide": zod.number(),
+  "incomplet": zod.number(),
+  "erreur": zod.number(),
+  "alerte": zod.boolean()
+})
 }),
   "acces": zod.object({
   "en_attente": zod.number(),

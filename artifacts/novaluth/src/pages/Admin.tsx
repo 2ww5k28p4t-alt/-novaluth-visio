@@ -257,6 +257,35 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
             <span>{summary.collecte_sn13.nombre ?? "—"}</span>
           </div>
         </div>
+        <div className="mt-4 border border-border/50 bg-background p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground">
+              Suivi des {summary.collecte_sn13.recents.fenetre_heures} dernières heures
+            </span>
+            <Badge
+              variant="outline"
+              className={`rounded-none ${
+                summary.collecte_sn13.recents.alerte ? "text-orange-700" : "text-green-700"
+              }`}
+            >
+              {summary.collecte_sn13.recents.alerte ? "Surveillance requise" : "Suivi normal"}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+            {[
+              ["Appels", summary.collecte_sn13.recents.total],
+              ["Données", summary.collecte_sn13.recents.succes],
+              ["Vides", summary.collecte_sn13.recents.vide],
+              ["Incomplètes", summary.collecte_sn13.recents.incomplet],
+              ["Erreurs", summary.collecte_sn13.recents.erreur],
+            ].map(([label, count]) => (
+              <div key={String(label)} className="border border-border/50 p-3">
+                <span className="block text-2xl font-serif text-primary">{count}</span>
+                <span className="text-[0.68rem] uppercase tracking-wider text-muted-foreground">{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
         {summary.collecte_sn13.corps_erreur ? (
           <div className="mt-4 border border-destructive/30 bg-destructive/5 p-4">
             <span className="block text-xs uppercase tracking-wider text-destructive mb-2">

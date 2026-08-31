@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Sn13CallStateStatut } from './sn13CallStateStatut';
+import type { Sn13RecentStats } from './sn13RecentStats';
 
 export interface Sn13CallState {
   statut: Sn13CallStateStatut;
@@ -17,4 +18,5 @@ export interface Sn13CallState {
   appele_le: string | null;
   /** @nullable */
   nombre: number | null;
+  recents: Sn13RecentStats;
 }

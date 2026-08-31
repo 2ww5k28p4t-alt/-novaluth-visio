@@ -874,7 +874,7 @@ components:
           $ref: "#/components/schemas/AccessAdminSummary"
     Sn13CallState:
       type: object
-      required: [statut, requete_id, corps_erreur, appele_le, nombre]
+      required: [statut, requete_id, corps_erreur, appele_le, nombre, recents]
       properties:
         statut:
           type: string
@@ -883,6 +883,19 @@ components:
         corps_erreur: { type: ["string", "null"] }
         appele_le: { type: ["string", "null"] }
         nombre: { type: ["number", "null"] }
+        recents:
+          $ref: "#/components/schemas/Sn13RecentStats"
+    Sn13RecentStats:
+      type: object
+      required: [fenetre_heures, total, succes, vide, incomplet, erreur, alerte]
+      properties:
+        fenetre_heures: { type: number }
+        total: { type: number }
+        succes: { type: number }
+        vide: { type: number }
+        incomplet: { type: number }
+        erreur: { type: number }
+        alerte: { type: boolean }
     StatusUpdate:
       type: object
       required: [statut]

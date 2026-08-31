@@ -33,12 +33,23 @@ export type DataUniverseRequest = {
 
 export type Sn13CollectionStatus = "jamais" | "succes" | "vide" | "incomplet" | "erreur";
 
+export type Sn13RecentStats = {
+  fenetre_heures: number;
+  total: number;
+  succes: number;
+  vide: number;
+  incomplet: number;
+  erreur: number;
+  alerte: boolean;
+};
+
 export type Sn13CallState = {
   statut: Sn13CollectionStatus;
   requete_id: string | null;
   corps_erreur: string | null;
   appele_le: string | null;
   nombre: number | null;
+  recents: Sn13RecentStats;
 };
 
 export type DataUniverseRequestResult = {
@@ -60,8 +71,23 @@ const initialSn13CallState: Sn13CallState = {
   corps_erreur: null,
   appele_le: null,
   nombre: null,
+  recents: {
+    fenetre_heures: 24,
+    total: 0,
+    succes: 0,
+    vide: 0,
+    incomplet: 0,
+    erreur: 0,
+    alerte: false,
+  },
 };
 
+const sn13RecentWindowMs = 24 * 60 * 60 * 1_000;
+const sn13IncompleteAlertThreshold = 2;
+const sn13RecentHistory: Array<{
+  at: number;
+  statut: Exclude<Sn13CollectionStatus, "jamais">;
+}> = [];
 let lastSn13CallState: Sn13CallState = initialSn13CallState;
 
 function textValue(value: unknown): string | undefined {
@@ -122,23 +148,45 @@ function errorBodyFromThrown(error: unknown, apiKey: string): string {
   return sanitizedErrorBody(error, apiKey);
 }
 
+function recentSn13Stats(now = Date.now()): Sn13RecentStats {
+  const cutoff = now - sn13RecentWindowMs;
+  while (sn13RecentHistory[0]?.at < cutoff) sn13RecentHistory.shift();
+
+  const stats = {
+    succes: 0,
+    vide: 0,
+    incomplet: 0,
+    erreur: 0,
+  };
+  for (const entry of sn13RecentHistory) stats[entry.statut] += 1;
+  return {
+    fenetre_heures: 24,
+    total: sn13RecentHistory.length,
+    ...stats,
+    alerte: stats.incomplet >= sn13IncompleteAlertThreshold,
+  };
+}
+
 function rememberSn13Call(
   statut: Exclude<Sn13CollectionStatus, "jamais">,
   requeteId: string,
   nombre: number | null,
   corpsErreur: string | null,
 ) {
+  const calledAt = Date.now();
+  sn13RecentHistory.push({ at: calledAt, statut });
   lastSn13CallState = {
     statut,
     requete_id: requeteId,
     corps_erreur: corpsErreur,
-    appele_le: new Date().toISOString(),
+    appele_le: new Date(calledAt).toISOString(),
     nombre,
+    recents: recentSn13Stats(calledAt),
   };
 }
 
 export function lastSn13Call(): Sn13CallState {
-  return { ...lastSn13CallState };
+  return { ...lastSn13CallState, recents: recentSn13Stats() };
 }
 
 export function setSn13ClientFactoryForTests(factory: Sn13ClientFactory | null): void {

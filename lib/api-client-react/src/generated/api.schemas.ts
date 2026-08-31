@@ -460,6 +460,16 @@ export const Sn13CallStateStatut = {
   erreur: 'erreur',
 } as const;
 
+export interface Sn13RecentStats {
+  fenetre_heures: number;
+  total: number;
+  succes: number;
+  vide: number;
+  incomplet: number;
+  erreur: number;
+  alerte: boolean;
+}
+
 export interface Sn13CallState {
   statut: Sn13CallStateStatut;
   /** @nullable */
@@ -470,6 +480,7 @@ export interface Sn13CallState {
   appele_le: string | null;
   /** @nullable */
   nombre: number | null;
+  recents: Sn13RecentStats;
 }
 
 export interface AccessAdminSummary {

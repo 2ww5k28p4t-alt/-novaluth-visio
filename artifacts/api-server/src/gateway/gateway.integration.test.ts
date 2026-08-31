@@ -244,6 +244,14 @@ test("keeps SN13 failures visible and redacted without duplicating their audit",
         statut: string;
         requete_id: string | null;
         corps_erreur: string | null;
+        recents: {
+          total: number;
+          succes: number;
+          vide: number;
+          incomplet: number;
+          erreur: number;
+          alerte: boolean;
+        };
       };
     };
   };
@@ -460,50 +468,77 @@ test("marks malformed successful SN13 responses as incomplete", async () => {
         statut: string;
         requete_id: string | null;
         corps_erreur: string | null;
+        recents: {
+          total: number;
+          succes: number;
+          vide: number;
+          incomplet: number;
+          erreur: number;
+          alerte: boolean;
+        };
       };
     };
   };
 
   try {
     const beforeSummary = await adminSummary();
-    const requestBody = JSON.stringify({
-      source: "x",
-      usernames: [],
-      mots_cles: ["lutherie"],
-      start_date: "2026-03-01",
-      end_date: "2026-08-31",
-      limite: 100,
-      keyword_mode: "any",
-    });
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const nonce = randomUUID();
-    const signature = createHmac("sha256", gatewaySecret)
-      .update(`POST./v1/collecte.${timestamp}.${nonce}.${requestBody}`)
-      .digest("hex");
-    const response = await fetch(`${apiOrigin}/v1/collecte`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-NovaLuth-Timestamp": timestamp,
-        "X-NovaLuth-Nonce": nonce,
-        "X-NovaLuth-Signature": signature,
-      },
-      body: requestBody,
-    });
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), {
-      publications: [],
-      nombre: 0,
-      etat_collecte: "incomplet",
-      fournisseur: "local-collecte",
-      secours: ["data-universe"],
-    });
+    const collect = async () => {
+      const requestBody = JSON.stringify({
+        source: "x",
+        usernames: [],
+        mots_cles: ["lutherie"],
+        start_date: "2026-03-01",
+        end_date: "2026-08-31",
+        limite: 100,
+        keyword_mode: "any",
+      });
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const nonce = randomUUID();
+      const signature = createHmac("sha256", gatewaySecret)
+        .update(`POST./v1/collecte.${timestamp}.${nonce}.${requestBody}`)
+        .digest("hex");
+      const response = await fetch(`${apiOrigin}/v1/collecte`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-NovaLuth-Timestamp": timestamp,
+          "X-NovaLuth-Nonce": nonce,
+          "X-NovaLuth-Signature": signature,
+        },
+        body: requestBody,
+      });
+      assert.equal(response.status, 200);
+      return response.json();
+    };
+
+    for (const result of [await collect(), await collect()]) {
+      assert.deepEqual(result, {
+        publications: [],
+        nombre: 0,
+        etat_collecte: "incomplet",
+        fournisseur: "local-collecte",
+        secours: ["data-universe"],
+      });
+    }
 
     const afterSummary = await adminSummary();
     assert.equal(afterSummary.compteurs.candidate, beforeSummary.compteurs.candidate);
     assert.equal(afterSummary.collecte_sn13.statut, "incomplet");
     assert.equal(afterSummary.collecte_sn13.requete_id, requestId);
     assert.match(afterSummary.collecte_sn13.corps_erreur ?? "", /not-a-publication-array/);
+    assert.equal(
+      afterSummary.collecte_sn13.recents.total,
+      beforeSummary.collecte_sn13.recents.total + 2,
+    );
+    assert.equal(
+      afterSummary.collecte_sn13.recents.incomplet,
+      beforeSummary.collecte_sn13.recents.incomplet + 2,
+    );
+    assert.equal(afterSummary.collecte_sn13.recents.succes, beforeSummary.collecte_sn13.recents.succes);
+    assert.equal(afterSummary.collecte_sn13.recents.vide, beforeSummary.collecte_sn13.recents.vide);
+    assert.equal(afterSummary.collecte_sn13.recents.erreur, beforeSummary.collecte_sn13.recents.erreur);
+    assert.equal(afterSummary.collecte_sn13.recents.alerte, true);
+    assert.doesNotMatch(JSON.stringify(afterSummary.collecte_sn13.recents), /not-a-publication-array/);
     assert.equal(sn13Audits.length, 1);
     assert.equal(sn13Audits[0]?.statut, 502);
     assert.equal(sn13Audits[0]?.etat, "incomplet");
