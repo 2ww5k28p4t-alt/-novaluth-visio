@@ -391,6 +391,15 @@ router.post("/v1/collecte", async (req, res) => {
     if (!Number.isInteger(jours) || jours < 1 || jours > 30 || !Number.isInteger(limit) || limit < 10 || limit > 1000) {
       throw new GatewayAuthError(422, "Paramètres de collecte invalides.");
     }
+    const keywordMode =
+      input.keyword_mode === undefined
+        ? "any"
+        : requiredText(input.keyword_mode, "keyword_mode", 10).toLowerCase();
+    if (!["any", "all"].includes(keywordMode)) {
+      throw new GatewayAuthError(422, "keyword_mode invalide.");
+    }
+    const endDate = new Date();
+    const startDate = new Date(endDate.getTime() - jours * 24 * 60 * 60 * 1000);
     await takeQuota("collecte");
     const providers = activeProviders("collecte");
     if (!providers.length) throw new GatewayAuthError(503, "Aucun fournisseur de collecte configuré.");
@@ -408,7 +417,15 @@ router.post("/v1/collecte", async (req, res) => {
         }
         const response = await providerRequest(
           provider,
-          { source, keywords: safeKeywords.map((keyword) => keyword.text), limit, jours },
+          {
+            source: source === "x" ? "X" : "Reddit",
+            usernames: [],
+            keywords: safeKeywords.map((keyword) => keyword.text),
+            start_date: startDate.toISOString(),
+            end_date: endDate.toISOString(),
+            limit,
+            keyword_mode: keywordMode,
+          },
           180_000,
         );
         if (!response.ok) {
@@ -429,9 +446,14 @@ router.post("/v1/collecte", async (req, res) => {
           secours: failures,
         });
         return;
-      } catch {
+      } catch (error) {
         failures.push(provider.key);
-        audit(caller, "collecte", provider.key, 502);
+        audit(caller, "collecte", provider.key, 502, {
+          erreur:
+            error instanceof Error
+              ? `${error.name}: ${error.message}`
+              : String(error),
+        });
       }
     }
     res.status(502).json({ erreur: "Aucun fournisseur de collecte n’a répondu.", fournisseurs: failures });
