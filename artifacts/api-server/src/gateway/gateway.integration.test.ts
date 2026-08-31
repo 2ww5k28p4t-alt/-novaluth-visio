@@ -5,7 +5,8 @@ import { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import app from "../app";
 import { anonymize } from "./anonymize";
-import { activeProviders } from "./provider-registry";
+import { logger } from "../lib/logger";
+import { activeProviders, setSn13ClientFactoryForTests } from "./provider-registry";
 import { assertPublicPageUrl, readPublicPage, robotsTextAllows } from "./page-harvester";
 
 let apiServer: Server;
@@ -188,5 +189,124 @@ test("refuses robots and TDM-reserved pages through the signed gateway route", a
   } finally {
     if (previousSecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
     else process.env.NOVALUTH_GATEWAY_SECRET = previousSecret;
+  }
+});
+
+test("keeps SN13 failures visible and redacted without duplicating their audit", async () => {
+  const previousGatewaySecret = process.env.NOVALUTH_GATEWAY_SECRET;
+  const previousSn13Key = process.env.SN13_API_KEY;
+  const gatewaySecret = "gateway-test-secret".repeat(3);
+  const sn13Key = "sn13-provider-secret-never-visible";
+  const requestId = "sn13-request-test-123";
+  const originalLoggerInfo = logger.info;
+  const sn13Audits: Record<string, unknown>[] = [];
+
+  process.env.NOVALUTH_GATEWAY_SECRET = gatewaySecret;
+  process.env.SN13_API_KEY = sn13Key;
+  setSn13ClientFactoryForTests(() => ({
+    onDemandData: async () => ({
+      status: "error",
+      data: [],
+      meta: {
+        request_id: requestId,
+        detail: `upstream failed with api_key=${sn13Key}`,
+        authorization: `Bearer ${sn13Key}`,
+      },
+    }),
+  }));
+  logger.info = ((details: unknown, message?: string) => {
+    if (
+      message === "NovaLuth gateway audit" &&
+      details &&
+      typeof details === "object" &&
+      (details as Record<string, unknown>).cible === "data-universe"
+    ) {
+      sn13Audits.push(details as Record<string, unknown>);
+    }
+  }) as typeof logger.info;
+
+  const adminSummary = async () => {
+    const response = await fetch(`${apiOrigin}/api/admin/summary`, {
+      headers: { "X-Admin-Token": "demo-admin" },
+    });
+    assert.equal(response.status, 200);
+    return (await response.json()) as {
+      compteurs: Record<string, number>;
+      collecte_sn13: {
+        statut: string;
+        requete_id: string | null;
+        corps_erreur: string | null;
+      };
+    };
+  };
+
+  const collect = async () => {
+    const requestBody = JSON.stringify({
+      source: "x",
+      usernames: [],
+      mots_cles: ["lutherie"],
+      start_date: "2026-03-01",
+      end_date: "2026-08-31",
+      limite: 100,
+      keyword_mode: "any",
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nonce = randomUUID();
+    const signature = createHmac("sha256", gatewaySecret)
+      .update(`POST./v1/collecte.${timestamp}.${nonce}.${requestBody}`)
+      .digest("hex");
+    const response = await fetch(`${apiOrigin}/v1/collecte`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-NovaLuth-Timestamp": timestamp,
+        "X-NovaLuth-Nonce": nonce,
+        "X-NovaLuth-Signature": signature,
+      },
+      body: requestBody,
+    });
+    assert.equal(response.status, 200);
+    return (await response.json()) as {
+      publications: unknown[];
+      nombre: number;
+      etat_collecte: string;
+      fournisseur: string;
+      secours: string[];
+    };
+  };
+
+  try {
+    const beforeSummary = await adminSummary();
+    const first = await collect();
+    const second = await collect();
+    const afterSummary = await adminSummary();
+
+    for (const result of [first, second]) {
+      assert.deepEqual(result.publications, []);
+      assert.equal(result.nombre, 0);
+      assert.equal(result.etat_collecte, "indisponible");
+      assert.equal(result.fournisseur, "local-collecte");
+      assert.deepEqual(result.secours, ["data-universe"]);
+    }
+    assert.equal(
+      afterSummary.compteurs.candidate,
+      beforeSummary.compteurs.candidate,
+      "La collecte en erreur ne doit créer aucune fiche candidate.",
+    );
+    assert.equal(afterSummary.collecte_sn13.statut, "erreur");
+    assert.equal(afterSummary.collecte_sn13.requete_id, requestId);
+    assert.match(afterSummary.collecte_sn13.corps_erreur ?? "", /\[REDACTED\]/);
+    assert.doesNotMatch(afterSummary.collecte_sn13.corps_erreur ?? "", new RegExp(sn13Key));
+    assert.equal(sn13Audits.length, 1);
+    assert.equal(sn13Audits[0]?.requete_id, requestId);
+    assert.match(String(sn13Audits[0]?.erreur), /\[REDACTED\]/);
+    assert.doesNotMatch(String(sn13Audits[0]?.erreur), new RegExp(sn13Key));
+  } finally {
+    logger.info = originalLoggerInfo;
+    setSn13ClientFactoryForTests(null);
+    if (previousGatewaySecret === undefined) delete process.env.NOVALUTH_GATEWAY_SECRET;
+    else process.env.NOVALUTH_GATEWAY_SECRET = previousGatewaySecret;
+    if (previousSn13Key === undefined) delete process.env.SN13_API_KEY;
+    else process.env.SN13_API_KEY = previousSn13Key;
   }
 });

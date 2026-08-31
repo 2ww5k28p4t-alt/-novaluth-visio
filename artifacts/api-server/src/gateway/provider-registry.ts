@@ -47,6 +47,13 @@ export type DataUniverseRequestResult = {
   corpsErreur: string | null;
 };
 
+type Sn13ClientFactory = (apiKey: string) => Pick<Sn13Client, "onDemandData">;
+
+const defaultSn13ClientFactory: Sn13ClientFactory = (apiKey) =>
+  new Sn13Client({ apiKey });
+
+let sn13ClientFactory = defaultSn13ClientFactory;
+
 const initialSn13CallState: Sn13CallState = {
   statut: "jamais",
   requete_id: null,
@@ -134,6 +141,13 @@ export function lastSn13Call(): Sn13CallState {
   return { ...lastSn13CallState };
 }
 
+export function setSn13ClientFactoryForTests(factory: Sn13ClientFactory | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("Le client SN13 ne peut être remplacé qu’en environnement de test.");
+  }
+  sn13ClientFactory = factory ?? defaultSn13ClientFactory;
+}
+
 export async function requestDataUniverse(
   request: DataUniverseRequest,
 ): Promise<DataUniverseRequestResult> {
@@ -142,7 +156,7 @@ export async function requestDataUniverse(
     throw new Error("SN13_API_KEY non configurée");
   }
   const fallbackRequestId = randomUUID();
-  const client = new Sn13Client({ apiKey });
+  const client = sn13ClientFactory(apiKey);
   try {
     const response = await client.onDemandData(request);
     const requeteId = sn13RequestId(response, fallbackRequestId);
