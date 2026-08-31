@@ -958,6 +958,12 @@ export const GetAdminSummaryResponse = zod.object({
   "alerte": zod.boolean()
 })
 }),
+  "purge_sn13": zod.object({
+  "statut": zod.enum(['sain', 'erreur']),
+  "episode_actif": zod.boolean(),
+  "episode_commence_le": zod.string().nullable(),
+  "retabli_le": zod.string().nullable()
+}),
   "acces": zod.object({
   "en_attente": zod.number(),
   "acceptees": zod.number(),

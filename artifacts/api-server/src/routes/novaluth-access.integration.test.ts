@@ -710,6 +710,15 @@ test("maintient les accès et alerte une seule fois pendant une panne de purge S
       evenements_supprimes: 0,
       retabli: false,
     });
+    const failedAdminSummary = await api("/admin/summary", {
+      headers: { "X-Admin-Token": "demo-admin" },
+    });
+    assert.deepEqual(failedAdminSummary.body.purge_sn13, {
+      statut: "erreur",
+      episode_actif: true,
+      episode_commence_le: maintenanceNow.toISOString(),
+      retabli_le: null,
+    });
 
     const [cancelled, expired, pending, expiring] = await Promise.all(
       [
@@ -781,6 +790,16 @@ test("maintient les accès et alerte une seule fois pendant une panne de purge S
       statut: "succes",
       evenements_supprimes: 1,
       retabli: true,
+    });
+    const recoveredAt = new Date(now + 2 * 60 * 60 * 1_000);
+    const recoveredAdminSummary = await api("/admin/summary", {
+      headers: { "X-Admin-Token": "demo-admin" },
+    });
+    assert.deepEqual(recoveredAdminSummary.body.purge_sn13, {
+      statut: "sain",
+      episode_actif: false,
+      episode_commence_le: null,
+      retabli_le: recoveredAt.toISOString(),
     });
     const [remainingExpiredEvent] = await db
       .select({ id: novaluthSn13CallEventsTable.id })

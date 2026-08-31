@@ -70,6 +70,8 @@ export * from './recommendationResponse';
 export * from './recommendationType';
 export * from './sn13CallState';
 export * from './sn13CallStateStatut';
+export * from './sn13PurgeAdminState';
+export * from './sn13PurgeAdminStateStatut';
 export * from './sn13PurgeMaintenance';
 export * from './sn13PurgeMaintenanceStatut';
 export * from './sn13RecentStats';

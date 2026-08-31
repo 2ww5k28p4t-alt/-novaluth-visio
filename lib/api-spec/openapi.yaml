@@ -941,7 +941,7 @@ components:
               libelle: { type: string }
     AdminSummary:
       type: object
-      required: [compteurs, fiches, passerelle, collecte_sn13, acces]
+      required: [compteurs, fiches, passerelle, collecte_sn13, purge_sn13, acces]
       properties:
         compteurs:
           type: object
@@ -952,6 +952,8 @@ components:
         passerelle: { type: string }
         collecte_sn13:
           $ref: "#/components/schemas/Sn13CallState"
+        purge_sn13:
+          $ref: "#/components/schemas/Sn13PurgeAdminState"
         acces:
           $ref: "#/components/schemas/AccessAdminSummary"
     Sn13CallState:
@@ -978,6 +980,14 @@ components:
         incomplet: { type: number }
         erreur: { type: number }
         alerte: { type: boolean }
+    Sn13PurgeAdminState:
+      type: object
+      required: [statut, episode_actif, episode_commence_le, retabli_le]
+      properties:
+        statut: { type: string, enum: [sain, erreur] }
+        episode_actif: { type: boolean }
+        episode_commence_le: { type: ["string", "null"] }
+        retabli_le: { type: ["string", "null"] }
     StatusUpdate:
       type: object
       required: [statut]

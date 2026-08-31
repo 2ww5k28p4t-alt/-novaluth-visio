@@ -9,11 +9,13 @@ import type { AccessAdminSummary } from './accessAdminSummary';
 import type { AdminSummaryCompteurs } from './adminSummaryCompteurs';
 import type { Fiche } from './fiche';
 import type { Sn13CallState } from './sn13CallState';
+import type { Sn13PurgeAdminState } from './sn13PurgeAdminState';
 
 export interface AdminSummary {
   compteurs: AdminSummaryCompteurs;
   fiches: Fiche[];
   passerelle: string;
   collecte_sn13: Sn13CallState;
+  purge_sn13: Sn13PurgeAdminState;
   acces: AccessAdminSummary;
 }

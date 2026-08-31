@@ -69,6 +69,13 @@ export type Sn13PurgeMaintenanceResult = {
   retabli: boolean;
 };
 
+export type Sn13PurgeAdminState = {
+  statut: "sain" | "erreur";
+  episode_actif: boolean;
+  episode_commence_le: string | null;
+  retabli_le: string | null;
+};
+
 export type DataUniverseRequestResult = {
   response: OnDemandDataResponse;
   requeteId: string;
@@ -300,6 +307,7 @@ async function updateSn13PurgeAlertState(
         .set({
           active: true,
           episodeStartedAt,
+          recoveredAt: null,
           updatedAt: episodeStartedAt,
         })
         .where(eq(novaluthSn13AlertStateTable.key, SN13_PURGE_ALERT_STATE_KEY));
@@ -338,6 +346,7 @@ async function updateSn13PurgeAlertState(
       .set({
         active: false,
         episodeStartedAt: null,
+        recoveredAt: new Date(now),
         updatedAt: new Date(now),
       })
       .where(eq(novaluthSn13AlertStateTable.key, SN13_PURGE_ALERT_STATE_KEY));
@@ -357,6 +366,32 @@ export async function recordSn13PurgeSuccess(
 ): Promise<boolean> {
   const result = await updateSn13PurgeAlertState(false, now);
   return result.transitioned;
+}
+
+export async function getSn13PurgeAdminState(): Promise<Sn13PurgeAdminState> {
+  const [state] = await db
+    .select()
+    .from(novaluthSn13AlertStateTable)
+    .where(eq(novaluthSn13AlertStateTable.key, SN13_PURGE_ALERT_STATE_KEY))
+    .limit(1);
+
+  if (!state) {
+    return {
+      statut: "sain",
+      episode_actif: false,
+      episode_commence_le: null,
+      retabli_le: null,
+    };
+  }
+
+  return {
+    statut: state.active ? "erreur" : "sain",
+    episode_actif: state.active,
+    episode_commence_le: state.active
+      ? state.episodeStartedAt?.toISOString() ?? null
+      : null,
+    retabli_le: state.active ? null : state.recoveredAt?.toISOString() ?? null,
+  };
 }
 
 async function rememberSn13Call(

@@ -84,5 +84,6 @@ export const novaluthSn13AlertStateTable = pgTable("novaluth_sn13_alert_state", 
   key: text("key").primaryKey(),
   active: boolean("active").notNull().default(false),
   episodeStartedAt: timestamp("episode_started_at", { withTimezone: true }),
+  recoveredAt: timestamp("recovered_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

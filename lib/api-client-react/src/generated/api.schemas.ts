@@ -483,6 +483,23 @@ export interface Sn13CallState {
   recents: Sn13RecentStats;
 }
 
+export type Sn13PurgeAdminStateStatut = typeof Sn13PurgeAdminStateStatut[keyof typeof Sn13PurgeAdminStateStatut];
+
+
+export const Sn13PurgeAdminStateStatut = {
+  sain: 'sain',
+  erreur: 'erreur',
+} as const;
+
+export interface Sn13PurgeAdminState {
+  statut: Sn13PurgeAdminStateStatut;
+  episode_actif: boolean;
+  /** @nullable */
+  episode_commence_le: string | null;
+  /** @nullable */
+  retabli_le: string | null;
+}
+
 export interface AccessAdminSummary {
   en_attente: number;
   acceptees: number;
@@ -496,6 +513,7 @@ export interface AdminSummary {
   fiches: Fiche[];
   passerelle: string;
   collecte_sn13: Sn13CallState;
+  purge_sn13: Sn13PurgeAdminState;
   acces: AccessAdminSummary;
 }
 

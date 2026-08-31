@@ -83,6 +83,7 @@ import {
 import { logger } from "../lib/logger";
 import {
   lastSn13Call,
+  getSn13PurgeAdminState,
   purgeExpiredSn13CallEvents,
   recordSn13PurgeFailure,
   recordSn13PurgeSuccess,
@@ -977,6 +978,7 @@ router.get("/admin/summary", async (req, res, next) => {
           .map((row) => getFiche(row.data)),
         passerelle: "moteur de correspondance local",
         collecte_sn13: await lastSn13Call(),
+        purge_sn13: await getSn13PurgeAdminState(),
         acces: {
           en_attente: accessRows.filter(
             (request) => request.status === "en_attente",

@@ -12,7 +12,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
-import { ShieldAlert, RefreshCw, Check, X, AlertCircle } from "lucide-react";
+import { ShieldAlert, RefreshCw, Check, X, AlertCircle, CircleCheck, TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function Admin() {
@@ -161,6 +161,20 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
     label: summary.collecte_sn13.statut,
     className: "text-muted-foreground",
   };
+  const purgeStatus = summary.purge_sn13.statut === "erreur"
+    ? {
+        label: "Purge en échec",
+        className: "text-destructive border-destructive/40",
+        panelClassName: "border-destructive/40 bg-destructive/5",
+        Icon: TriangleAlert,
+      }
+    : {
+        label: "Purge opérationnelle",
+        className: "text-green-700 border-green-700/40",
+        panelClassName: "border-green-700/30 bg-green-700/5",
+        Icon: CircleCheck,
+      };
+  const PurgeStatusIcon = purgeStatus.Icon;
 
   return (
     <div className="container mx-auto px-4 py-12">
@@ -296,6 +310,53 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
             </pre>
           </div>
         ) : null}
+      </section>
+
+      <section className={`bg-card border p-6 mb-12 ${purgeStatus.panelClassName}`}>
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
+          <div className="flex items-start gap-3">
+            <PurgeStatusIcon className={`h-5 w-5 mt-0.5 ${purgeStatus.className.split(" ")[0]}`} aria-hidden="true" />
+            <div>
+              <h2 className="text-xl font-serif text-primary">Purge SN13</h2>
+              <p className="text-sm text-muted-foreground">
+                Rétention des événements de collecte, sans détail sensible.
+              </p>
+            </div>
+          </div>
+          <Badge variant="outline" className={`rounded-none ${purgeStatus.className}`}>
+            {purgeStatus.label}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+          <div className="border border-border/50 bg-background p-3">
+            <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+              Épisode actuel
+            </span>
+            <span className={summary.purge_sn13.episode_actif ? "text-destructive" : "text-green-700"}>
+              {summary.purge_sn13.episode_actif ? "Incident en cours" : "Aucun incident"}
+            </span>
+          </div>
+          <div className="border border-border/50 bg-background p-3">
+            <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+              Début de l’épisode
+            </span>
+            <span>
+              {summary.purge_sn13.episode_commence_le
+                ? new Date(summary.purge_sn13.episode_commence_le).toLocaleString("fr-FR")
+                : "—"}
+            </span>
+          </div>
+          <div className="border border-border/50 bg-background p-3">
+            <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-1">
+              Rétabli le
+            </span>
+            <span>
+              {summary.purge_sn13.retabli_le
+                ? new Date(summary.purge_sn13.retabli_le).toLocaleString("fr-FR")
+                : "—"}
+            </span>
+          </div>
+        </div>
       </section>
 
       <div className="bg-card border border-border/50">
