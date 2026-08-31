@@ -184,10 +184,17 @@ type Sn13DiagnosticSnapshot = {
   corps_erreur: string | null;
 };
 
+type Sn13ProcessOptions = {
+  status?: "erreur" | "incomplet" | "vide" | "succes";
+  calledAt?: number;
+  writeDelayMs?: number;
+};
+
 function runSn13Process(
   mode: "write" | "read",
   requestId: string,
   secret: string,
+  options: Sn13ProcessOptions = {},
 ): Promise<Sn13DiagnosticSnapshot> {
   return new Promise((resolve, reject) => {
     const child = spawn(tsxBinary, [sn13ProcessRunner, mode], {
@@ -197,6 +204,9 @@ function runSn13Process(
         NODE_ENV: "test",
         SN13_DIAGNOSTIC_TEST_REQUEST_ID: requestId,
         SN13_DIAGNOSTIC_TEST_SECRET: secret,
+        SN13_DIAGNOSTIC_TEST_STATUS: options.status ?? "erreur",
+        SN13_DIAGNOSTIC_TEST_CALLED_AT: options.calledAt?.toString() ?? "",
+        SN13_DIAGNOSTIC_TEST_WRITE_DELAY_MS: options.writeDelayMs?.toString() ?? "",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -545,31 +555,45 @@ test("NovaLuth email outbox deduplicates and dead-letters repeated provider fail
     .where(eq(novaluthEmailOutboxTable.dedupeKey, dedupeKey));
 });
 
-test("SN13 conserve son dernier diagnostic entre deux processus", async () => {
-  const requestId = `sn13-multi-process-${randomUUID()}`;
-  const secret = `sn13-multi-process-secret-${randomUUID()}`;
+test("SN13 conserve le diagnostic le plus récent lors d’écritures simultanées", async () => {
+  const olderRequestId = `sn13-concurrent-older-${randomUUID()}`;
+  const newerRequestId = `sn13-concurrent-newer-${randomUUID()}`;
+  const olderSecret = `sn13-concurrent-older-secret-${randomUUID()}`;
+  const newerSecret = `sn13-concurrent-newer-secret-${randomUUID()}`;
+  const olderCalledAt = Date.now();
+  const newerCalledAt = olderCalledAt + 1_000;
 
   await db
     .delete(novaluthSn13DiagnosticsTable)
     .where(eq(novaluthSn13DiagnosticsTable.key, "latest"));
   try {
-    const written = await runSn13Process("write", requestId, secret);
-    const read = await runSn13Process("read", requestId, secret);
+    await Promise.all([
+      runSn13Process("write", olderRequestId, olderSecret, {
+        status: "erreur",
+        calledAt: olderCalledAt,
+        writeDelayMs: 500,
+      }),
+      runSn13Process("write", newerRequestId, newerSecret, {
+        status: "incomplet",
+        calledAt: newerCalledAt,
+      }),
+    ]);
+    const read = await runSn13Process("read", newerRequestId, newerSecret);
 
-    assert.deepEqual(
-      read,
-      written,
-      "Le second processus doit relire exactement les champs durables écrits par le premier.",
-    );
-    assert.equal(read.statut, "erreur");
-    assert.equal(read.requete_id, requestId);
+    assert.equal(read.statut, "incomplet");
+    assert.equal(read.requete_id, newerRequestId);
+    assert.equal(read.appele_le, new Date(newerCalledAt).toISOString());
     assert.match(
       read.appele_le ?? "",
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
     );
     assert.match(read.corps_erreur ?? "", /\[REDACTED\]/);
-    assert.doesNotMatch(read.corps_erreur ?? "", new RegExp(secret));
-    assert.doesNotMatch(JSON.stringify(read), new RegExp(secret));
+    assert.match(read.corps_erreur ?? "", new RegExp(newerRequestId));
+    assert.doesNotMatch(read.corps_erreur ?? "", new RegExp(olderRequestId));
+    assert.doesNotMatch(read.corps_erreur ?? "", new RegExp(newerSecret));
+    assert.doesNotMatch(read.corps_erreur ?? "", new RegExp(olderSecret));
+    assert.doesNotMatch(JSON.stringify(read), new RegExp(newerSecret));
+    assert.doesNotMatch(JSON.stringify(read), new RegExp(olderSecret));
   } finally {
     await db
       .delete(novaluthSn13DiagnosticsTable)

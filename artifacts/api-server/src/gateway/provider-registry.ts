@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Sn13Client, type OnDemandDataResponse } from "macrocosmos";
 import { db, novaluthSn13DiagnosticsTable } from "@workspace/db";
 import { enqueueNovaLuthEmail } from "../lib/novaluth-email-outbox";
@@ -67,6 +67,7 @@ const defaultSn13ClientFactory: Sn13ClientFactory = (apiKey) =>
   new Sn13Client({ apiKey });
 
 let sn13ClientFactory = defaultSn13ClientFactory;
+let sn13Now = () => Date.now();
 
 const initialSn13CallState: Sn13CallState = {
   statut: "jamais",
@@ -180,7 +181,7 @@ async function rememberSn13Call(
   nombre: number | null,
   corpsErreur: string | null,
 ) {
-  const calledAt = Date.now();
+  const calledAt = sn13Now();
   const previousStats = recentSn13Stats(calledAt);
   sn13RecentHistory.push({ at: calledAt, statut });
   const recentStats = recentSn13Stats(calledAt);
@@ -199,8 +200,8 @@ async function rememberSn13Call(
     recents: recentStats,
   };
   const calledAtDate = new Date(calledAt);
-  await db.transaction(async (tx) => {
-    await tx
+  const persisted = await db.transaction(async (tx) => {
+    const [diagnostic] = await tx
       .insert(novaluthSn13DiagnosticsTable)
       .values({
         key: SN13_DIAGNOSTIC_KEY,
@@ -219,7 +220,21 @@ async function rememberSn13Call(
           calledAt: calledAtDate,
           resultCount: state.nombre,
         },
-      });
+        // Collection completion can be committed out of order across processes.
+        // Keep the newest completion, using the request id as a deterministic
+        // tie-breaker when two clocks have the same millisecond.
+        where: sql`
+          ${novaluthSn13DiagnosticsTable.calledAt} < excluded.called_at
+          OR (
+            ${novaluthSn13DiagnosticsTable.calledAt} = excluded.called_at
+            AND coalesce(${novaluthSn13DiagnosticsTable.requestId}, '') <
+              coalesce(excluded.request_id, '')
+          )
+        `,
+      })
+      .returning({ key: novaluthSn13DiagnosticsTable.key });
+
+    if (!diagnostic) return false;
 
     const recipient =
       process.env.NOVALUTH_SN13_ALERT_EMAIL?.trim() ||
@@ -245,9 +260,12 @@ async function rememberSn13Call(
         `${SN13_ALERT_DEDUPE_PREFIX}:${alertEpisodeStartedAt}`,
       );
     }
-    });
-  sn13AlertEpisodeStartedAt = alertEpisodeStartedAt;
-  lastSn13CallState = state;
+    return true;
+  });
+  if (persisted) {
+    sn13AlertEpisodeStartedAt = alertEpisodeStartedAt;
+    lastSn13CallState = state;
+  }
 }
 
 export async function lastSn13Call(): Promise<Sn13CallState> {
@@ -274,6 +292,13 @@ export function setSn13ClientFactoryForTests(factory: Sn13ClientFactory | null):
     throw new Error("Le client SN13 ne peut être remplacé qu’en environnement de test.");
   }
   sn13ClientFactory = factory ?? defaultSn13ClientFactory;
+}
+
+export function setSn13ClockForTests(clock: (() => number) | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("L’horloge SN13 ne peut être remplacée qu’en environnement de test.");
+  }
+  sn13Now = clock ?? (() => Date.now());
 }
 
 export async function requestDataUniverse(

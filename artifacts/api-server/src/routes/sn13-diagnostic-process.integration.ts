@@ -2,6 +2,7 @@ import { pool } from "@workspace/db";
 import {
   lastSn13Call,
   requestDataUniverse,
+  setSn13ClockForTests,
   setSn13ClientFactoryForTests,
 } from "../gateway/provider-registry";
 
@@ -27,17 +28,31 @@ try {
   if (mode === "write") {
     process.env.NODE_ENV = "test";
     process.env.SN13_API_KEY = apiKey;
+    const status = process.env.SN13_DIAGNOSTIC_TEST_STATUS ?? "erreur";
+    const calledAt = Number(process.env.SN13_DIAGNOSTIC_TEST_CALLED_AT);
+    if (Number.isFinite(calledAt)) {
+      setSn13ClockForTests(() => calledAt);
+    }
     setSn13ClientFactoryForTests(() => ({
       onDemandData: async () => ({
-        status: "error",
-        data: [],
+        status: status === "incomplet" ? "success" : status === "erreur" ? "error" : "success",
+        data:
+          status === "incomplet"
+            ? (undefined as never)
+            : status === "vide"
+              ? []
+              : [{ request_id: requestId }],
         meta: {
           request_id: requestId,
-          detail: `upstream failed with api_key=${apiKey}`,
+          detail: `upstream failed for request=${requestId} with api_key=${apiKey}`,
           authorization: `Bearer ${apiKey}`,
         },
       }),
     }));
+    const delayMs = Number(process.env.SN13_DIAGNOSTIC_TEST_WRITE_DELAY_MS);
+    if (Number.isFinite(delayMs) && delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
     await requestDataUniverse(request);
   } else if (mode !== "read") {
     throw new Error(`Mode de processus SN13 inconnu: ${mode}`);
@@ -53,6 +68,7 @@ try {
     }),
   );
 } finally {
+  if (mode === "write") setSn13ClockForTests(null);
   setSn13ClientFactoryForTests(null);
   await pool.end();
 }

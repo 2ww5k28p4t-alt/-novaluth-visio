@@ -3,3 +3,4 @@
 - [Transactional email outbox](transactional-email-outbox.md) — Notification events must be enqueued atomically and delivered at least once with provider idempotency.
 - [Admin summary normalization](admin-summary-normalization.md) — Stored profile payloads can predate derived fields; normalize them before response-schema validation.
 - [Database schema reconciliation](db-schema-reconciliation.md) — A compiled schema source can be newer than the development database constraints.
+- [Development check constraints](development-check-constraints.md) — Verify active PostgreSQL CHECK constraints after schema changes; Drizzle push may leave an older constraint in place.
