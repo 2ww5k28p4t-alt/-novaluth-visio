@@ -378,7 +378,7 @@ router.post("/v1/collecte", async (req, res) => {
     if (!["x", "reddit"].includes(source)) {
       throw new GatewayAuthError(403, "Source non autorisée.");
     }
-    if (!Array.isArray(input.mots_cles) || input.mots_cles.length < 1 || input.mots_cles.length > 12) {
+    if (!Array.isArray(input.mots_cles) || input.mots_cles.length < 1 || input.mots_cles.length > 5) {
       throw new GatewayAuthError(422, "mots_cles invalide.");
     }
     const motsCles = input.mots_cles.map((value) => requiredText(value, "mot_cle", 100));
@@ -388,7 +388,7 @@ router.post("/v1/collecte", async (req, res) => {
     }
     const jours = input.jours === undefined ? 3 : Number(input.jours);
     const limit = input.limite === undefined ? 300 : Number(input.limite);
-    if (!Number.isInteger(jours) || jours < 1 || jours > 30 || !Number.isInteger(limit) || limit < 10 || limit > 1000) {
+    if (!Number.isInteger(jours) || jours < 1 || jours > 366 || !Number.isInteger(limit) || limit < 10 || limit > 1000) {
       throw new GatewayAuthError(422, "Paramètres de collecte invalides.");
     }
     const keywordMode =
@@ -430,7 +430,10 @@ router.post("/v1/collecte", async (req, res) => {
         );
         if (!response.ok) {
           failures.push(provider.key);
-          audit(caller, "collecte", provider.key, response.status);
+          const errorBody = await response.text();
+          audit(caller, "collecte", provider.key, response.status, {
+            erreur: errorBody,
+          });
           continue;
         }
         const data = (await response.json()) as { data?: unknown[] };

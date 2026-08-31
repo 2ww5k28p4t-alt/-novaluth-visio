@@ -128,10 +128,10 @@ export const providerChains: Record<ProviderNeed, readonly ProviderDefinition[]>
       netuid: 13,
       endpoint: envOr(
         "SN13_API_URL",
-        "https://sn13.api.macrocosmos.ai/api/v1/on_demand_data_request",
+        "https://constellation.api.cloud.macrocosmos.ai/sn13.v1.Sn13Service/OnDemandData",
       ),
       apiKeyEnv: "SN13_API_KEY",
-      header: "x-api-key",
+      header: "bearer",
       pricing: "0,10 $ pour 1 000 publications, relevé du 27/08/2026",
       source: "https://github.com/macrocosm-os/data-universe",
       license: "MIT annoncée pour le code du sous-réseau",
