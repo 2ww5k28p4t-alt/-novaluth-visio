@@ -10,6 +10,8 @@ import {
 
 import {
   assertSn13SchemaSynchronized,
+  expectedNamedCheckConstraints,
+  expectedNonSn13Constraints,
   expectedSn13Constraints,
   expectedSn13Tables,
   normalizeDefinition,
@@ -56,45 +58,52 @@ function createQueryStub({
 
 test("keeps SN13 preflight expectations aligned with the source schema", () => {
   const dialect = new PgDialect();
-  const sourceSn13Tables = Object.values(sourceSchema)
+  const sourceTables = Object.values(sourceSchema)
     .filter((value) => value instanceof PgTable)
-    .map((table) => getTableConfig(table as AnyPgTable))
-    .filter(({ name }) => name.startsWith("novaluth_sn13_"));
+    .map((table) => getTableConfig(table as AnyPgTable));
+  const sourceSn13Tables = sourceTables.filter(({ name }) =>
+    name.startsWith("novaluth_sn13_"),
+  );
 
   assert.deepEqual(
     [...expectedSn13Tables].sort(),
     sourceSn13Tables.map(({ name }) => name).sort(),
   );
 
-  const sourceSn13Constraints = sourceSn13Tables.flatMap(({ name, checks }) =>
+  const sourceConstraints = sourceTables.flatMap(({ name, checks }) =>
     checks.map((check) => ({
       key: `${name}.${check.name}`,
-      name: check.name,
       definition: dialect.sqlToQuery(check.value).sql,
     })),
   );
-  const expectedConstraintNames = expectedSn13Constraints.map(
+  const expectedConstraintNames = expectedNamedCheckConstraints.map(
     ({ tableName, name }) => `${tableName}.${name}`,
   );
 
   assert.deepEqual(
     expectedConstraintNames.sort(),
-    sourceSn13Constraints.map(({ key }) => key).sort(),
+    sourceConstraints.map(({ key }) => key).sort(),
   );
 
   const expectedByName = new Map<
     string,
-    (typeof expectedSn13Constraints)[number]
+    (typeof expectedNamedCheckConstraints)[number]
   >(
-    expectedSn13Constraints.map((constraint) => [constraint.name, constraint]),
+    expectedNamedCheckConstraints.map((constraint) => [
+      `${constraint.tableName}.${constraint.name}`,
+      constraint,
+    ]),
   );
-  for (const sourceConstraint of sourceSn13Constraints) {
-    const expected = expectedByName.get(sourceConstraint.name);
-    assert.ok(expected, `Unexpected SN13 CHECK constraint ${sourceConstraint.name}`);
+  for (const sourceConstraint of sourceConstraints) {
+    const expected = expectedByName.get(sourceConstraint.key);
+    assert.ok(
+      expected,
+      `Unexpected named CHECK constraint ${sourceConstraint.key}`,
+    );
     assert.equal(
       normalizeDefinition(sourceConstraint.definition),
       normalizeDefinition(expected.definition),
-      `SN13 CHECK definition mismatch for ${sourceConstraint.name}`,
+      `CHECK definition mismatch for ${sourceConstraint.key}`,
     );
   }
 });
@@ -204,7 +213,7 @@ test("identifies a missing named SN13 CHECK constraint in the synchronization fa
         assert(error instanceof Error);
         assert.match(
           error.message,
-          /Contraintes absentes : novaluth_sn13_call_events_status_check\./,
+          /Contraintes absentes : .*novaluth_sn13_call_events_status_check/,
         );
         assert.match(
           error.message,
@@ -214,4 +223,45 @@ test("identifies a missing named SN13 CHECK constraint in the synchronization fa
       },
     );
   });
+});
+
+test("identifies an outdated non-SN13 CHECK constraint by name", async () => {
+  const query = createQueryStub({
+    tables: [
+      { table_name: "novaluth_sn13_diagnostics" },
+      { table_name: "novaluth_sn13_call_events" },
+      { table_name: "novaluth_sn13_alert_state" },
+      { table_name: "novaluth_sn13_purge_incidents" },
+      { table_name: "novaluth_access_requests" },
+      { table_name: "novaluth_email_outbox" },
+    ],
+    constraints: [
+      {
+        table_name: "novaluth_email_outbox",
+        constraint_name: "novaluth_email_outbox_status_check",
+        definition:
+          "CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text])))",
+      },
+    ],
+  });
+
+  await runWithDevelopmentEnvironment(async () => {
+    await assert.rejects(
+      assertSn13SchemaSynchronized(query),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(
+          error.message,
+          /Contrainte obsolète novaluth_email_outbox_status_check/,
+        );
+        return true;
+      },
+    );
+  });
+});
+
+test("keeps non-SN13 constraint expectations separate from SN13 constraints", () => {
+  assert.equal(expectedNonSn13Constraints.length, 4);
+  assert.equal(expectedSn13Constraints.length, 5);
+  assert.equal(expectedNamedCheckConstraints.length, 9);
 });

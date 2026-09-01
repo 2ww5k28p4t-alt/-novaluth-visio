@@ -43,6 +43,41 @@ export const expectedSn13Constraints = [
   },
 ] as const;
 
+export const expectedNonSn13Constraints = [
+  {
+    tableName: "novaluth_access_requests",
+    name: "novaluth_access_requests_lifecycle_check",
+    definition:
+      "CHECK (((status = 'en_attente'::text) AND (payment_status = 'preautorise'::text) AND (decided_at IS NULL) AND (access_ends_at IS NULL)) OR ((status = 'acceptee'::text) AND (payment_status = 'encaisse'::text) AND (decided_at IS NOT NULL) AND (access_ends_at IS NOT NULL)) OR ((status = ANY (ARRAY['refusee'::text, 'annulee'::text])) AND (payment_status = 'annule'::text) AND (decided_at IS NOT NULL) AND (access_ends_at IS NULL)) OR ((status = 'expiree'::text) AND (payment_status = 'encaisse'::text) AND (decided_at IS NOT NULL) AND (access_ends_at IS NOT NULL)))",
+  },
+  {
+    tableName: "novaluth_access_requests",
+    name: "novaluth_access_requests_plan_check",
+    definition:
+      "CHECK (((plan = 'essentiel'::text) AND (amount_cents = 999) AND (followup_credits >= 0) AND (followup_credits <= 1)) OR ((plan = 'atelier'::text) AND (amount_cents = 1599) AND (followup_credits >= 0) AND (followup_credits <= 2)) OR ((plan = 'signature'::text) AND (amount_cents = 2499) AND (followup_credits >= 0) AND (followup_credits <= 3)))",
+  },
+  {
+    tableName: "novaluth_email_outbox",
+    name: "novaluth_email_outbox_status_check",
+    definition:
+      "CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'sent'::text, 'failed'::text, 'dead'::text])))",
+  },
+  {
+    tableName: "novaluth_email_outbox",
+    name: "novaluth_email_outbox_attempts_check",
+    definition: "CHECK ((attempts >= 0))",
+  },
+] as const;
+
+export const expectedNamedCheckConstraints = [
+  ...expectedSn13Constraints,
+  ...expectedNonSn13Constraints,
+] as const;
+
+const expectedConstraintTables = [
+  ...new Set(expectedNamedCheckConstraints.map(({ tableName }) => tableName)),
+];
+
 export type Sn13SchemaQuery = (
   text: string,
   values: [string, string[]],
@@ -126,8 +161,9 @@ function stripRedundantGroupingParentheses(value: string) {
       // remove parentheses around boolean/comparison expressions that
       // pg_get_constraintdef adds while preserving the expression's meaning.
       if (
-        /(?:\band\b|\bor\b|\bis\s+(?:not\s+)?null\b|<>|!=|<=|>=|=|<|>)/
-          .test(inner) &&
+        /(?:\band\b|\bor\b|\bis\s+(?:not\s+)?null\b|<>|!=|<=|>=|=|<|>)/.test(
+          inner,
+        ) &&
         !/[a-z0-9_$]/.test(previousCharacter ?? "")
       ) {
         normalized =
@@ -143,16 +179,25 @@ function stripRedundantGroupingParentheses(value: string) {
   return normalized;
 }
 
+function normalizeBetweenExpressions(value: string) {
+  return value.replace(
+    /(\b[a-z_][a-z0-9_$]*\b)\s+between\s+(-?[0-9]+|'[^']*')\s+and\s+(-?[0-9]+|'[^']*')/g,
+    "$1 >= $2 and $1 <= $3",
+  );
+}
+
 /**
  * Normalize Drizzle-rendered CHECK expressions and pg_get_constraintdef()
  * output to the same PostgreSQL expression form. PostgreSQL adds CHECK and
  * redundant grouping parentheses, removes table qualification, renders an
  * IN list as = ANY (ARRAY[...]), and annotates text literals with ::text.
- * These transformations are stable for the SQL expressions used by the
- * SN13 source schema and keep the drift check independent of a database.
+ * It also renders BETWEEN as two comparisons. These transformations keep the
+ * drift check independent of a database.
  */
 export function normalizeDefinition(definition: string) {
-  let normalized = definition.replace(/\s+/g, " ").trim().toLowerCase();
+  let normalized = normalizeBetweenExpressions(
+    definition.replace(/\s+/g, " ").trim().toLowerCase(),
+  );
 
   if (normalized.startsWith("check")) {
     normalized = normalized.slice("check".length).trim();
@@ -164,9 +209,9 @@ export function normalizeDefinition(definition: string) {
     .replace(/\bin\s*\(([^()]*)\)/g, "= any (array[$1])")
     .replace(/::text\b/g, "");
 
-  return stripRedundantGroupingParentheses(
-    stripOuterParentheses(normalized),
-  );
+  normalized = normalizeBetweenExpressions(normalized);
+
+  return stripRedundantGroupingParentheses(stripOuterParentheses(normalized));
 }
 
 export async function findSn13SchemaDrift(
@@ -214,7 +259,7 @@ export async function findSn13SchemaDrift(
         where n.nspname = $1
           and c.relname = any($2::text[])
           and con.contype = 'c'`,
-      ["public", [...expectedSn13Tables]],
+      ["public", expectedConstraintTables],
     );
     const actualConstraints = new Map(
       constraintResult.rows.map((row) => [
@@ -225,7 +270,7 @@ export async function findSn13SchemaDrift(
     const missingConstraints: string[] = [];
     const mismatchedConstraints: Sn13SchemaDrift["mismatchedConstraints"] = [];
 
-    for (const expected of expectedSn13Constraints) {
+    for (const expected of expectedNamedCheckConstraints) {
       const actual = actualConstraints.get(
         `${expected.tableName}.${expected.name}`,
       );
