@@ -126,6 +126,7 @@ test("runs the requested command against the isolated PostgreSQL server", () => 
   );
 });
 
+
 test("cleans up the isolated PostgreSQL server when the requested command fails", () => {
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "novaluth-schema-check-test-"),
@@ -188,6 +189,11 @@ test("cleans up the isolated PostgreSQL server when the requested command fails"
       subprocessError.stdout ?? "",
       subprocessError.stderr ?? "",
     ].join("\n");
+    assert.doesNotMatch(
+      output,
+      /Failed to stop the isolated PostgreSQL server/,
+      "normal PostgreSQL cleanup emitted a shutdown failure",
+    );
     const databaseUrlLine = output
       .split("\n")
       .find((line) => line.startsWith("child-database-url:"));
@@ -228,6 +234,101 @@ test("cleans up the isolated PostgreSQL server when the requested command fails"
           { cwd: packageRoot, stdio: "pipe" },
         ),
       "the temporary PostgreSQL server is still running",
+    );
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("reports a PostgreSQL shutdown failure without masking the requested command status", () => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "novaluth-schema-check-shutdown-test-"),
+  );
+  const fakeBin = path.join(temporaryRoot, "bin");
+  const realPgCtl = execFileSync("bash", ["-c", "command -v pg_ctl"], {
+    encoding: "utf8",
+  }).trim();
+  const fakePgCtl = path.join(fakeBin, "pg_ctl");
+  fs.mkdirSync(fakeBin);
+  fs.writeFileSync(
+    fakePgCtl,
+    `#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "\${*: -1}" == "stop" ]]; then
+  "${realPgCtl}" "$@"
+  echo "simulated pg_ctl shutdown failure" >&2
+  exit 41
+fi
+exec "${realPgCtl}" "$@"
+`,
+    { mode: 0o755 },
+  );
+
+  const failingChildScript = `
+    const { Client } = require("pg");
+
+    (async () => {
+      const client = new Client({
+        connectionString: process.env.DATABASE_URL,
+        connectionTimeoutMillis: 5000,
+      });
+      await client.connect();
+      await client.end();
+      process.exitCode = 23;
+    })().catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  `;
+
+  try {
+    let subprocessError: {
+      status?: number | null;
+      stderr?: string | Buffer;
+      stdout?: string | Buffer;
+    };
+
+    try {
+      execFileSync(
+        "bash",
+        [isolatedCheckScript, "--", process.execPath, "-e", failingChildScript],
+        {
+          cwd: packageRoot,
+          env: {
+            ...process.env,
+            DATABASE_URL: "postgresql://development.invalid/novaluth",
+            NODE_ENV: "development",
+            PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+            TMPDIR: temporaryRoot,
+          },
+          encoding: "utf8",
+        },
+      );
+      assert.fail("the failing child command unexpectedly succeeded");
+    } catch (error) {
+      subprocessError = error as {
+        status?: number | null;
+        stderr?: string | Buffer;
+        stdout?: string | Buffer;
+      };
+    }
+
+    assert.equal(subprocessError.status, 23);
+    const output = [
+      subprocessError.stdout ?? "",
+      subprocessError.stderr ?? "",
+    ].join("\n");
+    assert.match(
+      output,
+      /Failed to stop the isolated PostgreSQL server \(pg_ctl exit status 41\)\./,
+    );
+    assert.match(output, /simulated pg_ctl shutdown failure/);
+    assert.deepEqual(
+      fs
+        .readdirSync(temporaryRoot)
+        .filter((entry) => entry.startsWith("novaluth-schema-check.")),
+      [],
+      "the isolated PostgreSQL temporary directory was not removed",
     );
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });

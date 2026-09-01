@@ -19,7 +19,18 @@ port="$(
 
 cleanup() {
   if [[ -f "$data_dir/postmaster.pid" ]]; then
-    pg_ctl -D "$data_dir" -m immediate stop >/dev/null 2>&1 || true
+    local shutdown_output
+    local shutdown_status
+
+    if shutdown_output="$(pg_ctl -D "$data_dir" -m immediate stop 2>&1 >/dev/null)"; then
+      :
+    else
+      shutdown_status=$?
+      echo "Failed to stop the isolated PostgreSQL server (pg_ctl exit status $shutdown_status)." >&2
+      if [[ -n "$shutdown_output" ]]; then
+        printf '%s\n' "$shutdown_output" >&2
+      fi
+    fi
   fi
   rm -rf "$tmp_dir"
 }
@@ -74,7 +85,7 @@ if (($# > 0)); then
   command_status=$?
   set -e
 
-  cleanup
+  cleanup || true
   trap - EXIT
   exit "$command_status"
 fi
