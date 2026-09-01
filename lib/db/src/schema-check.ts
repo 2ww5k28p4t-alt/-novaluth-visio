@@ -43,11 +43,10 @@ const expectedSn13Constraints = [
   },
 ] as const;
 
-type ConstraintRow = {
-  table_name: string;
-  constraint_name: string;
-  definition: string;
-};
+export type Sn13SchemaQuery = (
+  text: string,
+  values: [string, string[]],
+) => Promise<{ rows: Array<Record<string, string>> }>;
 
 export type Sn13SchemaDrift = {
   missingTables: string[];
@@ -63,7 +62,9 @@ function normalizeDefinition(definition: string) {
   return definition.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-export async function findSn13SchemaDrift(): Promise<Sn13SchemaDrift> {
+export async function findSn13SchemaDrift(
+  queryOverride?: Sn13SchemaQuery,
+): Promise<Sn13SchemaDrift> {
   if (process.env.NODE_ENV === "production") {
     throw new Error(
       "Le contrôle du schéma SN13 est réservé à la base de développement et refuse NODE_ENV=production.",
@@ -76,10 +77,14 @@ export async function findSn13SchemaDrift(): Promise<Sn13SchemaDrift> {
     );
   }
 
-  const checkPool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const checkPool = queryOverride
+    ? undefined
+    : new Pool({ connectionString: process.env.DATABASE_URL });
+  const query: Sn13SchemaQuery =
+    queryOverride ?? ((text, values) => checkPool!.query(text, values));
 
   try {
-    const tableResult = await checkPool.query<{ table_name: string }>(
+    const tableResult = await query(
       `select table_name
          from information_schema.tables
         where table_schema = $1
@@ -87,14 +92,12 @@ export async function findSn13SchemaDrift(): Promise<Sn13SchemaDrift> {
           and table_name = any($2::text[])`,
       ["public", [...expectedSn13Tables]],
     );
-    const actualTables = new Set(
-      tableResult.rows.map((row) => row.table_name),
-    );
+    const actualTables = new Set(tableResult.rows.map((row) => row.table_name));
     const missingTables = expectedSn13Tables.filter(
       (tableName) => !actualTables.has(tableName),
     );
 
-    const constraintResult = await checkPool.query<ConstraintRow>(
+    const constraintResult = await query(
       `select c.relname as table_name,
               con.conname as constraint_name,
               pg_get_constraintdef(con.oid) as definition
@@ -113,8 +116,7 @@ export async function findSn13SchemaDrift(): Promise<Sn13SchemaDrift> {
       ]),
     );
     const missingConstraints: string[] = [];
-    const mismatchedConstraints: Sn13SchemaDrift["mismatchedConstraints"] =
-      [];
+    const mismatchedConstraints: Sn13SchemaDrift["mismatchedConstraints"] = [];
 
     for (const expected of expectedSn13Constraints) {
       const actual = actualConstraints.get(
@@ -143,7 +145,7 @@ export async function findSn13SchemaDrift(): Promise<Sn13SchemaDrift> {
       mismatchedConstraints,
     };
   } finally {
-    await checkPool.end();
+    await checkPool?.end();
   }
 }
 
@@ -155,8 +157,10 @@ function hasDrift(drift: Sn13SchemaDrift) {
   );
 }
 
-export async function assertSn13SchemaSynchronized() {
-  const drift = await findSn13SchemaDrift();
+export async function assertSn13SchemaSynchronized(
+  queryOverride?: Sn13SchemaQuery,
+) {
+  const drift = await findSn13SchemaDrift(queryOverride);
   if (!hasDrift(drift)) return;
 
   const details = [
@@ -192,9 +196,6 @@ async function main() {
   }
 }
 
-if (
-  process.argv[1] &&
-  process.argv[1].endsWith("/schema-check.ts")
-) {
+if (process.argv[1] && process.argv[1].endsWith("/schema-check.ts")) {
   void main();
 }
