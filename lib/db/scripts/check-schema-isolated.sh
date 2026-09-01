@@ -30,9 +30,80 @@ cleanup() {
       if [[ -n "$shutdown_output" ]]; then
         printf '%s\n' "$shutdown_output" >&2
       fi
+
+      recover_isolated_server
     fi
   fi
-  rm -rf "$tmp_dir"
+  rm -rf "$tmp_dir" || true
+}
+
+server_pid_is_owned() {
+  local pid="$1"
+  local command_line
+
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ -r "/proc/$pid/cmdline" ]] || return 1
+  command_line="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" || return 1
+
+  [[ "$command_line" == *"$data_dir"* ]] &&
+    [[ "$command_line" =~ (^|[[:space:]/])(postgres|postmaster)([[:space:]]|$) ]]
+}
+
+recover_isolated_server() {
+  local recovery_pid
+  local attempt
+  local recovery_attempts=30
+
+  echo "Attempting bounded ownership-safe PostgreSQL recovery (fallback)." >&2
+
+  if ! recovery_pid="$(sed -n '1p' "$data_dir/postmaster.pid" 2>/dev/null)" ||
+    ! server_pid_is_owned "$recovery_pid"; then
+    echo "Fallback recovery failed: the isolated PostgreSQL process could not be verified as owned; no signal was sent." >&2
+    return 0
+  fi
+
+  if ! kill -TERM "$recovery_pid" 2>/dev/null; then
+    echo "Fallback recovery could not send SIGTERM to the owned PostgreSQL process." >&2
+  fi
+
+  for ((attempt = 0; attempt < recovery_attempts; attempt++)); do
+    if ! kill -0 "$recovery_pid" 2>/dev/null; then
+      echo "Fallback recovery succeeded: the isolated PostgreSQL server exited after SIGTERM." >&2
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  if ! kill -0 "$recovery_pid" 2>/dev/null; then
+    echo "Fallback recovery succeeded: the isolated PostgreSQL server exited after SIGTERM." >&2
+    return 0
+  fi
+
+  if ! server_pid_is_owned "$recovery_pid"; then
+    echo "Fallback recovery failed: PostgreSQL ownership could not be re-verified; no further signal was sent." >&2
+    return 0
+  fi
+
+  echo "Fallback recovery escalating to SIGKILL after the bounded SIGTERM wait." >&2
+  if ! kill -KILL "$recovery_pid" 2>/dev/null; then
+    echo "Fallback recovery failed: SIGKILL could not be sent to the owned PostgreSQL process." >&2
+    return 0
+  fi
+
+  for ((attempt = 0; attempt < 10; attempt++)); do
+    if ! kill -0 "$recovery_pid" 2>/dev/null; then
+      echo "Fallback recovery succeeded: the isolated PostgreSQL server exited after SIGKILL." >&2
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  if ! kill -0 "$recovery_pid" 2>/dev/null; then
+    echo "Fallback recovery succeeded: the isolated PostgreSQL server exited after SIGKILL." >&2
+  else
+    echo "Fallback recovery failed: the isolated PostgreSQL server is still running after SIGKILL." >&2
+  fi
+  return 0
 }
 trap cleanup EXIT
 

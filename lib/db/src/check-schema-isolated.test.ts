@@ -126,7 +126,6 @@ test("runs the requested command against the isolated PostgreSQL server", () => 
   );
 });
 
-
 test("cleans up the isolated PostgreSQL server when the requested command fails", () => {
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "novaluth-schema-check-test-"),
@@ -255,7 +254,6 @@ test("reports a PostgreSQL shutdown failure without masking the requested comman
     `#!/usr/bin/env bash
 set -Eeuo pipefail
 if [[ "\${*: -1}" == "stop" ]]; then
-  "${realPgCtl}" "$@"
   echo "simulated pg_ctl shutdown failure" >&2
   exit 41
 fi
@@ -323,6 +321,14 @@ exec "${realPgCtl}" "$@"
       /Failed to stop the isolated PostgreSQL server \(pg_ctl exit status 41\)\./,
     );
     assert.match(output, /simulated pg_ctl shutdown failure/);
+    assert.match(
+      output,
+      /Attempting bounded ownership-safe PostgreSQL recovery \(fallback\)\./,
+    );
+    assert.match(
+      output,
+      /Fallback recovery succeeded: the isolated PostgreSQL server exited after SIGTERM\./,
+    );
     assert.deepEqual(
       fs
         .readdirSync(temporaryRoot)
@@ -331,6 +337,114 @@ exec "${realPgCtl}" "$@"
       "the isolated PostgreSQL temporary directory was not removed",
     );
   } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("does not signal an unowned process after a PostgreSQL shutdown failure", () => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "novaluth-schema-check-unowned-shutdown-test-"),
+  );
+  const fakeBin = path.join(temporaryRoot, "bin");
+  const realPgCtl = execFileSync("bash", ["-c", "command -v pg_ctl"], {
+    encoding: "utf8",
+  }).trim();
+  const fakePgCtl = path.join(fakeBin, "pg_ctl");
+  const unownedPidFile = path.join(temporaryRoot, "unowned-pid");
+  fs.mkdirSync(fakeBin);
+  fs.writeFileSync(
+    fakePgCtl,
+    `#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "\${*: -1}" == "stop" ]]; then
+  "${realPgCtl}" "$@"
+  sleep 30 >/dev/null 2>&1 </dev/null &
+  unowned_pid=$!
+  printf '%s\n' "$unowned_pid" > "\${TMPDIR}/unowned-pid"
+  printf '%s\n' "$unowned_pid" > "$2/postmaster.pid"
+  echo "simulated pg_ctl shutdown failure" >&2
+  exit 41
+fi
+exec "${realPgCtl}" "$@"
+`,
+    { mode: 0o755 },
+  );
+
+  const failingChildScript = `
+    const { Client } = require("pg");
+
+    (async () => {
+      const client = new Client({
+        connectionString: process.env.DATABASE_URL,
+        connectionTimeoutMillis: 5000,
+      });
+      await client.connect();
+      await client.end();
+      process.exitCode = 23;
+    })().catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  `;
+
+  let unownedPid: number | undefined;
+  try {
+    let subprocessError: {
+      status?: number | null;
+      stderr?: string | Buffer;
+      stdout?: string | Buffer;
+    };
+
+    try {
+      execFileSync(
+        "bash",
+        [isolatedCheckScript, "--", process.execPath, "-e", failingChildScript],
+        {
+          cwd: packageRoot,
+          env: {
+            ...process.env,
+            DATABASE_URL: "postgresql://development.invalid/novaluth",
+            NODE_ENV: "development",
+            PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+            TMPDIR: temporaryRoot,
+          },
+          encoding: "utf8",
+        },
+      );
+      assert.fail("the failing child command unexpectedly succeeded");
+    } catch (error) {
+      subprocessError = error as {
+        status?: number | null;
+        stderr?: string | Buffer;
+        stdout?: string | Buffer;
+      };
+    }
+
+    assert.equal(subprocessError.status, 23);
+    const output = [
+      subprocessError.stdout ?? "",
+      subprocessError.stderr ?? "",
+    ].join("\n");
+    assert.match(
+      output,
+      /Failed to stop the isolated PostgreSQL server \(pg_ctl exit status 41\)\./,
+    );
+    assert.match(
+      output,
+      /Fallback recovery failed: the isolated PostgreSQL process could not be verified as owned; no signal was sent\./,
+    );
+
+    unownedPid = Number(fs.readFileSync(unownedPidFile, "utf8").trim());
+    assert.ok(Number.isInteger(unownedPid) && unownedPid > 0);
+    assert.doesNotThrow(() => process.kill(unownedPid as number, 0));
+  } finally {
+    if (unownedPid !== undefined) {
+      try {
+        process.kill(unownedPid, "SIGKILL");
+      } catch {
+        // The helper may have exited while the assertion was running.
+      }
+    }
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
 });
