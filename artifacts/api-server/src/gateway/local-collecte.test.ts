@@ -8,11 +8,11 @@ test("reads and normalizes manually entered luthiers", async () => {
   );
 
   assert.ok(fiche);
-  assert.equal(fiche.slug, "atelier-clairiere");
+  assert.equal(fiche.slug, "gritty-guitars");
   assert.equal(fiche.statut, "candidate");
   assert.deepEqual(fiche.source_donnees, [
     "saisie manuelle",
-    "catalogue interne NovaLuth",
+    "https://www.gritty-guitare.fr/",
   ]);
   assert.equal(fiche.demonstration, false);
   assert.equal(fiche.cree_le, "2026-08-31T10:00:00.000Z");

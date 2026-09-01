@@ -10,6 +10,7 @@ import { eq, like } from "drizzle-orm";
 import {
   db,
   novaluthEmailOutboxTable,
+  novaluthProfilesTable,
   novaluthSn13AlertStateTable,
   novaluthSn13CallEventsTable,
   novaluthSn13DiagnosticsTable,
@@ -31,6 +32,7 @@ import {
   readPublicPage,
   robotsTextAllows,
 } from "./page-harvester";
+import { readLocalCollection } from "./local-collecte";
 
 let apiServer: Server;
 let apiOrigin = "";
@@ -1058,6 +1060,16 @@ test("loads manual luthiers into candidate profiles when SN13 is unavailable", a
   const previousGatewaySecret = process.env.NOVALUTH_GATEWAY_SECRET;
   const previousSn13Key = process.env.SN13_API_KEY;
   const gatewaySecret = "gateway-local-collecte-test-secret".repeat(2);
+  const localFiches = await readLocalCollection();
+  assert.ok(localFiches.length > 0);
+  const localSlugs = localFiches.map((fiche) => fiche.slug);
+  const clearLocalProfiles = async () => {
+    for (const slug of localSlugs) {
+      await db
+        .delete(novaluthProfilesTable)
+        .where(eq(novaluthProfilesTable.slug, slug));
+    }
+  };
 
   process.env.NOVALUTH_GATEWAY_SECRET = gatewaySecret;
   process.env.SN13_API_KEY = "sn13-local-collecte-test-secret";
@@ -1070,6 +1082,7 @@ test("loads manual luthiers into candidate profiles when SN13 is unavailable", a
   }));
 
   try {
+    await clearLocalProfiles();
     const requestBody = JSON.stringify({
       source: "x",
       usernames: [],
@@ -1103,17 +1116,19 @@ test("loads manual luthiers into candidate profiles when SN13 is unavailable", a
       fournisseur: string;
       secours: string[];
     };
-    assert.equal(payload.nombre, 1);
+    assert.equal(payload.nombre, localFiches.length);
     assert.equal(payload.etat_collecte, "donnees");
     assert.equal(payload.fournisseur, "local-collecte");
     assert.deepEqual(payload.secours, ["data-universe"]);
-    assert.equal(payload.publications[0]?.slug, "atelier-clairiere");
-    assert.equal(payload.publications[0]?.statut, "candidate");
-    assert.deepEqual(payload.publications[0]?.source_donnees, [
-      "saisie manuelle",
-      "catalogue interne NovaLuth",
-    ]);
-    assert.equal(payload.publications[0]?.demonstration, false);
+    for (const fiche of localFiches) {
+      const publication = payload.publications.find(
+        (candidate) => candidate.slug === fiche.slug,
+      );
+      assert.ok(publication);
+      assert.equal(publication.statut, "candidate");
+      assert.deepEqual(publication.source_donnees, fiche.source_donnees);
+      assert.equal(publication.demonstration, false);
+    }
 
     const adminResponse = await fetch(`${apiOrigin}/api/admin/summary`, {
       headers: { "X-Admin-Token": "demo-admin" },
@@ -1122,16 +1137,17 @@ test("loads manual luthiers into candidate profiles when SN13 is unavailable", a
     const adminSummary = (await adminResponse.json()) as {
       fiches: Array<Record<string, unknown>>;
     };
-    const candidate = adminSummary.fiches.find(
-      (fiche) => fiche.slug === "atelier-clairiere",
-    );
-    assert.equal(candidate?.statut, "candidate");
-    assert.deepEqual(candidate?.source_donnees, [
-      "saisie manuelle",
-      "catalogue interne NovaLuth",
-    ]);
-    assert.equal(candidate?.provenance_facons, "saisie manuelle");
+    for (const fiche of localFiches) {
+      const candidate = adminSummary.fiches.find(
+        (profile) => profile.slug === fiche.slug,
+      );
+      assert.ok(candidate);
+      assert.equal(candidate.statut, "candidate");
+      assert.deepEqual(candidate.source_donnees, fiche.source_donnees);
+      assert.equal(candidate.provenance_facons, "saisie manuelle");
+    }
   } finally {
+    await clearLocalProfiles();
     setSn13ClientFactoryForTests(null);
     if (previousGatewaySecret === undefined)
       delete process.env.NOVALUTH_GATEWAY_SECRET;
