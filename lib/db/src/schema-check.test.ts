@@ -105,3 +105,57 @@ test("shows the synchronization command for an outdated SN13 CHECK definition", 
     );
   });
 });
+
+test("identifies a missing named SN13 CHECK constraint in the synchronization failure", async () => {
+  const query = createQueryStub({
+    tables: [
+      { table_name: "novaluth_sn13_diagnostics" },
+      { table_name: "novaluth_sn13_call_events" },
+      { table_name: "novaluth_sn13_alert_state" },
+      { table_name: "novaluth_sn13_purge_incidents" },
+    ],
+    constraints: [
+      {
+        table_name: "novaluth_sn13_diagnostics",
+        constraint_name: "novaluth_sn13_diagnostics_status_check",
+        definition:
+          "CHECK ((status = ANY (ARRAY['succes'::text, 'vide'::text, 'incomplet'::text, 'erreur'::text])))",
+      },
+      {
+        table_name: "novaluth_sn13_diagnostics",
+        constraint_name: "novaluth_sn13_diagnostics_request_id_length_check",
+        definition:
+          "CHECK (((request_id IS NULL) OR (char_length(request_id) <= 200)))",
+      },
+      {
+        table_name: "novaluth_sn13_diagnostics",
+        constraint_name: "novaluth_sn13_diagnostics_error_body_length_check",
+        definition:
+          "CHECK (((error_body IS NULL) OR (char_length(error_body) <= 4000)))",
+      },
+      {
+        table_name: "novaluth_sn13_diagnostics",
+        constraint_name: "novaluth_sn13_diagnostics_result_count_check",
+        definition: "CHECK (((result_count IS NULL) OR (result_count >= 0)))",
+      },
+    ],
+  });
+
+  await runWithDevelopmentEnvironment(async () => {
+    await assert.rejects(
+      assertSn13SchemaSynchronized(query),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(
+          error.message,
+          /Contraintes absentes : novaluth_sn13_call_events_status_check\./,
+        );
+        assert.match(
+          error.message,
+          /Exécutez `pnpm --filter @workspace\/db run push`, puis relancez le contrôle\./,
+        );
+        return true;
+      },
+    );
+  });
+});
