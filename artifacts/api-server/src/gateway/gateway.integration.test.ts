@@ -9,6 +9,7 @@ import path from "node:path";
 import { eq, like } from "drizzle-orm";
 import {
   db,
+  assertSn13SchemaSynchronized,
   novaluthEmailOutboxTable,
   novaluthProfilesTable,
   novaluthSn13AlertStateTable,
@@ -145,6 +146,7 @@ function runSn13Process(
 }
 
 before(async () => {
+  await assertSn13SchemaSynchronized();
   previousNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "test";
   apiServer = createServer(app);
@@ -196,11 +198,11 @@ before(async () => {
 });
 
 after(async () => {
-  await Promise.all([
-    close(apiServer),
-    close(robotsServer),
-    close(reservationServer),
-  ]);
+  await Promise.all(
+    [apiServer, robotsServer, reservationServer]
+      .filter((server): server is Server => server !== undefined)
+      .map(close),
+  );
   if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = previousNodeEnv;
 });
