@@ -4,14 +4,14 @@ const { Pool } = pg;
 
 const schemaSyncCommand = "pnpm --filter @workspace/db run push";
 
-const expectedSn13Tables = [
+export const expectedSn13Tables = [
   "novaluth_sn13_diagnostics",
   "novaluth_sn13_call_events",
   "novaluth_sn13_alert_state",
   "novaluth_sn13_purge_incidents",
 ] as const;
 
-const expectedSn13Constraints = [
+export const expectedSn13Constraints = [
   {
     tableName: "novaluth_sn13_diagnostics",
     name: "novaluth_sn13_diagnostics_status_check",

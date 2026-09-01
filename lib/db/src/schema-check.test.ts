@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
+import { getTableConfig, PgTable, type AnyPgTable } from "drizzle-orm/pg-core";
+
 import {
   assertSn13SchemaSynchronized,
+  expectedSn13Constraints,
+  expectedSn13Tables,
   type Sn13SchemaQuery,
 } from "./schema-check";
+import * as sourceSchema from "./schema";
 
 const originalNodeEnv = process.env.NODE_ENV;
 const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -42,6 +47,30 @@ function createQueryStub({
     throw new Error(`Unexpected schema query: ${text}`);
   };
 }
+
+test("keeps SN13 preflight expectations aligned with the source schema", () => {
+  const sourceSn13Tables = Object.values(sourceSchema)
+    .filter((value) => value instanceof PgTable)
+    .map((table) => getTableConfig(table as AnyPgTable))
+    .filter(({ name }) => name.startsWith("novaluth_sn13_"));
+
+  assert.deepEqual(
+    [...expectedSn13Tables].sort(),
+    sourceSn13Tables.map(({ name }) => name).sort(),
+  );
+
+  const sourceSn13Constraints = sourceSn13Tables.flatMap(({ name, checks }) =>
+    checks.map((check) => `${name}.${check.name}`),
+  );
+  const expectedConstraintNames = expectedSn13Constraints.map(
+    ({ tableName, name }) => `${tableName}.${name}`,
+  );
+
+  assert.deepEqual(
+    expectedConstraintNames.sort(),
+    sourceSn13Constraints.sort(),
+  );
+});
 
 test("identifies a missing SN13 table in the synchronization failure", async () => {
   const query = createQueryStub({
