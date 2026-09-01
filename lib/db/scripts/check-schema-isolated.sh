@@ -69,5 +69,12 @@ fi
 
 if (($# > 0)); then
   echo "Running the requested command against the isolated PostgreSQL database..."
+  set +e
   DATABASE_URL="$database_url" NODE_ENV=test "$@"
+  command_status=$?
+  set -e
+
+  cleanup
+  trap - EXIT
+  exit "$command_status"
 fi
