@@ -13,7 +13,7 @@
     "check-schema": "../../scripts/node_modules/.bin/tsx ./src/schema-check.ts",
     "check-schema:wiring": "bash ../../scripts/check-schema-wiring.sh",
     "check-schema:isolated": "bash ./scripts/check-schema-isolated.sh",
-    "test": "../../scripts/node_modules/.bin/tsx --test ./src/schema-check.test.ts"
+    "test": "../../scripts/node_modules/.bin/tsx --test ./src/*.test.ts"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
