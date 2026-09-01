@@ -58,8 +58,115 @@ export type Sn13SchemaDrift = {
   }>;
 };
 
-function normalizeDefinition(definition: string) {
-  return definition.replace(/\s+/g, " ").trim().toLowerCase();
+function findMatchingParenthesis(value: string, openingIndex: number) {
+  let depth = 0;
+  let quote: "'" | '"' | undefined;
+
+  for (let index = openingIndex; index < value.length; index += 1) {
+    const character = value[index];
+
+    if (quote) {
+      if (character === quote) {
+        if (value[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = undefined;
+        }
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+}
+
+function stripOuterParentheses(value: string) {
+  let normalized = value.trim();
+
+  while (
+    normalized.startsWith("(") &&
+    findMatchingParenthesis(normalized, 0) === normalized.length - 1
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+
+  return normalized;
+}
+
+function stripRedundantGroupingParentheses(value: string) {
+  let normalized = value;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    const openings: number[] = [];
+
+    for (let index = 0; index < normalized.length; index += 1) {
+      if (normalized[index] === "(") {
+        openings.push(index);
+        continue;
+      }
+
+      if (normalized[index] !== ")" || openings.length === 0) continue;
+
+      const openingIndex = openings.pop()!;
+      const inner = normalized.slice(openingIndex + 1, index);
+      const previousCharacter = normalized[openingIndex - 1];
+
+      // Keep function calls and PostgreSQL's ANY(...) wrapper intact. Only
+      // remove parentheses around boolean/comparison expressions that
+      // pg_get_constraintdef adds while preserving the expression's meaning.
+      if (
+        /(?:\band\b|\bor\b|\bis\s+(?:not\s+)?null\b|<>|!=|<=|>=|=|<|>)/
+          .test(inner) &&
+        !/[a-z0-9_$]/.test(previousCharacter ?? "")
+      ) {
+        normalized =
+          normalized.slice(0, openingIndex) +
+          inner +
+          normalized.slice(index + 1);
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  return normalized;
+}
+
+/**
+ * Normalize Drizzle-rendered CHECK expressions and pg_get_constraintdef()
+ * output to the same PostgreSQL expression form. PostgreSQL adds CHECK and
+ * redundant grouping parentheses, removes table qualification, renders an
+ * IN list as = ANY (ARRAY[...]), and annotates text literals with ::text.
+ * These transformations are stable for the SQL expressions used by the
+ * SN13 source schema and keep the drift check independent of a database.
+ */
+export function normalizeDefinition(definition: string) {
+  let normalized = definition.replace(/\s+/g, " ").trim().toLowerCase();
+
+  if (normalized.startsWith("check")) {
+    normalized = normalized.slice("check".length).trim();
+  }
+
+  normalized = stripOuterParentheses(normalized)
+    .replace(/"[^"]+"\."([^"]+)"/g, "$1")
+    .replace(/"([^"]+)"/g, "$1")
+    .replace(/\bin\s*\(([^()]*)\)/g, "= any (array[$1])")
+    .replace(/::text\b/g, "");
+
+  return stripRedundantGroupingParentheses(
+    stripOuterParentheses(normalized),
+  );
 }
 
 export async function findSn13SchemaDrift(

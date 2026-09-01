@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
-import { getTableConfig, PgTable, type AnyPgTable } from "drizzle-orm/pg-core";
+import {
+  getTableConfig,
+  PgDialect,
+  PgTable,
+  type AnyPgTable,
+} from "drizzle-orm/pg-core";
 
 import {
   assertSn13SchemaSynchronized,
   expectedSn13Constraints,
   expectedSn13Tables,
+  normalizeDefinition,
   type Sn13SchemaQuery,
 } from "./schema-check";
 import * as sourceSchema from "./schema";
@@ -49,6 +55,7 @@ function createQueryStub({
 }
 
 test("keeps SN13 preflight expectations aligned with the source schema", () => {
+  const dialect = new PgDialect();
   const sourceSn13Tables = Object.values(sourceSchema)
     .filter((value) => value instanceof PgTable)
     .map((table) => getTableConfig(table as AnyPgTable))
@@ -60,7 +67,11 @@ test("keeps SN13 preflight expectations aligned with the source schema", () => {
   );
 
   const sourceSn13Constraints = sourceSn13Tables.flatMap(({ name, checks }) =>
-    checks.map((check) => `${name}.${check.name}`),
+    checks.map((check) => ({
+      key: `${name}.${check.name}`,
+      name: check.name,
+      definition: dialect.sqlToQuery(check.value).sql,
+    })),
   );
   const expectedConstraintNames = expectedSn13Constraints.map(
     ({ tableName, name }) => `${tableName}.${name}`,
@@ -68,8 +79,24 @@ test("keeps SN13 preflight expectations aligned with the source schema", () => {
 
   assert.deepEqual(
     expectedConstraintNames.sort(),
-    sourceSn13Constraints.sort(),
+    sourceSn13Constraints.map(({ key }) => key).sort(),
   );
+
+  const expectedByName = new Map<
+    string,
+    (typeof expectedSn13Constraints)[number]
+  >(
+    expectedSn13Constraints.map((constraint) => [constraint.name, constraint]),
+  );
+  for (const sourceConstraint of sourceSn13Constraints) {
+    const expected = expectedByName.get(sourceConstraint.name);
+    assert.ok(expected, `Unexpected SN13 CHECK constraint ${sourceConstraint.name}`);
+    assert.equal(
+      normalizeDefinition(sourceConstraint.definition),
+      normalizeDefinition(expected.definition),
+      `SN13 CHECK definition mismatch for ${sourceConstraint.name}`,
+    );
+  }
 });
 
 test("identifies a missing SN13 table in the synchronization failure", async () => {
