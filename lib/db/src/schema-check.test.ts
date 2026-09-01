@@ -159,7 +159,7 @@ test("shows the synchronization command for an outdated SN13 CHECK definition", 
         assert(error instanceof Error);
         assert.match(
           error.message,
-          /Contrainte obsolète novaluth_sn13_diagnostics_status_check/,
+          /Contrainte obsolète novaluth_sn13_diagnostics\.novaluth_sn13_diagnostics_status_check/,
         );
         assert.match(
           error.message,
@@ -213,7 +213,7 @@ test("identifies a missing named SN13 CHECK constraint in the synchronization fa
         assert(error instanceof Error);
         assert.match(
           error.message,
-          /Contraintes absentes : .*novaluth_sn13_call_events_status_check/,
+          /Contraintes absentes : .*novaluth_sn13_call_events\.novaluth_sn13_call_events_status_check/,
         );
         assert.match(
           error.message,
@@ -252,7 +252,7 @@ test("identifies an outdated non-SN13 CHECK constraint by name", async () => {
         assert(error instanceof Error);
         assert.match(
           error.message,
-          /Contrainte obsolète novaluth_email_outbox_status_check/,
+          /Contrainte obsolète novaluth_email_outbox\.novaluth_email_outbox_status_check/,
         );
         return true;
       },

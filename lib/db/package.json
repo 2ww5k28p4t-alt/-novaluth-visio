@@ -11,6 +11,7 @@
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
     "check-schema": "../../scripts/node_modules/.bin/tsx ./src/schema-check.ts",
+    "check-schema:isolated": "bash ./scripts/check-schema-isolated.sh",
     "test": "../../scripts/node_modules/.bin/tsx --test ./src/schema-check.test.ts"
   },
   "dependencies": {

@@ -85,8 +85,12 @@ export type Sn13SchemaQuery = (
 
 export type Sn13SchemaDrift = {
   missingTables: string[];
-  missingConstraints: string[];
+  missingConstraints: Array<{
+    tableName: string;
+    name: string;
+  }>;
   mismatchedConstraints: Array<{
+    tableName: string;
     name: string;
     expected: string;
     actual: string;
@@ -267,7 +271,7 @@ export async function findSn13SchemaDrift(
         row,
       ]),
     );
-    const missingConstraints: string[] = [];
+    const missingConstraints: Sn13SchemaDrift["missingConstraints"] = [];
     const mismatchedConstraints: Sn13SchemaDrift["mismatchedConstraints"] = [];
 
     for (const expected of expectedNamedCheckConstraints) {
@@ -275,7 +279,10 @@ export async function findSn13SchemaDrift(
         `${expected.tableName}.${expected.name}`,
       );
       if (!actual) {
-        missingConstraints.push(expected.name);
+        missingConstraints.push({
+          tableName: expected.tableName,
+          name: expected.name,
+        });
         continue;
       }
 
@@ -284,6 +291,7 @@ export async function findSn13SchemaDrift(
         normalizeDefinition(expected.definition)
       ) {
         mismatchedConstraints.push({
+          tableName: expected.tableName,
           name: expected.name,
           expected: expected.definition,
           actual: actual.definition,
@@ -320,11 +328,13 @@ export async function assertSn13SchemaSynchronized(
       ? `Tables absentes : ${drift.missingTables.join(", ")}.`
       : "",
     drift.missingConstraints.length > 0
-      ? `Contraintes absentes : ${drift.missingConstraints.join(", ")}.`
+      ? `Contraintes absentes : ${drift.missingConstraints
+          .map(({ tableName, name }) => `${tableName}.${name}`)
+          .join(", ")}.`
       : "",
     ...drift.mismatchedConstraints.map(
-      ({ name, expected, actual }) =>
-        `Contrainte obsolète ${name} : attendue ${expected}, trouvée ${actual}.`,
+      ({ tableName, name, expected, actual }) =>
+        `Contrainte obsolète ${tableName}.${name} : attendue ${expected}, trouvée ${actual}.`,
     ),
   ].filter(Boolean);
 
