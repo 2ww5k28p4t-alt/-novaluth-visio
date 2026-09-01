@@ -975,6 +975,19 @@ export const GetAdminSummaryResponse = zod.object({
 
 
 /**
+ * @summary List recent SN13 purge incidents
+ */
+export const GetSn13PurgeIncidentsResponse = zod.object({
+  "incidents": zod.array(zod.object({
+  "statut": zod.enum(['en_cours', 'retabli']),
+  "commence_le": zod.string(),
+  "retabli_le": zod.string().nullable(),
+  "duree_secondes": zod.number()
+}))
+})
+
+
+/**
  * @summary Change a maker profile status
  */
 export const UpdateFicheStatusParams = zod.object({

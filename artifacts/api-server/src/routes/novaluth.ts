@@ -16,6 +16,7 @@ import {
   GetAtelierDashboardParams,
   GetAtelierDashboardResponse,
   GetAdminSummaryResponse,
+  GetSn13PurgeIncidentsResponse,
   GetFicheParams,
   GetFicheResponse,
   GetFichesMetaResponse,
@@ -84,6 +85,7 @@ import { logger } from "../lib/logger";
 import {
   lastSn13Call,
   getSn13PurgeAdminState,
+  getSn13PurgeIncidentHistory,
   purgeExpiredSn13CallEvents,
   recordSn13PurgeFailure,
   recordSn13PurgeSuccess,
@@ -996,6 +998,20 @@ router.get("/admin/summary", async (req, res, next) => {
           ).length,
         },
       }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/admin/sn13/purge/incidents", async (req, res, next) => {
+  try {
+    if (!requireAdminToken(req.header("X-Admin-Token") ?? undefined)) {
+      res.status(401).json({ error: "Jeton d’administration invalide." });
+      return;
+    }
+    res.json(
+      GetSn13PurgeIncidentsResponse.parse(await getSn13PurgeIncidentHistory()),
     );
   } catch (error) {
     next(error);

@@ -445,6 +445,22 @@ paths:
                 $ref: "#/components/schemas/AdminSummary"
         "401":
           description: Missing or invalid admin token
+  /admin/sn13/purge/incidents:
+    get:
+      operationId: getSn13PurgeIncidents
+      tags: [admin]
+      summary: List recent SN13 purge incidents
+      security:
+        - adminToken: []
+      responses:
+        "200":
+          description: Recent SN13 purge outage and recovery episodes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sn13PurgeIncidentHistory"
+        "401":
+          description: Missing or invalid admin token
   /admin/fiches/{slug}/status:
     patch:
       operationId: updateFicheStatus
@@ -988,6 +1004,24 @@ components:
         episode_actif: { type: boolean }
         episode_commence_le: { type: ["string", "null"] }
         retabli_le: { type: ["string", "null"] }
+    Sn13PurgeIncidentHistory:
+      type: object
+      required: [incidents]
+      properties:
+        incidents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Sn13PurgeIncident"
+    Sn13PurgeIncident:
+      type: object
+      required: [statut, commence_le, retabli_le, duree_secondes]
+      properties:
+        statut:
+          type: string
+          enum: [en_cours, retabli]
+        commence_le: { type: string }
+        retabli_le: { type: ["string", "null"] }
+        duree_secondes: { type: number }
     StatusUpdate:
       type: object
       required: [statut]

@@ -13,6 +13,7 @@ import {
   novaluthSn13AlertStateTable,
   novaluthSn13CallEventsTable,
   novaluthSn13DiagnosticsTable,
+  novaluthSn13PurgeIncidentsTable,
 } from "@workspace/db";
 import app from "../app";
 import { anonymize } from "./anonymize";
@@ -62,6 +63,7 @@ function close(server: Server) {
 async function clearSn13AlertTracking() {
   await db.delete(novaluthSn13CallEventsTable);
   await db.delete(novaluthSn13AlertStateTable);
+  await db.delete(novaluthSn13PurgeIncidentsTable);
 }
 
 type Sn13ProcessOptions = {

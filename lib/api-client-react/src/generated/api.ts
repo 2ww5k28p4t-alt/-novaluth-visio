@@ -40,6 +40,7 @@ import type {
   MusicianProject,
   ProviderState,
   RecommendationResponse,
+  Sn13PurgeIncidentHistory,
   StatusUpdate,
   Transparency
 } from './api.schemas';
@@ -1432,6 +1433,83 @@ export function useGetAdminSummary<TData = Awaited<ReturnType<typeof getAdminSum
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAdminSummaryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetSn13PurgeIncidentsUrl = () => {
+
+
+
+
+  return `/api/admin/sn13/purge/incidents`
+}
+
+/**
+ * @summary List recent SN13 purge incidents
+ */
+export const getSn13PurgeIncidents = async ( options?: Parameters<typeof customFetch>[1]): Promise<Sn13PurgeIncidentHistory> => {
+
+  return customFetch<Sn13PurgeIncidentHistory>(getGetSn13PurgeIncidentsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSn13PurgeIncidentsQueryKey = () => {
+    return [
+    `/api/admin/sn13/purge/incidents`
+    ] as const;
+    }
+
+
+export const getGetSn13PurgeIncidentsQueryOptions = <TData = Awaited<ReturnType<typeof getSn13PurgeIncidents>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSn13PurgeIncidents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSn13PurgeIncidentsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSn13PurgeIncidents>>> = ({ signal }) => getSn13PurgeIncidents({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSn13PurgeIncidents>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSn13PurgeIncidentsQueryResult = NonNullable<Awaited<ReturnType<typeof getSn13PurgeIncidents>>>
+export type GetSn13PurgeIncidentsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List recent SN13 purge incidents
+ */
+
+export function useGetSn13PurgeIncidents<TData = Awaited<ReturnType<typeof getSn13PurgeIncidents>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSn13PurgeIncidents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSn13PurgeIncidentsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

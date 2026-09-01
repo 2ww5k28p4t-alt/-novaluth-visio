@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { Sn13Client, type OnDemandDataResponse } from "macrocosmos";
 import {
   db,
   novaluthSn13AlertStateTable,
   novaluthSn13CallEventsTable,
   novaluthSn13DiagnosticsTable,
+  novaluthSn13PurgeIncidentsTable,
 } from "@workspace/db";
 import { enqueueNovaLuthEmail } from "../lib/novaluth-email-outbox";
 
@@ -76,6 +77,17 @@ export type Sn13PurgeAdminState = {
   retabli_le: string | null;
 };
 
+export type Sn13PurgeIncident = {
+  statut: "en_cours" | "retabli";
+  commence_le: string;
+  retabli_le: string | null;
+  duree_secondes: number;
+};
+
+export type Sn13PurgeIncidentHistory = {
+  incidents: Sn13PurgeIncident[];
+};
+
 export type DataUniverseRequestResult = {
   response: OnDemandDataResponse;
   requeteId: string;
@@ -124,6 +136,7 @@ const SN13_ALERT_LOCK_KEY = "novaluth:sn13:alert";
 const SN13_PURGE_ALERT_DEDUPE_PREFIX = "sn13:purge-failure";
 const SN13_PURGE_ALERT_STATE_KEY = "purge";
 const SN13_PURGE_ALERT_LOCK_KEY = "novaluth:sn13:purge-alert";
+const SN13_PURGE_HISTORY_LIMIT = 10;
 function textValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -311,6 +324,9 @@ async function updateSn13PurgeAlertState(
           updatedAt: episodeStartedAt,
         })
         .where(eq(novaluthSn13AlertStateTable.key, SN13_PURGE_ALERT_STATE_KEY));
+      await tx.insert(novaluthSn13PurgeIncidentsTable).values({
+        startedAt: episodeStartedAt,
+      });
 
       const recipient =
         process.env.NOVALUTH_SN13_ALERT_EMAIL?.trim() ||
@@ -350,6 +366,31 @@ async function updateSn13PurgeAlertState(
         updatedAt: new Date(now),
       })
       .where(eq(novaluthSn13AlertStateTable.key, SN13_PURGE_ALERT_STATE_KEY));
+    if (state.episodeStartedAt) {
+      const [incident] = await tx
+        .select({ id: novaluthSn13PurgeIncidentsTable.id })
+        .from(novaluthSn13PurgeIncidentsTable)
+        .where(
+          eq(
+            novaluthSn13PurgeIncidentsTable.startedAt,
+            new Date(state.episodeStartedAt),
+          ),
+        )
+        .orderBy(desc(novaluthSn13PurgeIncidentsTable.id))
+        .limit(1);
+      if (incident) {
+        await tx
+          .update(novaluthSn13PurgeIncidentsTable)
+          .set({ recoveredAt: new Date(now) })
+          .where(eq(novaluthSn13PurgeIncidentsTable.id, incident.id));
+      } else {
+        // Preserve the first episode observed before history was introduced.
+        await tx.insert(novaluthSn13PurgeIncidentsTable).values({
+          startedAt: new Date(state.episodeStartedAt),
+          recoveredAt: new Date(now),
+        });
+      }
+    }
     return { transitioned: true, episodeStartedAt: null };
   });
 }
@@ -392,6 +433,56 @@ export async function getSn13PurgeAdminState(): Promise<Sn13PurgeAdminState> {
       : null,
     retabli_le: state.active ? null : state.recoveredAt?.toISOString() ?? null,
   };
+}
+
+export async function getSn13PurgeIncidentHistory(
+  now = Date.now(),
+): Promise<Sn13PurgeIncidentHistory> {
+  const [storedIncidents, [state]] = await Promise.all([
+    db
+      .select()
+      .from(novaluthSn13PurgeIncidentsTable)
+      .orderBy(desc(novaluthSn13PurgeIncidentsTable.startedAt))
+      .limit(SN13_PURGE_HISTORY_LIMIT),
+    db
+      .select()
+      .from(novaluthSn13AlertStateTable)
+      .where(eq(novaluthSn13AlertStateTable.key, SN13_PURGE_ALERT_STATE_KEY))
+      .limit(1),
+  ]);
+
+  const incidents: Sn13PurgeIncident[] = storedIncidents.map((incident) => {
+    const startedAt = incident.startedAt.getTime();
+    const recoveredAt = incident.recoveredAt?.getTime() ?? null;
+    const endAt = recoveredAt ?? now;
+    return {
+      statut: recoveredAt === null ? "en_cours" : "retabli",
+      commence_le: incident.startedAt.toISOString(),
+      retabli_le: incident.recoveredAt?.toISOString() ?? null,
+      duree_secondes: Math.max(0, Math.floor((endAt - startedAt) / 1_000)),
+    };
+  });
+
+  // Keep an episode that was already active before the history table existed
+  // visible to administrators until the next recovery closes it.
+  if (
+    state?.active &&
+    state.episodeStartedAt &&
+    !incidents.some(
+      (incident) =>
+        incident.commence_le === state.episodeStartedAt?.toISOString(),
+    )
+  ) {
+    const startedAt = state.episodeStartedAt.getTime();
+    incidents.unshift({
+      statut: "en_cours",
+      commence_le: state.episodeStartedAt.toISOString(),
+      retabli_le: null,
+      duree_secondes: Math.max(0, Math.floor((now - startedAt) / 1_000)),
+    });
+  }
+
+  return { incidents: incidents.slice(0, SN13_PURGE_HISTORY_LIMIT) };
 }
 
 async function rememberSn13Call(

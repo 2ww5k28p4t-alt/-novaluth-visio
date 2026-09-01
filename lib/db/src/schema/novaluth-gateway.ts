@@ -87,3 +87,15 @@ export const novaluthSn13AlertStateTable = pgTable("novaluth_sn13_alert_state", 
   recoveredAt: timestamp("recovered_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const novaluthSn13PurgeIncidentsTable = pgTable(
+  "novaluth_sn13_purge_incidents",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    recoveredAt: timestamp("recovered_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("novaluth_sn13_purge_incidents_started_at_idx").on(table.startedAt),
+  ],
+);

@@ -17,6 +17,7 @@ import {
   novaluthSn13AlertStateTable,
   novaluthSn13CallEventsTable,
   novaluthSn13DiagnosticsTable,
+  novaluthSn13PurgeIncidentsTable,
   pool,
 } from "@workspace/db";
 import { novaluthSeed } from "../data/novaluth-seed";
@@ -629,6 +630,7 @@ test("maintient les accès et alerte une seule fois pendant une panne de purge S
   await db
     .delete(novaluthSn13AlertStateTable)
     .where(eq(novaluthSn13AlertStateTable.key, "purge"));
+  await db.delete(novaluthSn13PurgeIncidentsTable);
 
   async function prepareRequest(
     description: string,
@@ -801,6 +803,19 @@ test("maintient les accès et alerte une seule fois pendant une panne de purge S
       episode_commence_le: null,
       retabli_le: recoveredAt.toISOString(),
     });
+    const recoveredHistory = await api("/admin/sn13/purge/incidents", {
+      headers: { "X-Admin-Token": "demo-admin" },
+    });
+    assert.deepEqual(recoveredHistory.body, {
+      incidents: [
+        {
+          statut: "retabli",
+          commence_le: maintenanceNow.toISOString(),
+          retabli_le: recoveredAt.toISOString(),
+          duree_secondes: 2 * 60 * 60,
+        },
+      ],
+    });
     const [remainingExpiredEvent] = await db
       .select({ id: novaluthSn13CallEventsTable.id })
       .from(novaluthSn13CallEventsTable)
@@ -821,6 +836,25 @@ test("maintient les accès et alerte une seule fois pendant une panne de purge S
       .where(like(novaluthEmailOutboxTable.dedupeKey, purgeAlertPattern));
     assert.equal(purgeAlerts.length, 2);
     assert.notEqual(purgeAlerts[0]?.dedupeKey, purgeAlerts[1]?.dedupeKey);
+    const activeHistory = await api("/admin/sn13/purge/incidents", {
+      headers: { "X-Admin-Token": "demo-admin" },
+    });
+    assert.deepEqual(activeHistory.body, {
+      incidents: [
+        {
+          statut: "en_cours",
+          commence_le: new Date(now + 3 * 60 * 60 * 1_000).toISOString(),
+          retabli_le: null,
+          duree_secondes: 0,
+        },
+        {
+          statut: "retabli",
+          commence_le: maintenanceNow.toISOString(),
+          retabli_le: recoveredAt.toISOString(),
+          duree_secondes: 2 * 60 * 60,
+        },
+      ],
+    });
   } finally {
     setSn13PurgeForTests(null);
     await db
@@ -829,6 +863,7 @@ test("maintient les accès et alerte une seule fois pendant une panne de purge S
     await db
       .delete(novaluthSn13AlertStateTable)
       .where(eq(novaluthSn13AlertStateTable.key, "purge"));
+    await db.delete(novaluthSn13PurgeIncidentsTable);
     if (expiredEventId !== undefined) {
       await db
         .delete(novaluthSn13CallEventsTable)

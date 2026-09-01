@@ -517,6 +517,26 @@ export interface AdminSummary {
   acces: AccessAdminSummary;
 }
 
+export type Sn13PurgeIncidentStatut = typeof Sn13PurgeIncidentStatut[keyof typeof Sn13PurgeIncidentStatut];
+
+
+export const Sn13PurgeIncidentStatut = {
+  en_cours: 'en_cours',
+  retabli: 'retabli',
+} as const;
+
+export interface Sn13PurgeIncident {
+  statut: Sn13PurgeIncidentStatut;
+  commence_le: string;
+  /** @nullable */
+  retabli_le: string | null;
+  duree_secondes: number;
+}
+
+export interface Sn13PurgeIncidentHistory {
+  incidents: Sn13PurgeIncident[];
+}
+
 export type StatusUpdateStatut = typeof StatusUpdateStatut[keyof typeof StatusUpdateStatut];
 
 

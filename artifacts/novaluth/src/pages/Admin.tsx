@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useGetAdminSummary, useRunAccessMaintenance, useUpdateFicheStatus, StatusUpdateStatut, getGetAdminSummaryQueryKey } from "@workspace/api-client-react";
+import { useGetAdminSummary, useGetSn13PurgeIncidents, useRunAccessMaintenance, useUpdateFicheStatus, StatusUpdateStatut, getGetAdminSummaryQueryKey, getGetSn13PurgeIncidentsQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,6 +82,10 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
       queryKey: getGetAdminSummaryQueryKey()
     }
   });
+  const { data: purgeHistory, refetch: refetchPurgeHistory } = useGetSn13PurgeIncidents({
+    request: { headers: { "X-Admin-Token": token } },
+    query: { retry: false, queryKey: getGetSn13PurgeIncidentsQueryKey() },
+  });
 
   const updateStatus = useUpdateFicheStatus({
     request: { headers: { 'X-Admin-Token': token } }
@@ -133,6 +137,7 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
           description: `${result.annulations} annulation(s), ${result.expirations} expiration(s) et ${result.relances} relance(s) traitées.`,
         });
         queryClient.invalidateQueries({ queryKey: getGetAdminSummaryQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetSn13PurgeIncidentsQueryKey() });
         refetch();
       },
       onError: () => {
@@ -175,6 +180,17 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
         Icon: CircleCheck,
       };
   const PurgeStatusIcon = purgeStatus.Icon;
+  const formatDuration = (seconds: number) => {
+    if (seconds < 60) return `${seconds} s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (minutes < 60) {
+      return remainingSeconds ? `${minutes} min ${remainingSeconds} s` : `${minutes} min`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes ? `${hours} h ${remainingMinutes} min` : `${hours} h`;
+  };
 
   return (
     <div className="container mx-auto px-4 py-12">
@@ -186,7 +202,7 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="rounded-none">
+          <Button variant="outline" size="sm" onClick={() => { refetch(); refetchPurgeHistory(); }} className="rounded-none">
             <RefreshCw className="h-4 w-4 mr-2" /> Actualiser
           </Button>
           <Button variant="ghost" size="sm" onClick={onLogout} className="text-destructive hover:bg-destructive/10">
@@ -356,6 +372,66 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
                 : "—"}
             </span>
           </div>
+        </div>
+        <div className="mt-5 border border-border/50 bg-background p-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <h3 className="text-sm font-medium text-primary">Historique récent</h3>
+              <p className="text-xs text-muted-foreground">
+                Les dix derniers épisodes de panne et de rétablissement.
+              </p>
+            </div>
+            {purgeHistory ? (
+              <Badge variant="outline" className="rounded-none">
+                {purgeHistory.incidents.length} épisode{purgeHistory.incidents.length === 1 ? "" : "s"}
+              </Badge>
+            ) : null}
+          </div>
+          {!purgeHistory || purgeHistory.incidents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucun incident enregistré.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border/50 hover:bg-transparent">
+                    <TableHead>Statut</TableHead>
+                    <TableHead>Début</TableHead>
+                    <TableHead>Rétablissement</TableHead>
+                    <TableHead className="text-right">Durée</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {purgeHistory.incidents.map((incident) => (
+                    <TableRow key={`${incident.commence_le}-${incident.retabli_le ?? "actif"}`} className="border-border/50">
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={`rounded-none ${
+                            incident.statut === "en_cours"
+                              ? "text-destructive border-destructive/40"
+                              : "text-green-700 border-green-700/40"
+                          }`}
+                        >
+                          {incident.statut === "en_cours" ? "En cours" : "Rétabli"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {new Date(incident.commence_le).toLocaleString("fr-FR")}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {incident.retabli_le
+                          ? new Date(incident.retabli_le).toLocaleString("fr-FR")
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        {formatDuration(incident.duree_secondes)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </div>
       </section>
 
