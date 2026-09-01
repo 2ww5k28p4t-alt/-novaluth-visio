@@ -62,3 +62,12 @@ echo "Running the schema preflight against the isolated database..."
 DATABASE_URL="$database_url" NODE_ENV=test pnpm run check-schema
 
 echo "Isolated PostgreSQL schema validation passed."
+
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+
+if (($# > 0)); then
+  echo "Running the requested command against the isolated PostgreSQL database..."
+  DATABASE_URL="$database_url" NODE_ENV=test "$@"
+fi
