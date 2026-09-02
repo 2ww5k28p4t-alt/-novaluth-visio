@@ -5,6 +5,14 @@ import { ErrorBoundary } from '@/components/error-boundary';
 
 import './index.css';
 
+// Keep the published Replit alias from being exposed as the canonical URL.
+// The development preview uses a .replit.dev hostname and remains untouched.
+if (import.meta.env.PROD && window.location.hostname === 'novaluth.replit.app') {
+  window.location.replace(
+    `https://novaluth.com${window.location.pathname}${window.location.search}${window.location.hash}`,
+  );
+}
+
 createRoot(document.getElementById('root')!, {
   // Keeps caught errors off reportError(), which would raise the dev overlay.
   onCaughtError: (error, errorInfo) => {
