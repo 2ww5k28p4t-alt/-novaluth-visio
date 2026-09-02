@@ -10,11 +10,16 @@ import {
 
 import {
   assertSn13SchemaSynchronized,
+  assertOrphanedTableCleanupReviewed,
   expectedNamedCheckConstraints,
   expectedNonSn13Constraints,
+  expectedSourceTables,
   expectedSn13Constraints,
   expectedSn13Tables,
+  findOrphanedTables,
+  formatOrphanedTablesReport,
   normalizeDefinition,
+  type OrphanedTablesReport,
   type Sn13SchemaQuery,
 } from "./schema-check";
 import * as sourceSchema from "./schema";
@@ -68,6 +73,10 @@ test("keeps SN13 preflight expectations aligned with the source schema", () => {
   assert.deepEqual(
     [...expectedSn13Tables].sort(),
     sourceSn13Tables.map(({ name }) => name).sort(),
+  );
+  assert.deepEqual(
+    [...expectedSourceTables],
+    sourceTables.map(({ name }) => name).sort(),
   );
 
   const sourceConstraints = sourceTables.flatMap(({ name, checks }) =>
@@ -264,4 +273,95 @@ test("keeps non-SN13 constraint expectations separate from SN13 constraints", ()
   assert.equal(expectedNonSn13Constraints.length, 9);
   assert.equal(expectedSn13Constraints.length, 5);
   assert.equal(expectedNamedCheckConstraints.length, 14);
+});
+
+test("finds development tables missing from the current Drizzle source schema with row counts", async () => {
+  const query = async () => ({
+    rows: [
+      { table_name: "legacy_table", row_count: "3" },
+      { table_name: "empty_legacy_table", row_count: 0 },
+    ],
+  });
+
+  const report = await runWithDevelopmentEnvironment(() =>
+    findOrphanedTables(query),
+  );
+
+  assert.deepEqual(report, {
+    schemaName: "public",
+    sourceTables: [...expectedSourceTables],
+    orphanedTables: [
+      { tableName: "legacy_table", rowCount: 3 },
+      { tableName: "empty_legacy_table", rowCount: 0 },
+    ],
+    reviewRequired: true,
+  });
+});
+
+test("reports that orphan cleanup is non-destructive and review-gated", () => {
+  const report: OrphanedTablesReport = {
+    schemaName: "public",
+    sourceTables: [...expectedSourceTables],
+    orphanedTables: [{ tableName: "legacy_table", rowCount: 3 }],
+    reviewRequired: true,
+  };
+
+  assert.match(formatOrphanedTablesReport(report), /legacy_table : 3 lignes/);
+  assert.match(
+    formatOrphanedTablesReport(report),
+    /Aucune suppression n'a été exécutée/,
+  );
+  assert.throws(
+    () => assertOrphanedTableCleanupReviewed(report),
+    /revue explicite.*requise/,
+  );
+  assert.throws(
+    () =>
+      assertOrphanedTableCleanupReviewed(report, {
+        reviewedAt: "2026-09-02T18:00:00.000Z",
+        reviewer: "schema-owner",
+        decisions: [],
+      }),
+    /ne couvre pas toutes les tables/,
+  );
+
+  assert.doesNotThrow(() =>
+    assertOrphanedTableCleanupReviewed(report, {
+      reviewedAt: "2026-09-02T18:00:00.000Z",
+      reviewer: "schema-owner",
+      decisions: [
+        {
+          tableName: "legacy_table",
+          action: "retain",
+          reason: "Retention confirmed with the data owner.",
+        },
+      ],
+    }),
+  );
+  assert.throws(
+    () =>
+      assertOrphanedTableCleanupReviewed(report, {
+        reviewedAt: "2026-09-02T18:00:00.000Z",
+        reviewer: "schema-owner",
+        decisions: [
+          {
+            tableName: "legacy_table",
+            action: "archive" as "retain",
+            reason: "Unsupported action should never authorize cleanup.",
+          },
+        ],
+      }),
+    /action.*invalide/,
+  );
+});
+
+test("does not require a cleanup review when no orphaned tables exist", () => {
+  assert.doesNotThrow(() =>
+    assertOrphanedTableCleanupReviewed({
+      schemaName: "public",
+      sourceTables: [...expectedSourceTables],
+      orphanedTables: [],
+      reviewRequired: false,
+    }),
+  );
 });

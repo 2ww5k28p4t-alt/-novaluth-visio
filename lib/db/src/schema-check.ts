@@ -1,8 +1,12 @@
 import pg from "pg";
+import { getTableConfig, PgTable, type AnyPgTable } from "drizzle-orm/pg-core";
+import * as sourceSchema from "./schema";
 
 const { Pool } = pg;
 
 const schemaSyncCommand = "pnpm --filter @workspace/db run push";
+const developmentDatabaseMessage =
+  "Ce contrôle est réservé à la base de développement et refuse NODE_ENV=production.";
 
 export const expectedSn13Tables = [
   "novaluth_sn13_diagnostics",
@@ -107,10 +111,15 @@ const expectedConstraintTables = [
   ...new Set(expectedNamedCheckConstraints.map(({ tableName }) => tableName)),
 ];
 
+export const expectedSourceTables = Object.values(sourceSchema)
+  .filter((value) => value instanceof PgTable)
+  .map((table) => getTableConfig(table as AnyPgTable).name)
+  .sort();
+
 export type Sn13SchemaQuery = (
   text: string,
-  values: [string, string[]],
-) => Promise<{ rows: Array<Record<string, string>> }>;
+  values?: unknown[],
+) => Promise<{ rows: Array<Record<string, unknown>> }>;
 
 export type Sn13SchemaDrift = {
   missingTables: string[];
@@ -125,6 +134,50 @@ export type Sn13SchemaDrift = {
     actual: string;
   }>;
 };
+
+export type OrphanedTable = {
+  tableName: string;
+  rowCount: number;
+};
+
+export type OrphanedTablesReport = {
+  schemaName: "public";
+  sourceTables: string[];
+  orphanedTables: OrphanedTable[];
+  reviewRequired: boolean;
+};
+
+export type OrphanedTableReview = {
+  reviewedAt: string;
+  reviewer: string;
+  decisions: Array<{
+    tableName: string;
+    action: "retain" | "drop";
+    reason: string;
+  }>;
+};
+
+function assertDevelopmentEnvironment() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(developmentDatabaseMessage);
+  }
+
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      "DATABASE_URL doit pointer vers la base de développement pour contrôler le schéma.",
+    );
+  }
+}
+
+function parseRowCount(value: unknown, tableName: string) {
+  const rowCount = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(rowCount) || rowCount < 0) {
+    throw new Error(
+      `Le nombre de lignes de la table ${tableName} est invalide : ${String(value)}.`,
+    );
+  }
+  return rowCount;
+}
 
 function findMatchingParenthesis(value: string, openingIndex: number) {
   let depth = 0;
@@ -250,17 +303,7 @@ export function normalizeDefinition(definition: string) {
 export async function findSn13SchemaDrift(
   queryOverride?: Sn13SchemaQuery,
 ): Promise<Sn13SchemaDrift> {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "Le contrôle du schéma SN13 est réservé à la base de développement et refuse NODE_ENV=production.",
-    );
-  }
-
-  if (!process.env.DATABASE_URL) {
-    throw new Error(
-      "DATABASE_URL doit pointer vers la base de développement pour contrôler le schéma SN13.",
-    );
-  }
+  assertDevelopmentEnvironment();
 
   const checkPool = queryOverride
     ? undefined
@@ -297,7 +340,11 @@ export async function findSn13SchemaDrift(
     const actualConstraints = new Map(
       constraintResult.rows.map((row) => [
         `${row.table_name}.${row.constraint_name}`,
-        row,
+        {
+          tableName: String(row.table_name ?? ""),
+          constraintName: String(row.constraint_name ?? ""),
+          definition: String(row.definition ?? ""),
+        },
       ]),
     );
     const missingConstraints: Sn13SchemaDrift["missingConstraints"] = [];
@@ -335,6 +382,143 @@ export async function findSn13SchemaDrift(
     };
   } finally {
     await checkPool?.end();
+  }
+}
+
+/**
+ * Find public PostgreSQL tables that are not represented in the current
+ * Drizzle source schema. The row count is evaluated by PostgreSQL for each
+ * table, rather than relying on planner statistics, so a cleanup review sees
+ * the data that would actually be affected.
+ */
+export async function findOrphanedTables(
+  queryOverride?: Sn13SchemaQuery,
+): Promise<OrphanedTablesReport> {
+  assertDevelopmentEnvironment();
+
+  const checkPool = queryOverride
+    ? undefined
+    : new Pool({ connectionString: process.env.DATABASE_URL });
+  const query: Sn13SchemaQuery =
+    queryOverride ?? ((text, values) => checkPool!.query(text, values));
+
+  try {
+    const result = await query(
+      `select tables.table_name,
+              (xpath(
+                '/row/count/text()',
+                query_to_xml(
+                  format('select count(*) as count from %I.%I', tables.table_schema, tables.table_name),
+                  false,
+                  true,
+                  ''
+                )
+              ))[1]::text::bigint as row_count
+         from information_schema.tables tables
+        where tables.table_schema = $1
+          and tables.table_type = 'BASE TABLE'
+          and tables.table_name <> all($2::text[])
+        order by tables.table_name`,
+      ["public", expectedSourceTables],
+    );
+
+    const orphanedTables = result.rows.map((row) => {
+      const tableName = String(row.table_name ?? "");
+      if (!tableName) {
+        throw new Error(
+          "Le contrôle des tables orphelines a reçu un nom vide.",
+        );
+      }
+
+      return {
+        tableName,
+        rowCount: parseRowCount(row.row_count, tableName),
+      };
+    });
+
+    return {
+      schemaName: "public",
+      sourceTables: [...expectedSourceTables],
+      orphanedTables,
+      reviewRequired: orphanedTables.length > 0,
+    };
+  } finally {
+    await checkPool?.end();
+  }
+}
+
+export function formatOrphanedTablesReport(report: OrphanedTablesReport) {
+  if (report.orphanedTables.length === 0) {
+    return "Aucune table orpheline détectée dans la base de développement.";
+  }
+
+  return [
+    "Tables présentes dans PostgreSQL mais absentes du schéma Drizzle :",
+    ...report.orphanedTables.map(
+      ({ tableName, rowCount }) =>
+        `- ${tableName} : ${rowCount} ligne${rowCount === 1 ? "" : "s"}.`,
+    ),
+    "Aucune suppression n'a été exécutée.",
+    "Une revue explicite est requise avant toute suppression de ces tables.",
+  ].join("\n");
+}
+
+/**
+ * Validate the signed-off record required by any future destructive cleanup.
+ * This function intentionally does not mutate the database.
+ */
+export function assertOrphanedTableCleanupReviewed(
+  report: OrphanedTablesReport,
+  review?: OrphanedTableReview,
+) {
+  if (report.orphanedTables.length === 0) return;
+
+  if (!review) {
+    throw new Error(
+      "Une revue explicite des tables orphelines est requise avant toute suppression.",
+    );
+  }
+
+  if (!review.reviewer.trim() || !review.reviewedAt.trim()) {
+    throw new Error(
+      "Le relevé de revue des tables orphelines doit contenir un reviewer et une date.",
+    );
+  }
+
+  const orphanedTableNames = new Set(
+    report.orphanedTables.map(({ tableName }) => tableName),
+  );
+  const reviewedTableNames = new Set<string>();
+
+  for (const decision of review.decisions) {
+    if (
+      !orphanedTableNames.has(decision.tableName) ||
+      reviewedTableNames.has(decision.tableName)
+    ) {
+      throw new Error(
+        `Le relevé de revue contient une table inattendue ou dupliquée : ${decision.tableName}.`,
+      );
+    }
+    if (!decision.reason.trim()) {
+      throw new Error(
+        `La décision de revue pour ${decision.tableName} doit préciser une raison.`,
+      );
+    }
+    if (decision.action !== "retain" && decision.action !== "drop") {
+      throw new Error(
+        `L'action de revue pour ${decision.tableName} est invalide : ${decision.action}.`,
+      );
+    }
+    reviewedTableNames.add(decision.tableName);
+  }
+
+  if (reviewedTableNames.size !== orphanedTableNames.size) {
+    const missingTables = [...orphanedTableNames].filter(
+      (tableName) => !reviewedTableNames.has(tableName),
+    );
+    throw new Error(
+      `Le relevé de revue ne couvre pas toutes les tables orphelines : ${missingTables.join(", ")}.`,
+    );
   }
 }
 
@@ -379,6 +563,13 @@ export async function assertSn13SchemaSynchronized(
 
 async function main() {
   try {
+    if (process.argv.includes("--orphans")) {
+      const report = await findOrphanedTables();
+      console.log(formatOrphanedTablesReport(report));
+      if (report.reviewRequired) process.exitCode = 1;
+      return;
+    }
+
     await assertSn13SchemaSynchronized();
     console.log("Schéma SN13 synchronisé avec la base de développement.");
   } catch (error) {
