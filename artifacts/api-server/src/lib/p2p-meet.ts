@@ -61,11 +61,18 @@ function roomPasswordMatches(room: RoomState, password: string) {
 export function buildP2PIceServers(userId: string) {
   const stunUrl = process.env.STUN_URL ?? "";
   const turnHost = process.env.TURN_HOST ?? "";
+  const turnTls443 = String(process.env.TURN_TLS_443 ?? "false") === "true";
   const turnSecret = process.env.TURN_STATIC_AUTH_SECRET ?? "";
   const turnUsername = process.env.TURN_USERNAME ?? "";
   const turnPassword = process.env.TURN_PASSWORD ?? "";
   const turnTtl = Math.max(60, Number(process.env.TURN_TTL ?? 43200));
   const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [];
+  const turnUrls = [
+    `turn:${turnHost}:3478?transport=udp`,
+    `turn:${turnHost}:3478?transport=tcp`,
+    `turns:${turnHost}:5349?transport=tcp`,
+    ...(turnTls443 ? [`turns:${turnHost}:443?transport=tcp`] : []),
+  ];
 
   if (stunUrl) iceServers.push({ urls: stunUrl });
 
@@ -77,23 +84,13 @@ export function buildP2PIceServers(userId: string) {
       .update(username)
       .digest("base64");
     iceServers.push({
-      urls: [
-        `turn:${turnHost}:3478?transport=udp`,
-        `turn:${turnHost}:3478?transport=tcp`,
-        `turns:${turnHost}:5349?transport=tcp`,
-        `turns:${turnHost}:443?transport=tcp`,
-      ],
+      urls: turnUrls,
       username,
       credential,
     });
   } else if (turnHost && turnUsername && turnPassword) {
     iceServers.push({
-      urls: [
-        `turn:${turnHost}:3478?transport=udp`,
-        `turn:${turnHost}:3478?transport=tcp`,
-        `turns:${turnHost}:5349?transport=tcp`,
-        `turns:${turnHost}:443?transport=tcp`,
-      ],
+      urls: turnUrls,
       username: turnUsername,
       credential: turnPassword,
     });
