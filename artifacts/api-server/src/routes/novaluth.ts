@@ -122,7 +122,6 @@ import {
   protectedOrderViewFromOrder,
   runProtectedOrderMaintenance,
 } from "../lib/novaluth-orders";
-import { runVisioMaintenance } from "../lib/novaluth-visio";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -728,7 +727,6 @@ export async function runMaintenance(
   }
 
   const commandes = await runProtectedOrderMaintenance(now);
-  const visio = await runVisioMaintenance(now);
   const result = {
     annulations,
     expirations,
@@ -736,7 +734,6 @@ export async function runMaintenance(
     projets_sommeil: projetsSommeil,
     sn13_purge: sn13Purge,
     commandes,
-    visio,
     execute_le: now.toISOString(),
   };
   logger.info({ trigger, ...result }, "NovaLuth access maintenance completed");

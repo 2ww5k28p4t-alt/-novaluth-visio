@@ -22,8 +22,6 @@ tags:
     description: Atelier access requests and musician project decisions
   - name: protected-orders
     description: Protected custom-order lifecycle and simulated payments
-  - name: visio
-    description: Private, unrecorded Jitsi appointments
   - name: transparency
     description: Public provider and data-processing transparency
 paths:
@@ -433,125 +431,6 @@ paths:
                 $ref: "#/components/schemas/AtelierAccessRequest"
         "400":
           description: Access has expired, has not been accepted, or has no remaining credit
-  /ateliers/{slug}/visio:
-    get:
-      operationId: listVisioAppointments
-      tags: [visio]
-      summary: List video appointments for an atelier
-      security:
-        - atelierSession: []
-      parameters:
-        - $ref: "#/components/parameters/AtelierSlug"
-      responses:
-        "200":
-          description: Atelier video appointments
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VisioAppointmentList"
-        "401":
-          description: Invalid atelier session
-    post:
-      operationId: createVisioAppointment
-      tags: [visio]
-      summary: Create a private video appointment
-      description: >
-        Creates a free, private Jitsi appointment. NovaLuth does not join, record,
-        transcribe or store the call content.
-      security:
-        - atelierSession: []
-      parameters:
-        - $ref: "#/components/parameters/AtelierSlug"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/VisioAppointmentInput"
-      responses:
-        "201":
-          description: Created video appointment
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VisioAppointmentCreated"
-        "400":
-          description: Appointment cannot be created
-        "401":
-          description: Invalid atelier session
-  /ateliers/{slug}/visio/{reference}/annulation:
-    post:
-      operationId: cancelVisioAppointment
-      tags: [visio]
-      summary: Cancel a video appointment
-      security:
-        - atelierSession: []
-      parameters:
-        - $ref: "#/components/parameters/AtelierSlug"
-        - $ref: "#/components/parameters/VisioReference"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AtelierActionInput"
-      responses:
-        "200":
-          description: Cancelled appointment
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VisioAppointment"
-        "400":
-          description: Appointment cannot be cancelled
-        "401":
-          description: Invalid atelier session
-        "404":
-          description: Appointment not found
-  /ateliers/{slug}/visio/{reference}/lien-atelier:
-    post:
-      operationId: rotateVisioAtelierLink
-      tags: [visio]
-      summary: Generate a new private atelier link
-      description: The previous atelier token is invalidated; the musician token is unchanged.
-      security:
-        - atelierSession: []
-      parameters:
-        - $ref: "#/components/parameters/AtelierSlug"
-        - $ref: "#/components/parameters/VisioReference"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AtelierActionInput"
-      responses:
-        "200":
-          description: New private atelier link
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VisioLink"
-        "401":
-          description: Invalid atelier session
-        "404":
-          description: Appointment not found, cancelled or expired
-  /visio/{token}:
-    get:
-      operationId: getVisioRoom
-      tags: [visio]
-      summary: Open a private video room using a personal token
-      parameters:
-        - $ref: "#/components/parameters/VisioToken"
-      responses:
-        "200":
-          description: Private Jitsi room details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VisioRoom"
-        "404":
-          description: Link not found, cancelled or expired
   /ateliers/{slug}/commandes:
     get:
       operationId: listProtectedOrders
@@ -833,16 +712,6 @@ components:
       in: path
       required: true
       schema: { type: number }
-    VisioReference:
-      name: reference
-      in: path
-      required: true
-      schema: { type: string, pattern: "^VIS-[A-Z0-9]+$" }
-    VisioToken:
-      name: token
-      in: path
-      required: true
-      schema: { type: string, minLength: 32, maxLength: 100 }
   securitySchemes:
     adminToken:
       type: apiKey
@@ -1470,82 +1339,6 @@ components:
       required: [session]
       properties:
         session: { type: string, minLength: 20 }
-    VisioAppointmentInput:
-      type: object
-      required: [session, email_musicien, email_atelier, objet]
-      properties:
-        session: { type: string, minLength: 20 }
-        email_musicien: { type: string, minLength: 3, maxLength: 320 }
-        email_atelier: { type: string, minLength: 3, maxLength: 320 }
-        objet:
-          type: string
-          enum: [projet, bois, assemblage, finition, final, autre]
-        date_heure: { type: ["string", "null"], format: date-time }
-        reference_projet: { type: ["string", "null"], maxLength: 120 }
-        commande_id: { type: ["number", "null"] }
-    VisioAppointment:
-      type: object
-      required:
-        [
-          id,
-          reference,
-          atelier_slug,
-          atelier_nom,
-          email_musicien,
-          objet,
-          objet_libelle,
-          date_heure,
-          expire_le,
-          statut,
-          lien_atelier
-        ]
-      properties:
-        id: { type: number }
-        reference: { type: string }
-        atelier_slug: { type: string }
-        atelier_nom: { type: string }
-        email_musicien: { type: string, minLength: 3, maxLength: 320 }
-        objet: { type: string, enum: [projet, bois, assemblage, finition, final, autre] }
-        objet_libelle: { type: string }
-        date_heure: { type: ["string", "null"], format: date-time }
-        expire_le: { type: string, format: date-time }
-        statut: { type: string, enum: [active, annulee, expiree] }
-        lien_atelier: { type: ["string", "null"] }
-    VisioAppointmentList:
-      type: array
-      items:
-        $ref: "#/components/schemas/VisioAppointment"
-    VisioAppointmentCreated:
-      type: object
-      required: [rendez_vous, lien_musicien, courriel_envoye]
-      properties:
-        rendez_vous:
-          $ref: "#/components/schemas/VisioAppointment"
-        lien_musicien: { type: string }
-        courriel_envoye: { type: boolean }
-    VisioLink:
-      type: object
-      required: [lien_atelier]
-      properties:
-        lien_atelier: { type: string }
-    VisioRoom:
-      type: object
-      required:
-        [reference, role, atelier_nom, objet, objet_libelle, date_heure, expire_le, mode_visio, domaine_jitsi, nom_salle, jeton_jwt, domaine_jitsi_secours, nom_salle_secours]
-      properties:
-        reference: { type: string }
-        role: { type: string, enum: [atelier, musicien] }
-        atelier_nom: { type: string }
-        objet: { type: string, enum: [projet, bois, assemblage, finition, final, autre] }
-        objet_libelle: { type: string }
-        date_heure: { type: ["string", "null"], format: date-time }
-        expire_le: { type: string, format: date-time }
-        mode_visio: { type: string, enum: [jaas, jitsi] }
-        domaine_jitsi: { type: string }
-        nom_salle: { type: string }
-        jeton_jwt: { type: ["string", "null"] }
-        domaine_jitsi_secours: { type: string }
-        nom_salle_secours: { type: string }
     AtelierAccessRequestInput:
       type: object
       required: [session, reference_projet, offre]

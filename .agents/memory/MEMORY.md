@@ -9,4 +9,3 @@
 - [Isolated PostgreSQL validation](isolated-postgres-validation.md) — Disposable local clusters need explicit socket and dynamic port configuration in the Replit container.
 - [Shutdown fallback test fixtures](shutdown-fallback-test-fixtures.md) — Detached stubborn-process fixtures need readiness synchronization before ownership checks.
 - [Demo seed reconciliation](demo-seed-reconciliation.md) — Reconcile published demo rows without overwriting non-demo profiles.
-- [JaaS video provider](jaas-video-provider.md) — Prefer ephemeral JaaS JWT rooms and fall back to public Jitsi when signing or loading JaaS fails.

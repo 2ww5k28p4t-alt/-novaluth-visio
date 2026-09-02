@@ -13,18 +13,11 @@ import {
   getListProtectedOrdersQueryKey,
   useCreateProtectedOrder,
   useCancelProtectedOrderByAtelier,
-  useListVisioAppointments,
-  getListVisioAppointmentsQueryKey,
-  useCreateVisioAppointment,
-  useCancelVisioAppointment,
-  useRotateVisioAtelierLink,
   AtelierDashboard,
   AtelierProject,
   AtelierAccessRequest,
   ProtectedOrder,
   ProtectedOrderInput,
-  VisioAppointment,
-  VisioAppointmentInput,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -46,12 +39,7 @@ import {
   RefreshCcw,
   PackageCheck,
   Link2,
-  Video,
-  Copy,
   ExternalLink,
-  Clock3,
-  CalendarClock,
-  Shield,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -64,7 +52,6 @@ import {
 } from "@/components/ui/dialog";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
-import { assetPath } from "@/lib/asset-path";
 
 const OFFRES = [
   { id: "essentiel", label: "Accès Essentiel", price: "9,99 €", desc: "Contact direct avec le musicien et accès aux détails de base." },
@@ -136,19 +123,6 @@ export default function Atelier() {
     request: { headers: { "X-NovaLuth-Atelier-Session": sessionToken } },
   });
 
-  const {
-    data: visioAppointments = [],
-    isLoading: isLoadingVisio,
-    isError: isErrorVisio,
-  } = useListVisioAppointments(slug, {
-    query: {
-      enabled: !!sessionToken,
-      queryKey: getListVisioAppointmentsQueryKey(slug),
-      retry: false,
-    },
-    request: { headers: { "X-NovaLuth-Atelier-Session": sessionToken } },
-  });
-
   useEffect(() => {
     if (isErrorDashboard) {
       toast.error("Session expirée ou invalide.");
@@ -199,7 +173,7 @@ export default function Atelier() {
     );
   }
 
-  if (isLoadingDashboard || isLoadingProjects || isLoadingOrders || isLoadingVisio) {
+  if (isLoadingDashboard || isLoadingProjects || isLoadingOrders) {
     return (
       <div className="container mx-auto px-4 py-24 flex flex-col items-center justify-center gap-4">
         <Loader2 className="h-12 w-12 text-primary animate-spin" />
@@ -240,7 +214,7 @@ export default function Atelier() {
 
       <main className="container mx-auto px-4 mt-8">
         <Tabs defaultValue="projects" className="w-full">
-           <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 max-w-[780px] mb-8 bg-card border border-border">
+             <TabsList className="grid w-full grid-cols-3 max-w-[780px] mb-8 bg-card border border-border">
             <TabsTrigger value="projects" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Projets Compatibles
             </TabsTrigger>
@@ -249,9 +223,6 @@ export default function Atelier() {
             </TabsTrigger>
             <TabsTrigger value="orders" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Commandes ({orders.length})
-            </TabsTrigger>
-            <TabsTrigger value="visio" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              Rendez-vous ({visioAppointments.filter((appointment) => appointment.statut === "active").length})
             </TabsTrigger>
           </TabsList>
 
@@ -324,281 +295,8 @@ export default function Atelier() {
             <ProtectedOrdersTab slug={slug} sessionToken={sessionToken} orders={orders} />
           </TabsContent>
 
-           <TabsContent value="visio" className="space-y-6">
-             <VisioAppointmentsTab
-               slug={slug}
-               sessionToken={sessionToken}
-               appointments={visioAppointments}
-               hasError={isErrorVisio}
-               orders={orders}
-             />
-           </TabsContent>
         </Tabs>
       </main>
-    </div>
-  );
-}
-
-function VisioAppointmentsTab({
-  slug,
-  sessionToken,
-  appointments,
-  hasError,
-  orders,
-}: {
-  slug: string;
-  sessionToken: string;
-  appointments: VisioAppointment[];
-  hasError: boolean;
-  orders: ProtectedOrder[];
-}) {
-  const queryClient = useQueryClient();
-  const createAppointment = useCreateVisioAppointment();
-  const cancelAppointment = useCancelVisioAppointment();
-  const rotateAtelierLink = useRotateVisioAtelierLink();
-  const [form, setForm] = useState<{
-    email_musicien: string;
-    email_atelier: string;
-    objet: VisioAppointmentInput["objet"];
-    date_heure: string;
-    reference_projet: string;
-    commande_id: string;
-  }>({
-    email_musicien: "",
-    email_atelier: "",
-    objet: "projet",
-    date_heure: "",
-    reference_projet: "",
-    commande_id: "",
-  });
-  const [createdLink, setCreatedLink] = useState("");
-  const [atelierLinks, setAtelierLinks] = useState<Record<number, string>>({});
-
-  const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((current) => ({ ...current, [key]: value }));
-
-  const resolvePublicLink = (link: string) =>
-    link.startsWith("http") ? link : `${window.location.origin}${assetPath(link)}`;
-
-  const handleCreate = (event: React.FormEvent) => {
-    event.preventDefault();
-    const data: VisioAppointmentInput = {
-      session: sessionToken,
-      email_musicien: form.email_musicien.trim(),
-      email_atelier: form.email_atelier.trim(),
-      objet: form.objet,
-      date_heure: form.date_heure ? new Date(form.date_heure).toISOString() : undefined,
-      reference_projet: form.reference_projet.trim() || undefined,
-      commande_id: form.commande_id ? Number(form.commande_id) : undefined,
-    };
-
-    createAppointment.mutate(
-      { slug, data },
-      {
-        onSuccess: (result) => {
-          setCreatedLink(result.lien_musicien);
-          if (result.rendez_vous.lien_atelier) {
-            setAtelierLinks((current) => ({
-              ...current,
-              [result.rendez_vous.id]: result.rendez_vous.lien_atelier as string,
-            }));
-          }
-          setForm((current) => ({
-            ...current,
-            email_musicien: "",
-            date_heure: "",
-            reference_projet: "",
-            commande_id: "",
-          }));
-          queryClient.invalidateQueries({ queryKey: getListVisioAppointmentsQueryKey(slug) });
-          toast.success(
-            result.courriel_envoye
-              ? "Rendez-vous créé. L’invitation e-mail est en attente d’envoi."
-              : "Rendez-vous créé. Le lien privé est prêt à transmettre.",
-          );
-        },
-        onError: () => toast.error("Impossible de créer ce rendez-vous. Vérifiez les informations saisies."),
-      },
-    );
-  };
-
-  const handleRotateAtelierLink = (appointment: VisioAppointment) => {
-    rotateAtelierLink.mutate(
-      { slug, reference: appointment.reference, data: { session: sessionToken } },
-      {
-        onSuccess: (result) => {
-          setAtelierLinks((current) => ({ ...current, [appointment.id]: result.lien_atelier }));
-          toast.success("Un nouveau lien atelier a été généré.");
-        },
-        onError: () => toast.error("Impossible de générer ce lien atelier."),
-      },
-    );
-  };
-
-  const handleCancel = (appointment: VisioAppointment) => {
-    if (!window.confirm(`Annuler le rendez-vous ${appointment.reference} ?`)) return;
-    cancelAppointment.mutate(
-      { slug, reference: appointment.reference, data: { session: sessionToken } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListVisioAppointmentsQueryKey(slug) });
-          toast.success("Rendez-vous annulé.");
-        },
-        onError: () => toast.error("Ce rendez-vous ne peut plus être annulé."),
-      },
-    );
-  };
-
-  const copyLink = (link: string) => {
-    navigator.clipboard.writeText(resolvePublicLink(link))
-      .then(() => toast.success("Lien copié dans le presse-papiers."))
-      .catch(() => toast.error("Impossible de copier le lien."));
-  };
-
-  return (
-    <div className="grid gap-8 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-      <Card className="border-primary/20 bg-card">
-        <CardHeader className="border-b border-border/50">
-          <div className="flex items-start gap-3">
-            <div className="rounded-lg border border-primary/20 bg-primary/10 p-2.5">
-              <Video className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="font-serif">Proposer une visioconférence</CardTitle>
-              <CardDescription className="mt-1">
-                Un lien privé, gratuit et sans enregistrement est généré. Il sera envoyé par e-mail si la messagerie NovaLuth est configurée ; sinon vous pouvez le copier.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <form onSubmit={handleCreate} className="space-y-4">
-            <Field label="E-mail du musicien" type="email" required testId="input-visio-musician-email" value={form.email_musicien} onChange={(value) => update("email_musicien", value)} />
-            <Field label="Votre e-mail" type="email" required testId="input-visio-atelier-email" value={form.email_atelier} onChange={(value) => update("email_atelier", value)} />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label htmlFor="visio-objet" className="text-sm font-medium">Objet du rendez-vous</label>
-                <select
-                  id="visio-objet"
-                  data-testid="select-visio-objet"
-                  value={form.objet}
-                  onChange={(event) => update("objet", event.target.value as VisioAppointmentInput["objet"])}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="projet">Projet</option>
-                  <option value="bois">Choix des bois</option>
-                  <option value="assemblage">Assemblage</option>
-                  <option value="finition">Finition</option>
-                  <option value="final">Présentation finale</option>
-                  <option value="autre">Autre</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="visio-date" className="text-sm font-medium">Date et heure <span className="font-normal text-muted-foreground">(facultatif)</span></label>
-                <Input id="visio-date" data-testid="input-visio-date" type="datetime-local" value={form.date_heure} onChange={(event) => update("date_heure", event.target.value)} />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Référence projet (facultatif)" testId="input-visio-project-reference" value={form.reference_projet} onChange={(value) => update("reference_projet", value)} />
-              <div className="space-y-2">
-                <label htmlFor="visio-order" className="text-sm font-medium">Commande liée <span className="font-normal text-muted-foreground">(facultatif)</span></label>
-                <select
-                  id="visio-order"
-                  data-testid="select-visio-order"
-                  value={form.commande_id}
-                  onChange={(event) => update("commande_id", event.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="">Aucune commande</option>
-                  {orders.map((order) => <option key={order.id} value={order.id}>{order.reference}</option>)}
-                </select>
-              </div>
-            </div>
-            <Button type="submit" data-testid="button-create-visio" className="w-full" disabled={createAppointment.isPending}>
-              {createAppointment.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Video className="mr-2 h-4 w-4" />}
-              Créer le rendez-vous privé
-            </Button>
-          </form>
-          {createdLink && (
-            <div className="mt-5 rounded-lg border border-primary/30 bg-primary/5 p-4">
-              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-primary"><Link2 className="h-4 w-4" /> Lien musicien prêt</p>
-              <a data-testid="link-created-visio" className="break-all text-xs text-primary underline" href={resolvePublicLink(createdLink)}>
-                {resolvePublicLink(createdLink)}
-              </a>
-              <Button data-testid="button-copy-created-visio" variant="outline" size="sm" className="mt-3" onClick={() => copyLink(createdLink)}>
-                <Copy className="mr-2 h-3.5 w-3.5" /> Copier le lien
-              </Button>
-            </div>
-          )}
-          <p className="mt-5 flex gap-2 text-xs leading-relaxed text-muted-foreground">
-            <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-            L’appel est hébergé dans une salle temporaire. NovaLuth ne rejoint ni n’enregistre la conversation.
-          </p>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <CalendarClock className="h-5 w-5 text-primary" />
-            <h2 className="text-2xl font-serif">Mes rendez-vous</h2>
-          </div>
-          <p className="mt-1 text-muted-foreground">Les salles expirent automatiquement après leur durée de sécurité.</p>
-        </div>
-        {hasError ? (
-          <Card className="border-destructive/30 bg-destructive/5 p-8 text-center">
-            <p className="font-medium text-destructive">Les rendez-vous ne sont pas disponibles.</p>
-            <p className="mt-1 text-sm text-muted-foreground">Réessayez dans un instant.</p>
-          </Card>
-        ) : appointments.length === 0 ? (
-          <Card className="border-dashed border-border bg-card/30 p-10 text-center">
-            <Video className="mx-auto mb-4 h-10 w-10 text-muted-foreground opacity-50" />
-            <p className="font-medium">Aucun rendez-vous pour le moment</p>
-            <p className="mt-1 text-sm text-muted-foreground">Votre premier lien privé apparaîtra ici.</p>
-          </Card>
-        ) : (
-          appointments.map((appointment) => (
-            <Card key={appointment.id} data-testid={`card-visio-appointment-${appointment.id}`} className={`border-border ${appointment.statut !== "active" ? "opacity-70" : ""}`}>
-              <CardContent className="space-y-4 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="mb-1 flex items-center gap-2">
-                      <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">{appointment.objet_libelle}</Badge>
-                      <Badge variant="outline" className="text-xs">{appointment.statut === "active" ? "Actif" : appointment.statut === "annulee" ? "Annulé" : "Expiré"}</Badge>
-                    </div>
-                    <p className="font-serif text-lg">{appointment.reference}</p>
-                    <p className="text-sm text-muted-foreground">{appointment.email_musicien}</p>
-                  </div>
-                  <Video className="h-5 w-5 text-primary" />
-                </div>
-                <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                  <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" /> {appointment.date_heure ? format(parseISO(appointment.date_heure), "d MMM yyyy · HH:mm", { locale: fr }) : "Horaire à convenir"}</span>
-                  <span>Expire le {format(parseISO(appointment.expire_le), "d MMM yyyy · HH:mm", { locale: fr })}</span>
-                </div>
-                {appointment.statut === "active" && (
-                  <div className="flex flex-wrap gap-2 border-t border-border/50 pt-4">
-                    {(atelierLinks[appointment.id] || appointment.lien_atelier) && (
-                      <Button data-testid={`button-open-visio-${appointment.id}`} variant="outline" size="sm" asChild>
-                        <a href={resolvePublicLink(atelierLinks[appointment.id] || appointment.lien_atelier as string)}><ExternalLink className="mr-2 h-3.5 w-3.5" /> Ouvrir ma salle</a>
-                      </Button>
-                    )}
-                    {!atelierLinks[appointment.id] && !appointment.lien_atelier && (
-                      <Button data-testid={`button-generate-visio-${appointment.id}`} variant="outline" size="sm" onClick={() => handleRotateAtelierLink(appointment)} disabled={rotateAtelierLink.isPending}>
-                        {rotateAtelierLink.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-                        Générer mon lien
-                      </Button>
-                    )}
-                    <Button data-testid={`button-cancel-visio-${appointment.id}`} variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleCancel(appointment)} disabled={cancelAppointment.isPending}>
-                      {cancelAppointment.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-                      Annuler
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
     </div>
   );
 }
