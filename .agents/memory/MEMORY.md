@@ -10,4 +10,5 @@
 - [Shutdown fallback test fixtures](shutdown-fallback-test-fixtures.md) — Detached stubborn-process fixtures need readiness synchronization before ownership checks.
 - [Demo seed reconciliation](demo-seed-reconciliation.md) — Reconcile published demo rows without overwriting non-demo profiles.
 - [Socket.IO behind artifact proxy](p2p-meet-routing.md) — WebSocket signal paths must be explicit in the API artifact manifest and match the client/server Socket.IO path.
+- [TURN port advertisement](turn-port-advertisement.md) — Advertise TLS port 443 only when Coturn actually owns it; web proxies commonly occupy that port.
 - [Meet account persistence](meet-account-persistence.md) — Future Meet accounts must use PostgreSQL and NovaLuth identity, never deployment-local JSON files.
