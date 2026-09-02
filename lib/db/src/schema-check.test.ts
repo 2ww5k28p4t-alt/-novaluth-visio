@@ -261,7 +261,7 @@ test("identifies an outdated non-SN13 CHECK constraint by name", async () => {
 });
 
 test("keeps non-SN13 constraint expectations separate from SN13 constraints", () => {
-  assert.equal(expectedNonSn13Constraints.length, 4);
+  assert.equal(expectedNonSn13Constraints.length, 9);
   assert.equal(expectedSn13Constraints.length, 5);
-  assert.equal(expectedNamedCheckConstraints.length, 9);
+  assert.equal(expectedNamedCheckConstraints.length, 14);
 });

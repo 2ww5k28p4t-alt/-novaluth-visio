@@ -57,6 +57,35 @@ export const expectedNonSn13Constraints = [
       "CHECK (((plan = 'essentiel'::text) AND (amount_cents = 999) AND (followup_credits >= 0) AND (followup_credits <= 1)) OR ((plan = 'atelier'::text) AND (amount_cents = 1599) AND (followup_credits >= 0) AND (followup_credits <= 2)) OR ((plan = 'signature'::text) AND (amount_cents = 2499) AND (followup_credits >= 0) AND (followup_credits <= 3)))",
   },
   {
+    tableName: "novaluth_protected_orders",
+    name: "novaluth_protected_orders_status_check",
+    definition:
+      "CHECK ((status = ANY (ARRAY['declaree'::text, 'confirmee'::text, 'expiree'::text, 'refusee'::text, 'annulee_client'::text, 'annulee_atelier'::text, 'livree'::text, 'non_confirmee'::text])))",
+  },
+  {
+    tableName: "novaluth_protected_orders",
+    name: "novaluth_protected_orders_money_check",
+    definition:
+      "CHECK (((price_cents > 0) AND (deposit_cents >= 0) AND (deposit_cents <= price_cents) AND (commitment_fee_cents = 2900) AND ((commission_cents >= 0) AND (commission_cents <= 14900))))",
+  },
+  {
+    tableName: "novaluth_protected_orders",
+    name: "novaluth_protected_orders_payment_check",
+    definition:
+      "CHECK (((commitment_payment_status = ANY (ARRAY['non_du'::text, 'encaisse'::text, 'credit_utilise'::text])) AND (commission_payment_status = ANY (ARRAY['non_due'::text, 'encaisse'::text]))))",
+  },
+  {
+    tableName: "novaluth_protected_order_credits",
+    name: "novaluth_protected_order_credits_amount_check",
+    definition: "CHECK ((amount_cents = 2900))",
+  },
+  {
+    tableName: "novaluth_protected_order_credits",
+    name: "novaluth_protected_order_credits_status_check",
+    definition:
+      "CHECK ((status = ANY (ARRAY['disponible'::text, 'utilise'::text])))",
+  },
+  {
     tableName: "novaluth_email_outbox",
     name: "novaluth_email_outbox_status_check",
     definition:
