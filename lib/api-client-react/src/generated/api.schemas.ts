@@ -508,6 +508,16 @@ export interface AccessAdminSummary {
   encaissements: number;
 }
 
+export interface ProtectedOrderAdminSummary {
+  declarees: number;
+  confirmees: number;
+  livrees: number;
+  annulees: number;
+  non_confirmees: number;
+  engagements: number;
+  commissions: number;
+}
+
 export interface AdminSummary {
   compteurs: AdminSummaryCompteurs;
   fiches: Fiche[];
@@ -515,6 +525,7 @@ export interface AdminSummary {
   collecte_sn13: Sn13CallState;
   purge_sn13: Sn13PurgeAdminState;
   acces: AccessAdminSummary;
+  commandes: ProtectedOrderAdminSummary;
 }
 
 export type Sn13PurgeIncidentStatut = typeof Sn13PurgeIncidentStatut[keyof typeof Sn13PurgeIncidentStatut];
@@ -564,6 +575,145 @@ export const AccessPlan = {
   atelier: 'atelier',
   signature: 'signature',
 } as const;
+
+export type ProtectedOrderDecisionInputDecision = typeof ProtectedOrderDecisionInputDecision[keyof typeof ProtectedOrderDecisionInputDecision];
+
+
+export const ProtectedOrderDecisionInputDecision = {
+  confirmer: 'confirmer',
+  refuser: 'refuser',
+} as const;
+
+export interface ProtectedOrderDecisionInput {
+  decision: ProtectedOrderDecisionInputDecision;
+}
+
+export interface ProtectedOrderInput {
+  /** @minLength 20 */
+  session: string;
+  /**
+     * @minLength 3
+     * @maxLength 320
+     */
+  email_musicien: string;
+  /**
+     * @minLength 3
+     * @maxLength 320
+     */
+  email_atelier: string;
+  /**
+     * @maximum 10000000
+     * @exclusiveMinimum 0
+     */
+  prix_instrument_eur: number;
+  /**
+     * @minimum 0
+     * @maximum 10000000
+     */
+  acompte_eur?: number;
+  /**
+     * @maxLength 120
+     * @nullable
+     */
+  reference_devis?: string | null;
+  /**
+     * @maxLength 3000
+     * @nullable
+     */
+  description?: string | null;
+  /** @nullable */
+  date_livraison_annoncee?: string | null;
+  /**
+     * @maxLength 120
+     * @nullable
+     */
+  reference_projet?: string | null;
+}
+
+export type ProtectedOrderStatut = typeof ProtectedOrderStatut[keyof typeof ProtectedOrderStatut];
+
+
+export const ProtectedOrderStatut = {
+  declaree: 'declaree',
+  confirmee: 'confirmee',
+  expiree: 'expiree',
+  refusee: 'refusee',
+  annulee_client: 'annulee_client',
+  annulee_atelier: 'annulee_atelier',
+  livree: 'livree',
+  non_confirmee: 'non_confirmee',
+} as const;
+
+export type ProtectedOrderPaiementEngagement = typeof ProtectedOrderPaiementEngagement[keyof typeof ProtectedOrderPaiementEngagement];
+
+
+export const ProtectedOrderPaiementEngagement = {
+  non_du: 'non_du',
+  encaisse: 'encaisse',
+  credit_utilise: 'credit_utilise',
+} as const;
+
+export type ProtectedOrderPaiementCommission = typeof ProtectedOrderPaiementCommission[keyof typeof ProtectedOrderPaiementCommission];
+
+
+export const ProtectedOrderPaiementCommission = {
+  non_due: 'non_due',
+  encaisse: 'encaisse',
+} as const;
+
+export interface ProtectedOrder {
+  id: number;
+  reference: string;
+  atelier_slug: string;
+  atelier_nom: string;
+  /**
+     * @minLength 3
+     * @maxLength 320
+     */
+  email_musicien: string;
+  prix_instrument_eur: number;
+  acompte_eur: number;
+  frais_engagement_eur: number;
+  commission_eur: number;
+  /** @nullable */
+  reference_devis?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  date_livraison_annoncee?: string | null;
+  statut: ProtectedOrderStatut;
+  paiement_engagement: ProtectedOrderPaiementEngagement;
+  paiement_commission: ProtectedOrderPaiementCommission;
+  echeance_confirmation: string;
+  /** @nullable */
+  echeance_reception?: string | null;
+  declaree_le: string;
+  /** @nullable */
+  confirmee_le?: string | null;
+  /** @nullable */
+  livree_le?: string | null;
+  /** @nullable */
+  annulee_le?: string | null;
+  peut_confirmer: boolean;
+  peut_refuser: boolean;
+  peut_annuler_musicien: boolean;
+  peut_annuler_atelier: boolean;
+  peut_confirmer_reception: boolean;
+  /** @nullable */
+  lien_livraison?: string | null;
+}
+
+export interface ProtectedOrderCreated {
+  commande: ProtectedOrder;
+  lien_confirmation: string;
+  courriel_envoye: boolean;
+}
+
+export interface ProtectedOrderDecisionResponse {
+  commande: ProtectedOrder;
+  /** @nullable */
+  lien_livraison: string | null;
+}
 
 export interface AtelierSessionInput {
   /** @maxLength 80 */
@@ -703,6 +853,13 @@ export interface Sn13PurgeMaintenance {
   retabli: boolean;
 }
 
+export interface ProtectedOrderMaintenanceResult {
+  expirations: number;
+  relances_confirmation: number;
+  relances_livraison: number;
+  non_confirmees: number;
+}
+
 export interface AccessMaintenanceResult {
   annulations: number;
   expirations: number;
@@ -710,6 +867,7 @@ export interface AccessMaintenanceResult {
   projets_sommeil: number;
   sn13_purge: Sn13PurgeMaintenance;
   execute_le: string;
+  commandes: ProtectedOrderMaintenanceResult;
 }
 
 export type ListFichesParams = {

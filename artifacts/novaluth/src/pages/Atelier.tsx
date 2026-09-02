@@ -9,13 +9,20 @@ import {
   useCreateAtelierAccessRequest,
   useCancelAtelierAccessRequest,
   useUseAtelierFollowupCredit,
+  useListProtectedOrders,
+  getListProtectedOrdersQueryKey,
+  useCreateProtectedOrder,
+  useCancelProtectedOrderByAtelier,
   AtelierDashboard,
   AtelierProject,
-  AtelierAccessRequest
+  AtelierAccessRequest,
+  ProtectedOrder,
+  ProtectedOrderInput,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,6 +37,8 @@ import {
   XCircle, 
   CheckCircle2, 
   RefreshCcw,
+  PackageCheck,
+  Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -82,6 +91,7 @@ export default function Atelier() {
     setSessionToken("");
     queryClient.removeQueries({ queryKey: getGetAtelierDashboardQueryKey(slug) });
     queryClient.removeQueries({ queryKey: getListAtelierProjectsQueryKey(slug) });
+    queryClient.removeQueries({ queryKey: getListProtectedOrdersQueryKey(slug) });
   };
 
   // Only fetch if sessionToken exists
@@ -101,6 +111,15 @@ export default function Atelier() {
       retry: false
     },
     request: { headers: { "X-NovaLuth-Atelier-Session": sessionToken } }
+  });
+
+  const { data: orders = [], isLoading: isLoadingOrders } = useListProtectedOrders(slug, {
+    query: {
+      enabled: !!sessionToken,
+      queryKey: getListProtectedOrdersQueryKey(slug),
+      retry: false,
+    },
+    request: { headers: { "X-NovaLuth-Atelier-Session": sessionToken } },
   });
 
   useEffect(() => {
@@ -153,7 +172,7 @@ export default function Atelier() {
     );
   }
 
-  if (isLoadingDashboard || isLoadingProjects) {
+  if (isLoadingDashboard || isLoadingProjects || isLoadingOrders) {
     return (
       <div className="container mx-auto px-4 py-24 flex flex-col items-center justify-center gap-4">
         <Loader2 className="h-12 w-12 text-primary animate-spin" />
@@ -194,12 +213,15 @@ export default function Atelier() {
 
       <main className="container mx-auto px-4 mt-8">
         <Tabs defaultValue="projects" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 max-w-[400px] mb-8 bg-card border border-border">
+           <TabsList className="grid w-full grid-cols-3 max-w-[620px] mb-8 bg-card border border-border">
             <TabsTrigger value="projects" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Projets Compatibles
             </TabsTrigger>
             <TabsTrigger value="requests" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Mes Demandes ({dashboard.demandes.length})
+            </TabsTrigger>
+            <TabsTrigger value="orders" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              Commandes ({orders.length})
             </TabsTrigger>
           </TabsList>
 
@@ -267,8 +289,208 @@ export default function Atelier() {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="orders" className="space-y-6">
+            <ProtectedOrdersTab slug={slug} sessionToken={sessionToken} orders={orders} />
+          </TabsContent>
         </Tabs>
       </main>
+    </div>
+  );
+}
+
+function ProtectedOrdersTab({
+  slug,
+  sessionToken,
+  orders,
+}: {
+  slug: string;
+  sessionToken: string;
+  orders: ProtectedOrder[];
+}) {
+  const queryClient = useQueryClient();
+  const createOrder = useCreateProtectedOrder();
+  const cancelOrder = useCancelProtectedOrderByAtelier();
+  const [form, setForm] = useState({
+    email_musicien: "",
+    email_atelier: "",
+    prix_instrument_eur: "",
+    acompte_eur: "",
+    reference_devis: "",
+    reference_projet: "",
+    description: "",
+    date_livraison_annoncee: "",
+  });
+  const [confirmationLink, setConfirmationLink] = useState("");
+
+  const update = (key: keyof typeof form, value: string) =>
+    setForm((current) => ({ ...current, [key]: value }));
+
+  const handleCreate = (event: React.FormEvent) => {
+    event.preventDefault();
+    const data: ProtectedOrderInput = {
+      session: sessionToken,
+      email_musicien: form.email_musicien.trim(),
+      email_atelier: form.email_atelier.trim(),
+      prix_instrument_eur: Number(form.prix_instrument_eur),
+      acompte_eur: form.acompte_eur ? Number(form.acompte_eur) : undefined,
+      reference_devis: form.reference_devis.trim() || undefined,
+      reference_projet: form.reference_projet.trim() || undefined,
+      description: form.description.trim() || undefined,
+      date_livraison_annoncee: form.date_livraison_annoncee || undefined,
+    };
+    createOrder.mutate(
+      { slug, data },
+      {
+        onSuccess: (result) => {
+          setConfirmationLink(result.lien_confirmation);
+          setForm((current) => ({
+            ...current,
+            email_musicien: "",
+            prix_instrument_eur: "",
+            acompte_eur: "",
+            reference_devis: "",
+            reference_projet: "",
+            description: "",
+            date_livraison_annoncee: "",
+          }));
+          queryClient.invalidateQueries({ queryKey: getListProtectedOrdersQueryKey(slug) });
+          toast.success("Commande déclarée. Le lien privé est prêt à transmettre.");
+        },
+        onError: () => toast.error("Impossible de déclarer cette commande. Vérifiez les données et les doublons."),
+      },
+    );
+  };
+
+  const handleCancel = (order: ProtectedOrder) => {
+    if (!window.confirm(`Annuler la commande ${order.reference} ?`)) return;
+    cancelOrder.mutate(
+      { slug, orderId: order.id, data: { session: sessionToken } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListProtectedOrdersQueryKey(slug) });
+          toast.success("Commande annulée.");
+        },
+        onError: () => toast.error("Cette commande ne peut plus être annulée."),
+      },
+    );
+  };
+
+  const publicPath = (path: string) =>
+    `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      <Card className="border-primary/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 font-serif">
+            <PackageCheck className="h-5 w-5 text-primary" /> Déclarer une commande
+          </CardTitle>
+          <CardDescription>
+            La déclaration ne débite rien. Le musicien reçoit un lien privé valable 7 jours pour confirmer ou refuser.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="E-mail du musicien" type="email" required value={form.email_musicien} onChange={(value) => update("email_musicien", value)} />
+              <Field label="Votre e-mail" type="email" required value={form.email_atelier} onChange={(value) => update("email_atelier", value)} />
+              <Field label="Prix de l’instrument (€)" type="number" min="0.01" step="0.01" required value={form.prix_instrument_eur} onChange={(value) => update("prix_instrument_eur", value)} />
+              <Field label="Acompte indicatif (€)" type="number" min="0" step="0.01" value={form.acompte_eur} onChange={(value) => update("acompte_eur", value)} />
+              <Field label="Référence devis" value={form.reference_devis} onChange={(value) => update("reference_devis", value)} />
+              <Field label="Référence projet (facultatif)" value={form.reference_projet} onChange={(value) => update("reference_projet", value)} />
+              <Field label="Date de livraison annoncée" type="date" value={form.date_livraison_annoncee} onChange={(value) => update("date_livraison_annoncee", value)} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="Modèle, spécifications, engagements convenus…" rows={4} />
+            </div>
+            <Button type="submit" className="w-full" disabled={createOrder.isPending}>
+              {createOrder.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Déclarer sans débit
+            </Button>
+          </form>
+          {confirmationLink && (
+            <div className="mt-5 rounded-lg border border-green-500/30 bg-green-500/5 p-4">
+              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
+                <Link2 className="h-4 w-4" /> Lien privé de confirmation
+              </p>
+              <a className="break-all text-xs text-primary underline" href={publicPath(confirmationLink)}>
+                {window.location.origin}{publicPath(confirmationLink)}
+              </a>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => navigator.clipboard.writeText(`${window.location.origin}${publicPath(confirmationLink)}`)}>
+                Copier le lien
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-serif">Commandes protégées</h2>
+          <p className="text-muted-foreground">Suivez les confirmations, les délais de réception et les paiements simulés.</p>
+        </div>
+        {orders.length === 0 ? (
+          <Card className="border-dashed border-border bg-card/30 p-10 text-center">
+            <PackageCheck className="mx-auto mb-4 h-10 w-10 text-muted-foreground opacity-50" />
+            <p className="font-medium">Aucune commande protégée</p>
+            <p className="mt-1 text-sm text-muted-foreground">La première déclaration apparaîtra ici.</p>
+          </Card>
+        ) : (
+          orders.map((order) => (
+            <Card key={order.id} className="border-border">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="font-serif text-lg">{order.reference}</CardTitle>
+                    <CardDescription>{order.email_musicien} · {order.prix_instrument_eur.toLocaleString("fr-FR")} €</CardDescription>
+                  </div>
+                  <Badge variant="outline">{order.statut.replaceAll("_", " ")}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <span className="text-muted-foreground">Engagement : <strong className="text-foreground">{order.paiement_engagement}</strong></span>
+                  <span className="text-muted-foreground">Commission : <strong className="text-foreground">{order.paiement_commission}</strong></span>
+                  <span className="text-muted-foreground">Confirmation avant : <strong className="text-foreground">{format(parseISO(order.echeance_confirmation), "d MMM yyyy", { locale: fr })}</strong></span>
+                  {order.date_livraison_annoncee && <span className="text-muted-foreground">Livraison : <strong className="text-foreground">{format(parseISO(order.date_livraison_annoncee), "d MMM yyyy", { locale: fr })}</strong></span>}
+                </div>
+                {order.peut_annuler_atelier && (
+                  <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleCancel(order)} disabled={cancelOrder.isPending}>
+                    Annuler la commande
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  required,
+  type = "text",
+  min,
+  step,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+  type?: string;
+  min?: string;
+  step?: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">{label}</label>
+      <Input type={type} min={min} step={step} required={required} value={value} onChange={(event) => onChange(event.target.value)} />
     </div>
   );
 }

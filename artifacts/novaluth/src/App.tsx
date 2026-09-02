@@ -19,6 +19,7 @@ import Admin from '@/pages/Admin';
 import Legal from '@/pages/Legal';
 import Atelier from '@/pages/Atelier';
 import Portail from '@/pages/Portail';
+import Commande from '@/pages/Commande';
 import NotFound from '@/pages/not-found';
 import Classement from '@/pages/Classement';
 import Transparence from '@/pages/Transparence';
@@ -42,6 +43,8 @@ function Router() {
           <Route path="/fiche/:slug" component={Fiche} />
           <Route path="/atelier/:slug" component={Atelier} />
           <Route path="/projets/:reference/portail/:token" component={Portail} />
+          <Route path="/commandes/:reference/confirmation/:token" component={Commande} />
+          <Route path="/commandes/:reference/livraison/:token" component={Commande} />
           <Route path="/brief" component={Brief} />
           <Route path="/admin" component={Admin} />
           <Route path="/legal" component={Legal} />

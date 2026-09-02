@@ -10,6 +10,16 @@ export type NovaLuthEmailEvent =
   | "pending_reminder"
   | "access_expiring_soon"
   | "followup"
+  | "order_declared"
+  | "order_confirmed"
+  | "order_refused"
+  | "order_confirmation_reminder"
+  | "order_expired"
+  | "order_delivery_reminder"
+  | "order_delivered"
+  | "order_client_cancelled"
+  | "order_workshop_cancelled"
+  | "order_not_confirmed"
   | "sn13_degradation"
   | "sn13_purge_failure";
 
@@ -32,8 +42,12 @@ export type EmailDetails = {
   event: NovaLuthEmailEvent;
   reference: string;
   portalUrl: string;
+  actionUrl?: string | null;
+  actionLabel?: string;
   atelierName?: string;
   plan?: string;
+  amountCents?: number;
+  commissionCents?: number;
   accessEndsAt?: Date | null;
   sn13?: Sn13AlertDetails;
   sn13Purge?: Sn13PurgeAlertDetails;
@@ -170,6 +184,76 @@ function contentFor(details: EmailDetails) {
         intro: `${atelier} vient d’utiliser un crédit de relance pour votre projet.${plan}`,
         body: "Vous n’avez rien à faire. Ce message vous informe simplement qu’une nouvelle relance a été enregistrée dans votre suivi.",
       };
+    case "order_declared":
+      return {
+        subject: `Commande protégée à confirmer · ${details.reference}`,
+        title: "Une commande vous est proposée",
+        intro: `${atelier} a déclaré une commande protégée à votre adresse.`,
+        body: "Vérifiez les informations puis confirmez ou refusez la commande dans les 7 jours. Aucun frais n’est prélevé lors de la déclaration.",
+      };
+    case "order_confirmed":
+      return {
+        subject: `Commande protégée confirmée · ${details.reference}`,
+        title: "Commande confirmée",
+        intro: `La commande déclarée par ${atelier} est confirmée.`,
+        body: "Les frais d’engagement de 29 € sont maintenant dus par l’atelier. Utilisez le lien pour confirmer la réception après livraison.",
+      };
+    case "order_refused":
+      return {
+        subject: `Commande refusée · ${details.reference}`,
+        title: "Commande refusée",
+        intro: "Votre refus de la commande protégée a bien été enregistré.",
+        body: "Aucun frais d’engagement ni commission ne sera prélevé.",
+      };
+    case "order_confirmation_reminder":
+      return {
+        subject: `Rappel : commande à confirmer · ${details.reference}`,
+        title: "Votre confirmation est attendue",
+        intro: `La commande proposée par ${atelier} arrive bientôt à échéance.`,
+        body: "Utilisez le lien reçu lors de la déclaration pour confirmer ou refuser la commande avant la fin du délai de 7 jours.",
+      };
+    case "order_expired":
+      return {
+        subject: `Commande expirée · ${details.reference}`,
+        title: "La commande a expiré",
+        intro: "Le délai de confirmation de cette commande protégée est dépassé.",
+        body: "Aucun frais ni commission n’est dû au titre de cette commande.",
+      };
+    case "order_delivery_reminder":
+      return {
+        subject: `Rappel : confirmez la réception · ${details.reference}`,
+        title: "Confirmation de réception attendue",
+        intro: `La confirmation de réception de la commande ${details.reference} est attendue.`,
+        body: "Utilisez le lien de livraison reçu après la confirmation de commande. Sans confirmation dans le délai prévu, aucune commission ne sera prélevée.",
+      };
+    case "order_delivered":
+      return {
+        subject: `Réception confirmée · ${details.reference}`,
+        title: "Réception enregistrée",
+        intro: `La réception de la commande ${details.reference} est confirmée.`,
+        body: "La commission de 2 % du prix, plafonnée à 149 €, a été encaissée auprès de l’atelier. Les garanties légales restent applicables.",
+      };
+    case "order_client_cancelled":
+      return {
+        subject: `Commande annulée par le musicien · ${details.reference}`,
+        title: "Commande annulée",
+        intro: "L’annulation côté musicien a bien été enregistrée.",
+        body: "Les 29 € de frais d’engagement sont transformés en crédit pour l’atelier sur une prochaine commande.",
+      };
+    case "order_workshop_cancelled":
+      return {
+        subject: `Commande annulée par l’atelier · ${details.reference}`,
+        title: "Commande annulée par l’atelier",
+        intro: "L’atelier a annulé cette commande protégée.",
+        body: "Cette annulation ne modifie pas vos garanties éventuelles ni vos échanges contractuels directs avec l’atelier.",
+      };
+    case "order_not_confirmed":
+      return {
+        subject: `Réception non confirmée · ${details.reference}`,
+        title: "Réception non confirmée",
+        intro: `La réception de la commande ${details.reference} n’a pas été confirmée dans le délai prévu.`,
+        body: "Aucune commission n’est encaissée au titre de cette commande. Contactez directement l’atelier pour la suite.",
+      };
   }
 }
 
@@ -210,7 +294,9 @@ export async function sendNovaLuthEmail(
   }
 
   const content = contentFor(details);
-  const safePortalUrl = escapeHtml(details.portalUrl);
+  const actionUrl = details.actionUrl ?? details.portalUrl;
+  const safePortalUrl = actionUrl ? escapeHtml(actionUrl) : "";
+  const actionLabel = escapeHtml(details.actionLabel ?? "Ouvrir mon espace privé");
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#202124;max-width:620px">
       <p style="color:#6d4c41;font-weight:700;letter-spacing:.08em;text-transform:uppercase">NovaLuth</p>
@@ -219,11 +305,12 @@ export async function sendNovaLuthEmail(
       <p>${escapeHtml(content.body)}</p>
       ${
         details.event === "sn13_degradation" ||
-        details.event === "sn13_purge_failure"
+        details.event === "sn13_purge_failure" ||
+        !actionUrl
           ? ""
           : `<p style="margin:28px 0">
         <a href="${safePortalUrl}" style="display:inline-block;background:#6d4c41;color:#fff;padding:12px 20px;text-decoration:none">
-          Ouvrir mon portail privé
+           ${actionLabel}
         </a>
       </p>
       <p style="font-size:12px;color:#6b7280">Référence : ${escapeHtml(details.reference)}</p>`
@@ -241,7 +328,7 @@ export async function sendNovaLuthEmail(
           content.intro,
           content.body,
           "",
-          `Ouvrir votre portail privé : ${details.portalUrl}`,
+          ...(actionUrl ? [`${details.actionLabel ?? "Ouvrir votre espace privé"} : ${actionUrl}`] : []),
           `Référence : ${details.reference}`,
         ].join("\n");
 

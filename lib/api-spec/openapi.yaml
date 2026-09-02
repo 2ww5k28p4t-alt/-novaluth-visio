@@ -20,6 +20,8 @@ tags:
     description: Moderation and curation
   - name: atelier-access
     description: Atelier access requests and musician project decisions
+  - name: protected-orders
+    description: Protected custom-order lifecycle and simulated payments
   - name: transparency
     description: Public provider and data-processing transparency
 paths:
@@ -429,6 +431,182 @@ paths:
                 $ref: "#/components/schemas/AtelierAccessRequest"
         "400":
           description: Access has expired, has not been accepted, or has no remaining credit
+  /ateliers/{slug}/commandes:
+    get:
+      operationId: listProtectedOrders
+      tags: [protected-orders]
+      summary: List protected orders for an atelier
+      security:
+        - atelierSession: []
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+      responses:
+        "200":
+          description: Protected orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProtectedOrder"
+        "401":
+          description: Invalid atelier session
+    post:
+      operationId: createProtectedOrder
+      tags: [protected-orders]
+      summary: Declare a protected custom order
+      description: >
+        Declaring an order never charges the atelier. The musician receives a private
+        confirmation link valid for seven days.
+      security:
+        - atelierSession: []
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProtectedOrderInput"
+      responses:
+        "201":
+          description: Declared protected order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectedOrderCreated"
+        "400":
+          description: Order cannot be declared
+        "401":
+          description: Invalid atelier session
+  /ateliers/{slug}/commandes/{orderId}/annulation:
+    post:
+      operationId: cancelProtectedOrderByAtelier
+      tags: [protected-orders]
+      summary: Cancel a protected order as the atelier
+      security:
+        - atelierSession: []
+      parameters:
+        - $ref: "#/components/parameters/AtelierSlug"
+        - $ref: "#/components/parameters/ProtectedOrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AtelierActionInput"
+      responses:
+        "200":
+          description: Cancelled protected order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectedOrder"
+        "400":
+          description: Order cannot be cancelled
+        "401":
+          description: Invalid atelier session
+        "404":
+          description: Order not found
+  /commandes/{reference}/confirmation/{token}:
+    get:
+      operationId: getProtectedOrder
+      tags: [protected-orders]
+      summary: Get a protected order using the musician confirmation link
+      parameters:
+        - $ref: "#/components/parameters/ProtectedOrderReference"
+        - $ref: "#/components/parameters/ProtectedOrderToken"
+      responses:
+        "200":
+          description: Protected order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectedOrder"
+        "404":
+          description: Link not found or expired
+  /commandes/{reference}/confirmation/{token}/decision:
+    post:
+      operationId: decideProtectedOrder
+      tags: [protected-orders]
+      summary: Confirm or refuse a protected order
+      parameters:
+        - $ref: "#/components/parameters/ProtectedOrderReference"
+        - $ref: "#/components/parameters/ProtectedOrderToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProtectedOrderDecisionInput"
+      responses:
+        "200":
+          description: Updated protected order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectedOrderDecisionResponse"
+        "400":
+          description: Order already decided or expired
+        "404":
+          description: Link not found
+        "409":
+          description: Order was updated concurrently
+  /commandes/{reference}/confirmation/{token}/annulation:
+    post:
+      operationId: cancelProtectedOrderByMusician
+      tags: [protected-orders]
+      summary: Cancel a confirmed protected order as the musician
+      parameters:
+        - $ref: "#/components/parameters/ProtectedOrderReference"
+        - $ref: "#/components/parameters/ProtectedOrderToken"
+      responses:
+        "200":
+          description: Cancelled protected order and generated atelier credit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectedOrder"
+        "400":
+          description: Order cannot be cancelled
+        "404":
+          description: Link not found
+  /commandes/{reference}/livraison/{token}:
+    get:
+      operationId: getProtectedDelivery
+      tags: [protected-orders]
+      summary: Get a protected order using its delivery link
+      parameters:
+        - $ref: "#/components/parameters/ProtectedOrderReference"
+        - $ref: "#/components/parameters/ProtectedOrderToken"
+      responses:
+        "200":
+          description: Delivery confirmation view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectedOrder"
+        "404":
+          description: Delivery link not found
+  /commandes/{reference}/livraison/{token}/reception:
+    post:
+      operationId: confirmProtectedDelivery
+      tags: [protected-orders]
+      summary: Confirm receipt and capture the capped commission
+      parameters:
+        - $ref: "#/components/parameters/ProtectedOrderReference"
+        - $ref: "#/components/parameters/ProtectedOrderToken"
+      responses:
+        "200":
+          description: Delivered protected order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectedOrder"
+        "400":
+          description: Delivery cannot be confirmed
+        "404":
+          description: Delivery link not found
   /admin/summary:
     get:
       operationId: getAdminSummary
@@ -519,6 +697,21 @@ components:
       in: path
       required: true
       schema: { type: string }
+    ProtectedOrderReference:
+      name: reference
+      in: path
+      required: true
+      schema: { type: string, pattern: "^CMD-[A-Z0-9]+$" }
+    ProtectedOrderToken:
+      name: token
+      in: path
+      required: true
+      schema: { type: string, minLength: 32, maxLength: 100 }
+    ProtectedOrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: number }
   securitySchemes:
     adminToken:
       type: apiKey
@@ -957,7 +1150,7 @@ components:
               libelle: { type: string }
     AdminSummary:
       type: object
-      required: [compteurs, fiches, passerelle, collecte_sn13, purge_sn13, acces]
+      required: [compteurs, fiches, passerelle, collecte_sn13, purge_sn13, acces, commandes]
       properties:
         compteurs:
           type: object
@@ -972,6 +1165,8 @@ components:
           $ref: "#/components/schemas/Sn13PurgeAdminState"
         acces:
           $ref: "#/components/schemas/AccessAdminSummary"
+        commandes:
+          $ref: "#/components/schemas/ProtectedOrderAdminSummary"
     Sn13CallState:
       type: object
       required: [statut, requete_id, corps_erreur, appele_le, nombre, recents]
@@ -1034,6 +1229,100 @@ components:
       type: string
       enum: [essentiel, atelier, signature]
       description: essentiel includes 1 follow-up credit, atelier 2, and signature 3.
+    ProtectedOrderDecisionInput:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [confirmer, refuser]
+    ProtectedOrderInput:
+      type: object
+      required:
+        [session, email_musicien, email_atelier, prix_instrument_eur]
+      properties:
+        session: { type: string, minLength: 20 }
+        email_musicien: { type: string, minLength: 3, maxLength: 320 }
+        email_atelier: { type: string, minLength: 3, maxLength: 320 }
+        prix_instrument_eur: { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+        acompte_eur: { type: number, minimum: 0, maximum: 10000000 }
+        reference_devis: { type: ["string", "null"], maxLength: 120 }
+        description: { type: ["string", "null"], maxLength: 3000 }
+        date_livraison_annoncee: { type: ["string", "null"], format: date }
+        reference_projet: { type: ["string", "null"], maxLength: 120 }
+    ProtectedOrder:
+      type: object
+      required:
+        [
+          id,
+          reference,
+          atelier_slug,
+          atelier_nom,
+          email_musicien,
+          prix_instrument_eur,
+          acompte_eur,
+          frais_engagement_eur,
+          commission_eur,
+          statut,
+          paiement_engagement,
+          paiement_commission,
+          echeance_confirmation,
+          declaree_le,
+          peut_confirmer,
+          peut_refuser,
+          peut_annuler_musicien,
+          peut_annuler_atelier,
+          peut_confirmer_reception
+        ]
+      properties:
+        id: { type: number }
+        reference: { type: string }
+        atelier_slug: { type: string }
+        atelier_nom: { type: string }
+        email_musicien: { type: string, minLength: 3, maxLength: 320 }
+        prix_instrument_eur: { type: number }
+        acompte_eur: { type: number }
+        frais_engagement_eur: { type: number }
+        commission_eur: { type: number }
+        reference_devis: { type: ["string", "null"] }
+        description: { type: ["string", "null"] }
+        date_livraison_annoncee: { type: ["string", "null"], format: date }
+        statut:
+          type: string
+          enum: [declaree, confirmee, expiree, refusee, annulee_client, annulee_atelier, livree, non_confirmee]
+        paiement_engagement:
+          type: string
+          enum: [non_du, encaisse, credit_utilise]
+        paiement_commission:
+          type: string
+          enum: [non_due, encaisse]
+        echeance_confirmation: { type: string, format: date-time }
+        echeance_reception: { type: ["string", "null"], format: date-time }
+        declaree_le: { type: string, format: date-time }
+        confirmee_le: { type: ["string", "null"], format: date-time }
+        livree_le: { type: ["string", "null"], format: date-time }
+        annulee_le: { type: ["string", "null"], format: date-time }
+        peut_confirmer: { type: boolean }
+        peut_refuser: { type: boolean }
+        peut_annuler_musicien: { type: boolean }
+        peut_annuler_atelier: { type: boolean }
+        peut_confirmer_reception: { type: boolean }
+        lien_livraison: { type: ["string", "null"] }
+    ProtectedOrderCreated:
+      type: object
+      required: [commande, lien_confirmation, courriel_envoye]
+      properties:
+        commande:
+          $ref: "#/components/schemas/ProtectedOrder"
+        lien_confirmation: { type: string }
+        courriel_envoye: { type: boolean }
+    ProtectedOrderDecisionResponse:
+      type: object
+      required: [commande, lien_livraison]
+      properties:
+        commande:
+          $ref: "#/components/schemas/ProtectedOrder"
+        lien_livraison: { type: ["string", "null"] }
     AtelierSessionInput:
       type: object
       properties:
@@ -1189,6 +1478,7 @@ components:
           projets_sommeil,
           sn13_purge,
           execute_le,
+          commandes,
         ]
       properties:
         annulations: { type: number }
@@ -1198,6 +1488,8 @@ components:
         sn13_purge:
           $ref: "#/components/schemas/Sn13PurgeMaintenance"
         execute_le: { type: string }
+        commandes:
+          $ref: "#/components/schemas/ProtectedOrderMaintenanceResult"
     Sn13PurgeMaintenance:
       type: object
       required: [statut, evenements_supprimes, retabli]
@@ -1205,3 +1497,22 @@ components:
         statut: { type: string, enum: [succes, erreur] }
         evenements_supprimes: { type: number }
         retabli: { type: boolean }
+    ProtectedOrderAdminSummary:
+      type: object
+      required: [declarees, confirmees, livrees, annulees, non_confirmees, engagements, commissions]
+      properties:
+        declarees: { type: number }
+        confirmees: { type: number }
+        livrees: { type: number }
+        annulees: { type: number }
+        non_confirmees: { type: number }
+        engagements: { type: number }
+        commissions: { type: number }
+    ProtectedOrderMaintenanceResult:
+      type: object
+      required: [expirations, relances_confirmation, relances_livraison, non_confirmees]
+      properties:
+        expirations: { type: number }
+        relances_confirmation: { type: number }
+        relances_livraison: { type: number }
+        non_confirmees: { type: number }

@@ -38,6 +38,11 @@ import type {
   ListFichesParams,
   MusicianDecisionInput,
   MusicianProject,
+  ProtectedOrder,
+  ProtectedOrderCreated,
+  ProtectedOrderDecisionInput,
+  ProtectedOrderDecisionResponse,
+  ProtectedOrderInput,
   ProviderState,
   RecommendationResponse,
   Sn13PurgeIncidentHistory,
@@ -1366,6 +1371,614 @@ export const useUseAtelierFollowupCredit = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getUseAtelierFollowupCreditMutationOptions(options));
+    }
+
+export const getListProtectedOrdersUrl = (slug: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/commandes`
+}
+
+/**
+ * @summary List protected orders for an atelier
+ */
+export const listProtectedOrders = async (slug: string, options?: Parameters<typeof customFetch>[1]): Promise<ProtectedOrder[]> => {
+
+  return customFetch<ProtectedOrder[]>(getListProtectedOrdersUrl(slug),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProtectedOrdersQueryKey = (slug: string,) => {
+    return [
+    `/api/ateliers/${slug}/commandes`
+    ] as const;
+    }
+
+
+export const getListProtectedOrdersQueryOptions = <TData = Awaited<ReturnType<typeof listProtectedOrders>>, TError = ErrorType<void>>(slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProtectedOrders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProtectedOrdersQueryKey(slug);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProtectedOrders>>> = ({ signal }) => listProtectedOrders(slug, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: slug !== null && slug !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProtectedOrders>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProtectedOrdersQueryResult = NonNullable<Awaited<ReturnType<typeof listProtectedOrders>>>
+export type ListProtectedOrdersQueryError = ErrorType<void>
+
+
+/**
+ * @summary List protected orders for an atelier
+ */
+
+export function useListProtectedOrders<TData = Awaited<ReturnType<typeof listProtectedOrders>>, TError = ErrorType<void>>(
+ slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProtectedOrders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProtectedOrdersQueryOptions(slug,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateProtectedOrderUrl = (slug: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/commandes`
+}
+
+/**
+ * Declaring an order never charges the atelier. The musician receives a private confirmation link valid for seven days.
+ * @summary Declare a protected custom order
+ */
+export const createProtectedOrder = async (slug: string,
+    protectedOrderInput: ProtectedOrderInput, options?: Parameters<typeof customFetch>[1]): Promise<ProtectedOrderCreated> => {
+
+  return customFetch<ProtectedOrderCreated>(getCreateProtectedOrderUrl(slug),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(protectedOrderInput)
+  }
+);}
+
+
+
+
+
+export const getCreateProtectedOrderMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProtectedOrder>>, TError,{slug: string;data: BodyType<ProtectedOrderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProtectedOrder>>, TError,{slug: string;data: BodyType<ProtectedOrderInput>}, TContext> => {
+
+const mutationKey = ['createProtectedOrder'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProtectedOrder>>, {slug: string;data: BodyType<ProtectedOrderInput>}> = (props) => {
+          const {slug,data} = props ?? {};
+
+          return  createProtectedOrder(slug,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateProtectedOrderMutationResult = NonNullable<Awaited<ReturnType<typeof createProtectedOrder>>>
+    export type CreateProtectedOrderMutationBody = BodyType<ProtectedOrderInput>
+    export type CreateProtectedOrderMutationError = ErrorType<void>
+
+    /**
+ * @summary Declare a protected custom order
+ */
+export const useCreateProtectedOrder = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProtectedOrder>>, TError,{slug: string;data: BodyType<ProtectedOrderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createProtectedOrder>>,
+        TError,
+        {slug: string;data: BodyType<ProtectedOrderInput>},
+        TContext
+      > => {
+      return useMutation(getCreateProtectedOrderMutationOptions(options));
+    }
+
+export const getCancelProtectedOrderByAtelierUrl = (slug: string,
+    orderId: number,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/commandes/${orderId}/annulation`
+}
+
+/**
+ * @summary Cancel a protected order as the atelier
+ */
+export const cancelProtectedOrderByAtelier = async (slug: string,
+    orderId: number,
+    atelierActionInput: AtelierActionInput, options?: Parameters<typeof customFetch>[1]): Promise<ProtectedOrder> => {
+
+  return customFetch<ProtectedOrder>(getCancelProtectedOrderByAtelierUrl(slug,orderId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(atelierActionInput)
+  }
+);}
+
+
+
+
+
+export const getCancelProtectedOrderByAtelierMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelProtectedOrderByAtelier>>, TError,{slug: string;orderId: number;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelProtectedOrderByAtelier>>, TError,{slug: string;orderId: number;data: BodyType<AtelierActionInput>}, TContext> => {
+
+const mutationKey = ['cancelProtectedOrderByAtelier'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelProtectedOrderByAtelier>>, {slug: string;orderId: number;data: BodyType<AtelierActionInput>}> = (props) => {
+          const {slug,orderId,data} = props ?? {};
+
+          return  cancelProtectedOrderByAtelier(slug,orderId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelProtectedOrderByAtelierMutationResult = NonNullable<Awaited<ReturnType<typeof cancelProtectedOrderByAtelier>>>
+    export type CancelProtectedOrderByAtelierMutationBody = BodyType<AtelierActionInput>
+    export type CancelProtectedOrderByAtelierMutationError = ErrorType<void>
+
+    /**
+ * @summary Cancel a protected order as the atelier
+ */
+export const useCancelProtectedOrderByAtelier = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelProtectedOrderByAtelier>>, TError,{slug: string;orderId: number;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelProtectedOrderByAtelier>>,
+        TError,
+        {slug: string;orderId: number;data: BodyType<AtelierActionInput>},
+        TContext
+      > => {
+      return useMutation(getCancelProtectedOrderByAtelierMutationOptions(options));
+    }
+
+export const getGetProtectedOrderUrl = (reference: string,
+    token: string,) => {
+
+
+
+
+  return `/api/commandes/${reference}/confirmation/${token}`
+}
+
+/**
+ * @summary Get a protected order using the musician confirmation link
+ */
+export const getProtectedOrder = async (reference: string,
+    token: string, options?: Parameters<typeof customFetch>[1]): Promise<ProtectedOrder> => {
+
+  return customFetch<ProtectedOrder>(getGetProtectedOrderUrl(reference,token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProtectedOrderQueryKey = (reference: string,
+    token: string,) => {
+    return [
+    `/api/commandes/${reference}/confirmation/${token}`
+    ] as const;
+    }
+
+
+export const getGetProtectedOrderQueryOptions = <TData = Awaited<ReturnType<typeof getProtectedOrder>>, TError = ErrorType<void>>(reference: string,
+    token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProtectedOrder>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProtectedOrderQueryKey(reference,token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProtectedOrder>>> = ({ signal }) => getProtectedOrder(reference,token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: reference !== null && reference !== undefined && token !== null && token !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProtectedOrder>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProtectedOrderQueryResult = NonNullable<Awaited<ReturnType<typeof getProtectedOrder>>>
+export type GetProtectedOrderQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a protected order using the musician confirmation link
+ */
+
+export function useGetProtectedOrder<TData = Awaited<ReturnType<typeof getProtectedOrder>>, TError = ErrorType<void>>(
+ reference: string,
+    token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProtectedOrder>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProtectedOrderQueryOptions(reference,token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDecideProtectedOrderUrl = (reference: string,
+    token: string,) => {
+
+
+
+
+  return `/api/commandes/${reference}/confirmation/${token}/decision`
+}
+
+/**
+ * @summary Confirm or refuse a protected order
+ */
+export const decideProtectedOrder = async (reference: string,
+    token: string,
+    protectedOrderDecisionInput: ProtectedOrderDecisionInput, options?: Parameters<typeof customFetch>[1]): Promise<ProtectedOrderDecisionResponse> => {
+
+  return customFetch<ProtectedOrderDecisionResponse>(getDecideProtectedOrderUrl(reference,token),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(protectedOrderDecisionInput)
+  }
+);}
+
+
+
+
+
+export const getDecideProtectedOrderMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof decideProtectedOrder>>, TError,{reference: string;token: string;data: BodyType<ProtectedOrderDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof decideProtectedOrder>>, TError,{reference: string;token: string;data: BodyType<ProtectedOrderDecisionInput>}, TContext> => {
+
+const mutationKey = ['decideProtectedOrder'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof decideProtectedOrder>>, {reference: string;token: string;data: BodyType<ProtectedOrderDecisionInput>}> = (props) => {
+          const {reference,token,data} = props ?? {};
+
+          return  decideProtectedOrder(reference,token,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DecideProtectedOrderMutationResult = NonNullable<Awaited<ReturnType<typeof decideProtectedOrder>>>
+    export type DecideProtectedOrderMutationBody = BodyType<ProtectedOrderDecisionInput>
+    export type DecideProtectedOrderMutationError = ErrorType<void>
+
+    /**
+ * @summary Confirm or refuse a protected order
+ */
+export const useDecideProtectedOrder = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof decideProtectedOrder>>, TError,{reference: string;token: string;data: BodyType<ProtectedOrderDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof decideProtectedOrder>>,
+        TError,
+        {reference: string;token: string;data: BodyType<ProtectedOrderDecisionInput>},
+        TContext
+      > => {
+      return useMutation(getDecideProtectedOrderMutationOptions(options));
+    }
+
+export const getCancelProtectedOrderByMusicianUrl = (reference: string,
+    token: string,) => {
+
+
+
+
+  return `/api/commandes/${reference}/confirmation/${token}/annulation`
+}
+
+/**
+ * @summary Cancel a confirmed protected order as the musician
+ */
+export const cancelProtectedOrderByMusician = async (reference: string,
+    token: string, options?: Parameters<typeof customFetch>[1]): Promise<ProtectedOrder> => {
+
+  return customFetch<ProtectedOrder>(getCancelProtectedOrderByMusicianUrl(reference,token),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCancelProtectedOrderByMusicianMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelProtectedOrderByMusician>>, TError,{reference: string;token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelProtectedOrderByMusician>>, TError,{reference: string;token: string}, TContext> => {
+
+const mutationKey = ['cancelProtectedOrderByMusician'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelProtectedOrderByMusician>>, {reference: string;token: string}> = (props) => {
+          const {reference,token} = props ?? {};
+
+          return  cancelProtectedOrderByMusician(reference,token,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelProtectedOrderByMusicianMutationResult = NonNullable<Awaited<ReturnType<typeof cancelProtectedOrderByMusician>>>
+
+    export type CancelProtectedOrderByMusicianMutationError = ErrorType<void>
+
+    /**
+ * @summary Cancel a confirmed protected order as the musician
+ */
+export const useCancelProtectedOrderByMusician = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelProtectedOrderByMusician>>, TError,{reference: string;token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelProtectedOrderByMusician>>,
+        TError,
+        {reference: string;token: string},
+        TContext
+      > => {
+      return useMutation(getCancelProtectedOrderByMusicianMutationOptions(options));
+    }
+
+export const getGetProtectedDeliveryUrl = (reference: string,
+    token: string,) => {
+
+
+
+
+  return `/api/commandes/${reference}/livraison/${token}`
+}
+
+/**
+ * @summary Get a protected order using its delivery link
+ */
+export const getProtectedDelivery = async (reference: string,
+    token: string, options?: Parameters<typeof customFetch>[1]): Promise<ProtectedOrder> => {
+
+  return customFetch<ProtectedOrder>(getGetProtectedDeliveryUrl(reference,token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProtectedDeliveryQueryKey = (reference: string,
+    token: string,) => {
+    return [
+    `/api/commandes/${reference}/livraison/${token}`
+    ] as const;
+    }
+
+
+export const getGetProtectedDeliveryQueryOptions = <TData = Awaited<ReturnType<typeof getProtectedDelivery>>, TError = ErrorType<void>>(reference: string,
+    token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProtectedDelivery>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProtectedDeliveryQueryKey(reference,token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProtectedDelivery>>> = ({ signal }) => getProtectedDelivery(reference,token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: reference !== null && reference !== undefined && token !== null && token !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProtectedDelivery>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProtectedDeliveryQueryResult = NonNullable<Awaited<ReturnType<typeof getProtectedDelivery>>>
+export type GetProtectedDeliveryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a protected order using its delivery link
+ */
+
+export function useGetProtectedDelivery<TData = Awaited<ReturnType<typeof getProtectedDelivery>>, TError = ErrorType<void>>(
+ reference: string,
+    token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProtectedDelivery>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProtectedDeliveryQueryOptions(reference,token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getConfirmProtectedDeliveryUrl = (reference: string,
+    token: string,) => {
+
+
+
+
+  return `/api/commandes/${reference}/livraison/${token}/reception`
+}
+
+/**
+ * @summary Confirm receipt and capture the capped commission
+ */
+export const confirmProtectedDelivery = async (reference: string,
+    token: string, options?: Parameters<typeof customFetch>[1]): Promise<ProtectedOrder> => {
+
+  return customFetch<ProtectedOrder>(getConfirmProtectedDeliveryUrl(reference,token),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getConfirmProtectedDeliveryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmProtectedDelivery>>, TError,{reference: string;token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmProtectedDelivery>>, TError,{reference: string;token: string}, TContext> => {
+
+const mutationKey = ['confirmProtectedDelivery'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmProtectedDelivery>>, {reference: string;token: string}> = (props) => {
+          const {reference,token} = props ?? {};
+
+          return  confirmProtectedDelivery(reference,token,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmProtectedDeliveryMutationResult = NonNullable<Awaited<ReturnType<typeof confirmProtectedDelivery>>>
+
+    export type ConfirmProtectedDeliveryMutationError = ErrorType<void>
+
+    /**
+ * @summary Confirm receipt and capture the capped commission
+ */
+export const useConfirmProtectedDelivery = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmProtectedDelivery>>, TError,{reference: string;token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmProtectedDelivery>>,
+        TError,
+        {reference: string;token: string},
+        TContext
+      > => {
+      return useMutation(getConfirmProtectedDeliveryMutationOptions(options));
     }
 
 export const getGetAdminSummaryUrl = () => {

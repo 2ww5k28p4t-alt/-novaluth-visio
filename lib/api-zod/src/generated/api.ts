@@ -862,6 +862,441 @@ export const UseAtelierFollowupCreditResponse = zod.object({
 
 
 /**
+ * @summary List protected orders for an atelier
+ */
+export const ListProtectedOrdersParams = zod.object({
+  "slug": zod.coerce.string()
+})
+
+export const listProtectedOrdersResponseEmailMusicienMin = 3;
+export const listProtectedOrdersResponseEmailMusicienMax = 320;
+
+
+
+export const ListProtectedOrdersResponseItem = zod.object({
+  "id": zod.number(),
+  "reference": zod.string(),
+  "atelier_slug": zod.string(),
+  "atelier_nom": zod.string(),
+  "email_musicien": zod.string().min(listProtectedOrdersResponseEmailMusicienMin).max(listProtectedOrdersResponseEmailMusicienMax),
+  "prix_instrument_eur": zod.number(),
+  "acompte_eur": zod.number(),
+  "frais_engagement_eur": zod.number(),
+  "commission_eur": zod.number(),
+  "reference_devis": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "statut": zod.enum(['declaree', 'confirmee', 'expiree', 'refusee', 'annulee_client', 'annulee_atelier', 'livree', 'non_confirmee']),
+  "paiement_engagement": zod.enum(['non_du', 'encaisse', 'credit_utilise']),
+  "paiement_commission": zod.enum(['non_due', 'encaisse']),
+  "echeance_confirmation": zod.coerce.date(),
+  "echeance_reception": zod.coerce.date().nullish(),
+  "declaree_le": zod.coerce.date(),
+  "confirmee_le": zod.coerce.date().nullish(),
+  "livree_le": zod.coerce.date().nullish(),
+  "annulee_le": zod.coerce.date().nullish(),
+  "peut_confirmer": zod.boolean(),
+  "peut_refuser": zod.boolean(),
+  "peut_annuler_musicien": zod.boolean(),
+  "peut_annuler_atelier": zod.boolean(),
+  "peut_confirmer_reception": zod.boolean(),
+  "lien_livraison": zod.string().nullish()
+})
+export const ListProtectedOrdersResponse = zod.array(ListProtectedOrdersResponseItem)
+
+
+/**
+ * Declaring an order never charges the atelier. The musician receives a private confirmation link valid for seven days.
+ * @summary Declare a protected custom order
+ */
+export const CreateProtectedOrderParams = zod.object({
+  "slug": zod.coerce.string()
+})
+
+export const createProtectedOrderBodySessionMin = 20;
+
+export const createProtectedOrderBodyEmailMusicienMin = 3;
+export const createProtectedOrderBodyEmailMusicienMax = 320;
+
+export const createProtectedOrderBodyEmailAtelierMin = 3;
+export const createProtectedOrderBodyEmailAtelierMax = 320;
+
+export const createProtectedOrderBodyPrixInstrumentEurExclusiveMin = 0;
+export const createProtectedOrderBodyPrixInstrumentEurMax = 10000000;
+
+export const createProtectedOrderBodyAcompteEurMin = 0;
+export const createProtectedOrderBodyAcompteEurMax = 10000000;
+
+export const createProtectedOrderBodyReferenceDevisMax = 120;
+
+export const createProtectedOrderBodyDescriptionMax = 3000;
+
+export const createProtectedOrderBodyReferenceProjetMax = 120;
+
+
+
+export const CreateProtectedOrderBody = zod.object({
+  "session": zod.string().min(createProtectedOrderBodySessionMin),
+  "email_musicien": zod.string().min(createProtectedOrderBodyEmailMusicienMin).max(createProtectedOrderBodyEmailMusicienMax),
+  "email_atelier": zod.string().min(createProtectedOrderBodyEmailAtelierMin).max(createProtectedOrderBodyEmailAtelierMax),
+  "prix_instrument_eur": zod.number().gt(createProtectedOrderBodyPrixInstrumentEurExclusiveMin).max(createProtectedOrderBodyPrixInstrumentEurMax),
+  "acompte_eur": zod.number().min(createProtectedOrderBodyAcompteEurMin).max(createProtectedOrderBodyAcompteEurMax).optional(),
+  "reference_devis": zod.string().max(createProtectedOrderBodyReferenceDevisMax).nullish(),
+  "description": zod.string().max(createProtectedOrderBodyDescriptionMax).nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "reference_projet": zod.string().max(createProtectedOrderBodyReferenceProjetMax).nullish()
+})
+
+export const createProtectedOrderResponseCommandeEmailMusicienMin = 3;
+export const createProtectedOrderResponseCommandeEmailMusicienMax = 320;
+
+
+
+export const CreateProtectedOrderResponse = zod.object({
+  "commande": zod.object({
+  "id": zod.number(),
+  "reference": zod.string(),
+  "atelier_slug": zod.string(),
+  "atelier_nom": zod.string(),
+  "email_musicien": zod.string().min(createProtectedOrderResponseCommandeEmailMusicienMin).max(createProtectedOrderResponseCommandeEmailMusicienMax),
+  "prix_instrument_eur": zod.number(),
+  "acompte_eur": zod.number(),
+  "frais_engagement_eur": zod.number(),
+  "commission_eur": zod.number(),
+  "reference_devis": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "statut": zod.enum(['declaree', 'confirmee', 'expiree', 'refusee', 'annulee_client', 'annulee_atelier', 'livree', 'non_confirmee']),
+  "paiement_engagement": zod.enum(['non_du', 'encaisse', 'credit_utilise']),
+  "paiement_commission": zod.enum(['non_due', 'encaisse']),
+  "echeance_confirmation": zod.coerce.date(),
+  "echeance_reception": zod.coerce.date().nullish(),
+  "declaree_le": zod.coerce.date(),
+  "confirmee_le": zod.coerce.date().nullish(),
+  "livree_le": zod.coerce.date().nullish(),
+  "annulee_le": zod.coerce.date().nullish(),
+  "peut_confirmer": zod.boolean(),
+  "peut_refuser": zod.boolean(),
+  "peut_annuler_musicien": zod.boolean(),
+  "peut_annuler_atelier": zod.boolean(),
+  "peut_confirmer_reception": zod.boolean(),
+  "lien_livraison": zod.string().nullish()
+}),
+  "lien_confirmation": zod.string(),
+  "courriel_envoye": zod.boolean()
+})
+
+
+/**
+ * @summary Cancel a protected order as the atelier
+ */
+export const CancelProtectedOrderByAtelierParams = zod.object({
+  "slug": zod.coerce.string(),
+  "orderId": zod.coerce.number()
+})
+
+export const cancelProtectedOrderByAtelierBodySessionMin = 20;
+
+
+
+export const CancelProtectedOrderByAtelierBody = zod.object({
+  "session": zod.string().min(cancelProtectedOrderByAtelierBodySessionMin)
+})
+
+export const cancelProtectedOrderByAtelierResponseEmailMusicienMin = 3;
+export const cancelProtectedOrderByAtelierResponseEmailMusicienMax = 320;
+
+
+
+export const CancelProtectedOrderByAtelierResponse = zod.object({
+  "id": zod.number(),
+  "reference": zod.string(),
+  "atelier_slug": zod.string(),
+  "atelier_nom": zod.string(),
+  "email_musicien": zod.string().min(cancelProtectedOrderByAtelierResponseEmailMusicienMin).max(cancelProtectedOrderByAtelierResponseEmailMusicienMax),
+  "prix_instrument_eur": zod.number(),
+  "acompte_eur": zod.number(),
+  "frais_engagement_eur": zod.number(),
+  "commission_eur": zod.number(),
+  "reference_devis": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "statut": zod.enum(['declaree', 'confirmee', 'expiree', 'refusee', 'annulee_client', 'annulee_atelier', 'livree', 'non_confirmee']),
+  "paiement_engagement": zod.enum(['non_du', 'encaisse', 'credit_utilise']),
+  "paiement_commission": zod.enum(['non_due', 'encaisse']),
+  "echeance_confirmation": zod.coerce.date(),
+  "echeance_reception": zod.coerce.date().nullish(),
+  "declaree_le": zod.coerce.date(),
+  "confirmee_le": zod.coerce.date().nullish(),
+  "livree_le": zod.coerce.date().nullish(),
+  "annulee_le": zod.coerce.date().nullish(),
+  "peut_confirmer": zod.boolean(),
+  "peut_refuser": zod.boolean(),
+  "peut_annuler_musicien": zod.boolean(),
+  "peut_annuler_atelier": zod.boolean(),
+  "peut_confirmer_reception": zod.boolean(),
+  "lien_livraison": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get a protected order using the musician confirmation link
+ */
+export const getProtectedOrderPathReferenceRegExp = new RegExp('^CMD-[A-Z0-9]+$');
+export const getProtectedOrderPathTokenMin = 32;
+export const getProtectedOrderPathTokenMax = 100;
+
+
+
+export const GetProtectedOrderParams = zod.object({
+  "reference": zod.coerce.string().regex(getProtectedOrderPathReferenceRegExp),
+  "token": zod.coerce.string().min(getProtectedOrderPathTokenMin).max(getProtectedOrderPathTokenMax)
+})
+
+export const getProtectedOrderResponseEmailMusicienMin = 3;
+export const getProtectedOrderResponseEmailMusicienMax = 320;
+
+
+
+export const GetProtectedOrderResponse = zod.object({
+  "id": zod.number(),
+  "reference": zod.string(),
+  "atelier_slug": zod.string(),
+  "atelier_nom": zod.string(),
+  "email_musicien": zod.string().min(getProtectedOrderResponseEmailMusicienMin).max(getProtectedOrderResponseEmailMusicienMax),
+  "prix_instrument_eur": zod.number(),
+  "acompte_eur": zod.number(),
+  "frais_engagement_eur": zod.number(),
+  "commission_eur": zod.number(),
+  "reference_devis": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "statut": zod.enum(['declaree', 'confirmee', 'expiree', 'refusee', 'annulee_client', 'annulee_atelier', 'livree', 'non_confirmee']),
+  "paiement_engagement": zod.enum(['non_du', 'encaisse', 'credit_utilise']),
+  "paiement_commission": zod.enum(['non_due', 'encaisse']),
+  "echeance_confirmation": zod.coerce.date(),
+  "echeance_reception": zod.coerce.date().nullish(),
+  "declaree_le": zod.coerce.date(),
+  "confirmee_le": zod.coerce.date().nullish(),
+  "livree_le": zod.coerce.date().nullish(),
+  "annulee_le": zod.coerce.date().nullish(),
+  "peut_confirmer": zod.boolean(),
+  "peut_refuser": zod.boolean(),
+  "peut_annuler_musicien": zod.boolean(),
+  "peut_annuler_atelier": zod.boolean(),
+  "peut_confirmer_reception": zod.boolean(),
+  "lien_livraison": zod.string().nullish()
+})
+
+
+/**
+ * @summary Confirm or refuse a protected order
+ */
+export const decideProtectedOrderPathReferenceRegExp = new RegExp('^CMD-[A-Z0-9]+$');
+export const decideProtectedOrderPathTokenMin = 32;
+export const decideProtectedOrderPathTokenMax = 100;
+
+
+
+export const DecideProtectedOrderParams = zod.object({
+  "reference": zod.coerce.string().regex(decideProtectedOrderPathReferenceRegExp),
+  "token": zod.coerce.string().min(decideProtectedOrderPathTokenMin).max(decideProtectedOrderPathTokenMax)
+})
+
+export const DecideProtectedOrderBody = zod.object({
+  "decision": zod.enum(['confirmer', 'refuser'])
+})
+
+export const decideProtectedOrderResponseCommandeEmailMusicienMin = 3;
+export const decideProtectedOrderResponseCommandeEmailMusicienMax = 320;
+
+
+
+export const DecideProtectedOrderResponse = zod.object({
+  "commande": zod.object({
+  "id": zod.number(),
+  "reference": zod.string(),
+  "atelier_slug": zod.string(),
+  "atelier_nom": zod.string(),
+  "email_musicien": zod.string().min(decideProtectedOrderResponseCommandeEmailMusicienMin).max(decideProtectedOrderResponseCommandeEmailMusicienMax),
+  "prix_instrument_eur": zod.number(),
+  "acompte_eur": zod.number(),
+  "frais_engagement_eur": zod.number(),
+  "commission_eur": zod.number(),
+  "reference_devis": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "statut": zod.enum(['declaree', 'confirmee', 'expiree', 'refusee', 'annulee_client', 'annulee_atelier', 'livree', 'non_confirmee']),
+  "paiement_engagement": zod.enum(['non_du', 'encaisse', 'credit_utilise']),
+  "paiement_commission": zod.enum(['non_due', 'encaisse']),
+  "echeance_confirmation": zod.coerce.date(),
+  "echeance_reception": zod.coerce.date().nullish(),
+  "declaree_le": zod.coerce.date(),
+  "confirmee_le": zod.coerce.date().nullish(),
+  "livree_le": zod.coerce.date().nullish(),
+  "annulee_le": zod.coerce.date().nullish(),
+  "peut_confirmer": zod.boolean(),
+  "peut_refuser": zod.boolean(),
+  "peut_annuler_musicien": zod.boolean(),
+  "peut_annuler_atelier": zod.boolean(),
+  "peut_confirmer_reception": zod.boolean(),
+  "lien_livraison": zod.string().nullish()
+}),
+  "lien_livraison": zod.string().nullable()
+})
+
+
+/**
+ * @summary Cancel a confirmed protected order as the musician
+ */
+export const cancelProtectedOrderByMusicianPathReferenceRegExp = new RegExp('^CMD-[A-Z0-9]+$');
+export const cancelProtectedOrderByMusicianPathTokenMin = 32;
+export const cancelProtectedOrderByMusicianPathTokenMax = 100;
+
+
+
+export const CancelProtectedOrderByMusicianParams = zod.object({
+  "reference": zod.coerce.string().regex(cancelProtectedOrderByMusicianPathReferenceRegExp),
+  "token": zod.coerce.string().min(cancelProtectedOrderByMusicianPathTokenMin).max(cancelProtectedOrderByMusicianPathTokenMax)
+})
+
+export const cancelProtectedOrderByMusicianResponseEmailMusicienMin = 3;
+export const cancelProtectedOrderByMusicianResponseEmailMusicienMax = 320;
+
+
+
+export const CancelProtectedOrderByMusicianResponse = zod.object({
+  "id": zod.number(),
+  "reference": zod.string(),
+  "atelier_slug": zod.string(),
+  "atelier_nom": zod.string(),
+  "email_musicien": zod.string().min(cancelProtectedOrderByMusicianResponseEmailMusicienMin).max(cancelProtectedOrderByMusicianResponseEmailMusicienMax),
+  "prix_instrument_eur": zod.number(),
+  "acompte_eur": zod.number(),
+  "frais_engagement_eur": zod.number(),
+  "commission_eur": zod.number(),
+  "reference_devis": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "statut": zod.enum(['declaree', 'confirmee', 'expiree', 'refusee', 'annulee_client', 'annulee_atelier', 'livree', 'non_confirmee']),
+  "paiement_engagement": zod.enum(['non_du', 'encaisse', 'credit_utilise']),
+  "paiement_commission": zod.enum(['non_due', 'encaisse']),
+  "echeance_confirmation": zod.coerce.date(),
+  "echeance_reception": zod.coerce.date().nullish(),
+  "declaree_le": zod.coerce.date(),
+  "confirmee_le": zod.coerce.date().nullish(),
+  "livree_le": zod.coerce.date().nullish(),
+  "annulee_le": zod.coerce.date().nullish(),
+  "peut_confirmer": zod.boolean(),
+  "peut_refuser": zod.boolean(),
+  "peut_annuler_musicien": zod.boolean(),
+  "peut_annuler_atelier": zod.boolean(),
+  "peut_confirmer_reception": zod.boolean(),
+  "lien_livraison": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get a protected order using its delivery link
+ */
+export const getProtectedDeliveryPathReferenceRegExp = new RegExp('^CMD-[A-Z0-9]+$');
+export const getProtectedDeliveryPathTokenMin = 32;
+export const getProtectedDeliveryPathTokenMax = 100;
+
+
+
+export const GetProtectedDeliveryParams = zod.object({
+  "reference": zod.coerce.string().regex(getProtectedDeliveryPathReferenceRegExp),
+  "token": zod.coerce.string().min(getProtectedDeliveryPathTokenMin).max(getProtectedDeliveryPathTokenMax)
+})
+
+export const getProtectedDeliveryResponseEmailMusicienMin = 3;
+export const getProtectedDeliveryResponseEmailMusicienMax = 320;
+
+
+
+export const GetProtectedDeliveryResponse = zod.object({
+  "id": zod.number(),
+  "reference": zod.string(),
+  "atelier_slug": zod.string(),
+  "atelier_nom": zod.string(),
+  "email_musicien": zod.string().min(getProtectedDeliveryResponseEmailMusicienMin).max(getProtectedDeliveryResponseEmailMusicienMax),
+  "prix_instrument_eur": zod.number(),
+  "acompte_eur": zod.number(),
+  "frais_engagement_eur": zod.number(),
+  "commission_eur": zod.number(),
+  "reference_devis": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "statut": zod.enum(['declaree', 'confirmee', 'expiree', 'refusee', 'annulee_client', 'annulee_atelier', 'livree', 'non_confirmee']),
+  "paiement_engagement": zod.enum(['non_du', 'encaisse', 'credit_utilise']),
+  "paiement_commission": zod.enum(['non_due', 'encaisse']),
+  "echeance_confirmation": zod.coerce.date(),
+  "echeance_reception": zod.coerce.date().nullish(),
+  "declaree_le": zod.coerce.date(),
+  "confirmee_le": zod.coerce.date().nullish(),
+  "livree_le": zod.coerce.date().nullish(),
+  "annulee_le": zod.coerce.date().nullish(),
+  "peut_confirmer": zod.boolean(),
+  "peut_refuser": zod.boolean(),
+  "peut_annuler_musicien": zod.boolean(),
+  "peut_annuler_atelier": zod.boolean(),
+  "peut_confirmer_reception": zod.boolean(),
+  "lien_livraison": zod.string().nullish()
+})
+
+
+/**
+ * @summary Confirm receipt and capture the capped commission
+ */
+export const confirmProtectedDeliveryPathReferenceRegExp = new RegExp('^CMD-[A-Z0-9]+$');
+export const confirmProtectedDeliveryPathTokenMin = 32;
+export const confirmProtectedDeliveryPathTokenMax = 100;
+
+
+
+export const ConfirmProtectedDeliveryParams = zod.object({
+  "reference": zod.coerce.string().regex(confirmProtectedDeliveryPathReferenceRegExp),
+  "token": zod.coerce.string().min(confirmProtectedDeliveryPathTokenMin).max(confirmProtectedDeliveryPathTokenMax)
+})
+
+export const confirmProtectedDeliveryResponseEmailMusicienMin = 3;
+export const confirmProtectedDeliveryResponseEmailMusicienMax = 320;
+
+
+
+export const ConfirmProtectedDeliveryResponse = zod.object({
+  "id": zod.number(),
+  "reference": zod.string(),
+  "atelier_slug": zod.string(),
+  "atelier_nom": zod.string(),
+  "email_musicien": zod.string().min(confirmProtectedDeliveryResponseEmailMusicienMin).max(confirmProtectedDeliveryResponseEmailMusicienMax),
+  "prix_instrument_eur": zod.number(),
+  "acompte_eur": zod.number(),
+  "frais_engagement_eur": zod.number(),
+  "commission_eur": zod.number(),
+  "reference_devis": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "date_livraison_annoncee": zod.coerce.date().nullish(),
+  "statut": zod.enum(['declaree', 'confirmee', 'expiree', 'refusee', 'annulee_client', 'annulee_atelier', 'livree', 'non_confirmee']),
+  "paiement_engagement": zod.enum(['non_du', 'encaisse', 'credit_utilise']),
+  "paiement_commission": zod.enum(['non_due', 'encaisse']),
+  "echeance_confirmation": zod.coerce.date(),
+  "echeance_reception": zod.coerce.date().nullish(),
+  "declaree_le": zod.coerce.date(),
+  "confirmee_le": zod.coerce.date().nullish(),
+  "livree_le": zod.coerce.date().nullish(),
+  "annulee_le": zod.coerce.date().nullish(),
+  "peut_confirmer": zod.boolean(),
+  "peut_refuser": zod.boolean(),
+  "peut_annuler_musicien": zod.boolean(),
+  "peut_annuler_atelier": zod.boolean(),
+  "peut_confirmer_reception": zod.boolean(),
+  "lien_livraison": zod.string().nullish()
+})
+
+
+/**
  * @summary Get moderation queue summary
  */
 export const GetAdminSummaryResponse = zod.object({
@@ -970,6 +1405,15 @@ export const GetAdminSummaryResponse = zod.object({
   "expirees": zod.number(),
   "preautorisations": zod.number(),
   "encaissements": zod.number()
+}),
+  "commandes": zod.object({
+  "declarees": zod.number(),
+  "confirmees": zod.number(),
+  "livrees": zod.number(),
+  "annulees": zod.number(),
+  "non_confirmees": zod.number(),
+  "engagements": zod.number(),
+  "commissions": zod.number()
 })
 })
 
@@ -1088,7 +1532,13 @@ export const RunAccessMaintenanceResponse = zod.object({
   "evenements_supprimes": zod.number(),
   "retabli": zod.boolean()
 }),
-  "execute_le": zod.string()
+  "execute_le": zod.string(),
+  "commandes": zod.object({
+  "expirations": zod.number(),
+  "relances_confirmation": zod.number(),
+  "relances_livraison": zod.number(),
+  "non_confirmees": zod.number()
+})
 })
 
 

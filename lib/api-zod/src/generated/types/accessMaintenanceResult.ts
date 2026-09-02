@@ -5,6 +5,7 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { ProtectedOrderMaintenanceResult } from './protectedOrderMaintenanceResult';
 import type { Sn13PurgeMaintenance } from './sn13PurgeMaintenance';
 
 export interface AccessMaintenanceResult {
@@ -14,4 +15,5 @@ export interface AccessMaintenanceResult {
   projets_sommeil: number;
   sn13_purge: Sn13PurgeMaintenance;
   execute_le: string;
+  commandes: ProtectedOrderMaintenanceResult;
 }

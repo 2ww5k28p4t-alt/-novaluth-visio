@@ -7,12 +7,23 @@ import {
   CreateAtelierAccessRequestBody,
   CreateAtelierAccessRequestParams,
   CreateAtelierAccessRequestResponse,
+  CreateProtectedOrderBody,
+  CreateProtectedOrderParams,
+  CreateProtectedOrderResponse,
   CancelAtelierAccessRequestBody,
   CancelAtelierAccessRequestParams,
   CancelAtelierAccessRequestResponse,
+  CancelProtectedOrderByAtelierBody,
+  CancelProtectedOrderByAtelierParams,
+  CancelProtectedOrderByAtelierResponse,
+  CancelProtectedOrderByMusicianParams,
+  CancelProtectedOrderByMusicianResponse,
   DecideMusicianAccessRequestBody,
   DecideMusicianAccessRequestParams,
   DecideMusicianAccessRequestResponse,
+  DecideProtectedOrderBody,
+  DecideProtectedOrderParams,
+  DecideProtectedOrderResponse,
   GetAtelierDashboardParams,
   GetAtelierDashboardResponse,
   GetAdminSummaryResponse,
@@ -22,10 +33,16 @@ import {
   GetFichesMetaResponse,
   GetMusicianProjectParams,
   GetMusicianProjectResponse,
+  GetProtectedDeliveryParams,
+  GetProtectedDeliveryResponse,
+  GetProtectedOrderParams,
+  GetProtectedOrderResponse,
   ListFichesQueryParams,
   ListFichesResponse,
   ListAtelierProjectsParams,
   ListAtelierProjectsResponse,
+  ListProtectedOrdersParams,
+  ListProtectedOrdersResponse,
   OpenAtelierSessionBody,
   OpenAtelierSessionParams,
   OpenAtelierSessionResponse,
@@ -38,6 +55,8 @@ import {
   UseAtelierFollowupCreditBody,
   UseAtelierFollowupCreditParams,
   UseAtelierFollowupCreditResponse,
+  ConfirmProtectedDeliveryParams,
+  ConfirmProtectedDeliveryResponse,
 } from "@workspace/api-zod";
 import {
   db,
@@ -46,6 +65,7 @@ import {
   novaluthBriefsTable,
   novaluthProfilesTable,
   novaluthProjectsTable,
+  novaluthProtectedOrdersTable,
   type NovaluthAccessRequest,
   type NovaluthProject,
 } from "@workspace/db";
@@ -91,6 +111,17 @@ import {
   recordSn13PurgeSuccess,
   type Sn13PurgeMaintenanceResult,
 } from "../gateway/provider-registry";
+import {
+  cancelProtectedOrderByAtelier,
+  cancelProtectedOrderByMusician,
+  confirmProtectedOrderDelivery,
+  createProtectedOrder,
+  decideProtectedOrder,
+  getProtectedOrderView,
+  listProtectedOrdersForAtelier,
+  protectedOrderViewFromOrder,
+  runProtectedOrderMaintenance,
+} from "../lib/novaluth-orders";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -683,12 +714,14 @@ export async function runMaintenance(
     }
   }
 
+  const commandes = await runProtectedOrderMaintenance(now);
   const result = {
     annulations,
     expirations,
     relances,
     projets_sommeil: projetsSommeil,
     sn13_purge: sn13Purge,
+    commandes,
     execute_le: now.toISOString(),
   };
   logger.info({ trigger, ...result }, "NovaLuth access maintenance completed");
@@ -960,9 +993,10 @@ router.get("/admin/summary", async (req, res, next) => {
       return;
     }
     await seedProfiles();
-    const [rows, accessRows] = await Promise.all([
+    const [rows, accessRows, orderRows] = await Promise.all([
       db.select().from(novaluthProfilesTable),
       db.select().from(novaluthAccessRequestsTable),
+      db.select().from(novaluthProtectedOrdersTable),
     ]);
     const compteurs = Object.fromEntries(
       statuses.map((status) => [
@@ -996,6 +1030,17 @@ router.get("/admin/summary", async (req, res, next) => {
           encaissements: accessRows.filter(
             (request) => request.paymentStatus === "encaisse",
           ).length,
+        },
+        commandes: {
+          declarees: orderRows.filter((order) => order.status === "declaree").length,
+          confirmees: orderRows.filter((order) => order.status === "confirmee").length,
+          livrees: orderRows.filter((order) => order.status === "livree").length,
+          annulees: orderRows.filter((order) =>
+            ["annulee_client", "annulee_atelier", "refusee", "expiree"].includes(order.status),
+          ).length,
+          non_confirmees: orderRows.filter((order) => order.status === "non_confirmee").length,
+          engagements: orderRows.filter((order) => order.commitmentPaymentStatus !== "non_du").length,
+          commissions: orderRows.filter((order) => order.commissionPaymentStatus === "encaisse").length,
         },
       }),
     );
@@ -1572,6 +1617,228 @@ router.post(
       res.json(
         UseAtelierFollowupCreditResponse.parse(
           await requestForDisplay(followedUp, true),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get("/ateliers/:slug/commandes", async (req, res, next) => {
+  try {
+    const { slug } = ListProtectedOrdersParams.parse(req.params);
+    if (
+      !(await requireAtelierSession(
+        slug,
+        req.header("X-NovaLuth-Atelier-Session") ?? undefined,
+      ))
+    ) {
+      res.status(401).json({ error: "Session atelier invalide ou expirée." });
+      return;
+    }
+    res.json(ListProtectedOrdersResponse.parse(await listProtectedOrdersForAtelier(slug)));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/ateliers/:slug/commandes", async (req, res, next) => {
+  try {
+    const { slug } = CreateProtectedOrderParams.parse(req.params);
+    const input = CreateProtectedOrderBody.parse(req.body);
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (
+      !emailPattern.test(input.email_musicien) ||
+      !emailPattern.test(input.email_atelier)
+    ) {
+      res.status(400).json({ error: "Les deux adresses e-mail doivent être valides." });
+      return;
+    }
+    if (!(await requireAtelierSession(slug, input.session))) {
+      res.status(401).json({ error: "Session atelier invalide ou expirée." });
+      return;
+    }
+    const dateLivraison =
+      input.date_livraison_annoncee instanceof Date
+        ? input.date_livraison_annoncee.toISOString().slice(0, 10)
+        : input.date_livraison_annoncee ?? undefined;
+    const created = await createProtectedOrder(slug, {
+      ...input,
+      reference_devis: input.reference_devis ?? undefined,
+      description: input.description ?? undefined,
+      reference_projet: input.reference_projet ?? undefined,
+      date_livraison_annoncee: dateLivraison,
+    });
+    if (!("order" in created)) {
+      res.status(400).json({ error: created.error });
+      return;
+    }
+    const view = await protectedOrderViewFromOrder(created.order);
+    res.status(201).json(
+      CreateProtectedOrderResponse.parse({
+        commande: view,
+        lien_confirmation: created.confirmationPath,
+        courriel_envoye: created.emailQueued,
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post(
+  "/ateliers/:slug/commandes/:orderId/annulation",
+  async (req, res, next) => {
+    try {
+      const { slug, orderId } = CancelProtectedOrderByAtelierParams.parse(req.params);
+      const { session } = CancelProtectedOrderByAtelierBody.parse(req.body);
+      if (!(await requireAtelierSession(slug, session))) {
+        res.status(401).json({ error: "Session atelier invalide ou expirée." });
+        return;
+      }
+      const cancelled = await cancelProtectedOrderByAtelier(slug, orderId);
+      if (!cancelled.ok && cancelled.reason === "not_found") {
+        res.status(404).json({ error: "Commande protégée introuvable." });
+        return;
+      }
+      if (!cancelled.ok) {
+        res.status(400).json({ error: "Cette commande ne peut plus être annulée." });
+        return;
+      }
+      res.json(
+        CancelProtectedOrderByAtelierResponse.parse(
+          await protectedOrderViewFromOrder(cancelled.order),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  "/commandes/:reference/confirmation/:token",
+  async (req, res, next) => {
+    try {
+      const { reference, token } = GetProtectedOrderParams.parse(req.params);
+      const order = await getProtectedOrderView(token, "confirmation");
+      if (!order || order.reference !== reference) {
+        res.status(404).json({ error: "Ce lien de commande est introuvable." });
+        return;
+      }
+      res.json(GetProtectedOrderResponse.parse(order));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  "/commandes/:reference/confirmation/:token/decision",
+  async (req, res, next) => {
+    try {
+      const { reference, token } = DecideProtectedOrderParams.parse(req.params);
+      const { decision } = DecideProtectedOrderBody.parse(req.body);
+      const result = await decideProtectedOrder(token, decision);
+      if (!result.ok && result.reason === "not_found") {
+        res.status(404).json({ error: "Ce lien de commande est introuvable." });
+        return;
+      }
+      if (!result.ok && result.reason === "conflict") {
+        res.status(409).json({ error: "La commande a été mise à jour entre-temps." });
+        return;
+      }
+      if (!result.ok) {
+        res.status(400).json({ error: "Cette commande a déjà été décidée ou a expiré." });
+        return;
+      }
+      if (result.order.reference !== reference) {
+        res.status(404).json({ error: "Ce lien de commande est introuvable." });
+        return;
+      }
+      const view = await protectedOrderViewFromOrder(result.order);
+      res.json(
+        DecideProtectedOrderResponse.parse({
+          commande: view,
+          lien_livraison: result.deliveryToken
+            ? `/commandes/${result.order.reference}/livraison/${result.deliveryToken}`
+            : null,
+        }),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  "/commandes/:reference/confirmation/:token/annulation",
+  async (req, res, next) => {
+    try {
+      const { reference, token } = CancelProtectedOrderByMusicianParams.parse(req.params);
+      const cancelled = await cancelProtectedOrderByMusician(token);
+      if (!cancelled.ok && cancelled.reason === "not_found") {
+        res.status(404).json({ error: "Ce lien de commande est introuvable." });
+        return;
+      }
+      if (!cancelled.ok) {
+        res.status(400).json({ error: "Cette commande ne peut plus être annulée." });
+        return;
+      }
+      if (cancelled.order.reference !== reference) {
+        res.status(404).json({ error: "Ce lien de commande est introuvable." });
+        return;
+      }
+      res.json(
+        CancelProtectedOrderByMusicianResponse.parse(
+          await protectedOrderViewFromOrder(cancelled.order),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  "/commandes/:reference/livraison/:token",
+  async (req, res, next) => {
+    try {
+      const { reference, token } = GetProtectedDeliveryParams.parse(req.params);
+      const order = await getProtectedOrderView(token, "delivery");
+      if (!order || order.reference !== reference) {
+        res.status(404).json({ error: "Ce lien de livraison est introuvable." });
+        return;
+      }
+      res.json(GetProtectedDeliveryResponse.parse(order));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  "/commandes/:reference/livraison/:token/reception",
+  async (req, res, next) => {
+    try {
+      const { reference, token } = ConfirmProtectedDeliveryParams.parse(req.params);
+      const delivered = await confirmProtectedOrderDelivery(token);
+      if (!delivered.ok && delivered.reason === "not_found") {
+        res.status(404).json({ error: "Ce lien de livraison est introuvable." });
+        return;
+      }
+      if (!delivered.ok) {
+        res.status(400).json({ error: "La réception ne peut plus être confirmée." });
+        return;
+      }
+      if (delivered.order.reference !== reference) {
+        res.status(404).json({ error: "Ce lien de livraison est introuvable." });
+        return;
+      }
+      res.json(
+        ConfirmProtectedDeliveryResponse.parse(
+          await protectedOrderViewFromOrder(delivered.order, "delivery"),
         ),
       );
     } catch (error) {

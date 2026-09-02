@@ -250,6 +250,31 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
         </section>
 
       <section className="bg-card border border-border/50 p-6 mb-12">
+        <div className="mb-6">
+          <h2 className="text-xl font-serif text-primary">Commandes protégées</h2>
+          <p className="text-sm text-muted-foreground">
+            Suivi des transitions et des encaissements simulés, sans exposition des jetons privés.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
+          {[
+            ["Déclarées", summary.commandes.declarees],
+            ["Confirmées", summary.commandes.confirmees],
+            ["Livrées", summary.commandes.livrees],
+            ["Annulées/refusées", summary.commandes.annulees],
+            ["Non confirmées", summary.commandes.non_confirmees],
+            ["Engagements", summary.commandes.engagements],
+            ["Commissions", summary.commandes.commissions],
+          ].map(([label, count]) => (
+            <div key={String(label)} className="border border-border/50 bg-background p-3">
+              <span className="block text-2xl font-serif text-primary">{count}</span>
+              <span className="text-[0.68rem] uppercase tracking-wider text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="bg-card border border-border/50 p-6 mb-12">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
           <div>
             <h2 className="text-xl font-serif text-primary">Collecte SN13</h2>
