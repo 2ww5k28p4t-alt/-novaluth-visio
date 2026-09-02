@@ -239,6 +239,89 @@ test("cleans up the isolated PostgreSQL server when the requested command fails"
   }
 });
 
+test("reports missing PostgreSQL tools and removes its temporary directory", () => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "novaluth-schema-check-missing-tools-test-"),
+  );
+  const pathWithoutPostgresTools = (process.env.PATH ?? "")
+    .split(path.delimiter)
+    .filter((entry) => {
+      if (entry.length === 0) {
+        return false;
+      }
+
+      return ["initdb", "pg_ctl"].every((tool) => {
+        try {
+          fs.accessSync(path.join(entry, tool), fs.constants.X_OK);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+    })
+    .concat(path.dirname(process.execPath))
+    .join(path.delimiter);
+  const environment = {
+    ...process.env,
+    DATABASE_URL: "postgresql://development.invalid/novaluth",
+    NODE_ENV: "development",
+    PATH: pathWithoutPostgresTools,
+    TMPDIR: temporaryRoot,
+  };
+
+  try {
+    assert.equal(
+      execFileSync(
+        "bash",
+        ["-c", "command -v initdb || true; command -v pg_ctl || true"],
+        { env: environment, encoding: "utf8" },
+      ),
+      "",
+      "the controlled PATH unexpectedly contains a PostgreSQL tool",
+    );
+
+    let subprocessError: {
+      status?: number | null;
+      stderr?: string | Buffer;
+      stdout?: string | Buffer;
+    };
+
+    try {
+      execFileSync("bash", [isolatedCheckScript], {
+        cwd: packageRoot,
+        env: environment,
+        encoding: "utf8",
+      });
+      assert.fail("the isolated PostgreSQL check unexpectedly succeeded");
+    } catch (error) {
+      subprocessError = error as {
+        status?: number | null;
+        stderr?: string | Buffer;
+        stdout?: string | Buffer;
+      };
+    }
+
+    assert.equal(subprocessError.status, 1);
+    const output = [
+      subprocessError.stdout ?? "",
+      subprocessError.stderr ?? "",
+    ].join("\n");
+    assert.match(
+      output,
+      /PostgreSQL client and server tools \(initdb and pg_ctl\) are required\./,
+    );
+    assert.deepEqual(
+      fs
+        .readdirSync(temporaryRoot)
+        .filter((entry) => entry.startsWith("novaluth-schema-check.")),
+      [],
+      "the isolated PostgreSQL temporary directory was not removed",
+    );
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("reports a PostgreSQL startup failure and removes its temporary directory", () => {
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "novaluth-schema-check-startup-test-"),
