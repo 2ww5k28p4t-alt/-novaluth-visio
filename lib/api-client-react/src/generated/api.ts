@@ -36,6 +36,8 @@ import type {
   GatewayHealth,
   HealthStatus,
   ListFichesParams,
+  MeetConfig,
+  MeetIceConfig,
   MusicianDecisionInput,
   MusicianProject,
   ProtectedOrder,
@@ -143,6 +145,160 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getHealthCheckQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetMeetConfigUrl = () => {
+
+
+
+
+  return `/api/meet/config`
+}
+
+/**
+ * @summary Get the P2P Meet room configuration
+ */
+export const getMeetConfig = async ( options?: Parameters<typeof customFetch>[1]): Promise<MeetConfig> => {
+
+  return customFetch<MeetConfig>(getGetMeetConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMeetConfigQueryKey = () => {
+    return [
+    `/api/meet/config`
+    ] as const;
+    }
+
+
+export const getGetMeetConfigQueryOptions = <TData = Awaited<ReturnType<typeof getMeetConfig>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMeetConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMeetConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMeetConfig>>> = ({ signal }) => getMeetConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMeetConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMeetConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getMeetConfig>>>
+export type GetMeetConfigQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the P2P Meet room configuration
+ */
+
+export function useGetMeetConfig<TData = Awaited<ReturnType<typeof getMeetConfig>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMeetConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMeetConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetMeetIceConfigUrl = () => {
+
+
+
+
+  return `/api/meet/ice`
+}
+
+/**
+ * @summary Get the browser ICE configuration for P2P Meet
+ */
+export const getMeetIceConfig = async ( options?: Parameters<typeof customFetch>[1]): Promise<MeetIceConfig> => {
+
+  return customFetch<MeetIceConfig>(getGetMeetIceConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMeetIceConfigQueryKey = () => {
+    return [
+    `/api/meet/ice`
+    ] as const;
+    }
+
+
+export const getGetMeetIceConfigQueryOptions = <TData = Awaited<ReturnType<typeof getMeetIceConfig>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMeetIceConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMeetIceConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMeetIceConfig>>> = ({ signal }) => getMeetIceConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMeetIceConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMeetIceConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getMeetIceConfig>>>
+export type GetMeetIceConfigQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the browser ICE configuration for P2P Meet
+ */
+
+export function useGetMeetIceConfig<TData = Awaited<ReturnType<typeof getMeetIceConfig>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMeetIceConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMeetIceConfigQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

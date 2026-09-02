@@ -9,3 +9,4 @@
 - [Isolated PostgreSQL validation](isolated-postgres-validation.md) — Disposable local clusters need explicit socket and dynamic port configuration in the Replit container.
 - [Shutdown fallback test fixtures](shutdown-fallback-test-fixtures.md) — Detached stubborn-process fixtures need readiness synchronization before ownership checks.
 - [Demo seed reconciliation](demo-seed-reconciliation.md) — Reconcile published demo rows without overwriting non-demo profiles.
+- [Socket.IO behind artifact proxy](p2p-meet-routing.md) — WebSocket signal paths must be explicit in the API artifact manifest and match the client/server Socket.IO path.

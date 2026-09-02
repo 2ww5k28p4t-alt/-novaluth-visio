@@ -10,6 +10,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const navLinks = [
     { href: "/annuaire", label: "Annuaire" },
     { href: "/brief", label: "Mon projet" },
+    { href: "/meet", label: "NovaLuth Meet" },
     { href: "/legal", label: "Informations légales" },
   ];
 

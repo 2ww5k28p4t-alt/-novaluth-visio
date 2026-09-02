@@ -9,6 +9,55 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface MeetConfig {
+  maxPeers: number;
+  accessCodeRequired: boolean;
+  forceRelay: boolean;
+}
+
+export interface MeetIceServer {
+  urls: string | string[];
+  /** @nullable */
+  username?: string | null;
+  /** @nullable */
+  credential?: string | null;
+}
+
+export type MeetIceConfigIceTransportPolicy = typeof MeetIceConfigIceTransportPolicy[keyof typeof MeetIceConfigIceTransportPolicy];
+
+
+export const MeetIceConfigIceTransportPolicy = {
+  all: 'all',
+  relay: 'relay',
+} as const;
+
+export type MeetIceConfigBundlePolicy = typeof MeetIceConfigBundlePolicy[keyof typeof MeetIceConfigBundlePolicy];
+
+
+export const MeetIceConfigBundlePolicy = {
+  balanced: 'balanced',
+  'max-compat': 'max-compat',
+  'max-bundle': 'max-bundle',
+} as const;
+
+export type MeetIceConfigRtcpMuxPolicy = typeof MeetIceConfigRtcpMuxPolicy[keyof typeof MeetIceConfigRtcpMuxPolicy];
+
+
+export const MeetIceConfigRtcpMuxPolicy = {
+  negotiate: 'negotiate',
+  require: 'require',
+} as const;
+
+export interface MeetIceConfig {
+  iceServers: MeetIceServer[];
+  iceTransportPolicy: MeetIceConfigIceTransportPolicy;
+  iceCandidatePoolSize: number;
+  bundlePolicy: MeetIceConfigBundlePolicy;
+  rtcpMuxPolicy: MeetIceConfigRtcpMuxPolicy;
+  /** @nullable */
+  warning: string | null;
+}
+
 export type ProviderReseau = typeof ProviderReseau[keyof typeof ProviderReseau];
 
 

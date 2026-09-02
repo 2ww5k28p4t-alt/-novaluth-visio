@@ -22,6 +22,8 @@ tags:
     description: Atelier access requests and musician project decisions
   - name: protected-orders
     description: Protected custom-order lifecycle and simulated payments
+  - name: meet
+    description: Peer-to-peer video rooms and signaling configuration
   - name: transparency
     description: Public provider and data-processing transparency
 paths:
@@ -38,6 +40,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /meet/config:
+    get:
+      operationId: getMeetConfig
+      tags: [meet]
+      summary: Get the P2P Meet room configuration
+      responses:
+        "200":
+          description: Public room limits and access requirements
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetConfig"
+  /meet/ice:
+    get:
+      operationId: getMeetIceConfig
+      tags: [meet]
+      summary: Get the browser ICE configuration for P2P Meet
+      responses:
+        "200":
+          description: Ephemeral STUN/TURN configuration without server secrets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetIceConfig"
   /sante:
     get:
       operationId: getGatewayHealth
@@ -729,6 +755,44 @@ components:
           type: string
       required:
         - status
+    MeetConfig:
+      type: object
+      required: [maxPeers, accessCodeRequired, forceRelay]
+      properties:
+        maxPeers: { type: number }
+        accessCodeRequired: { type: boolean }
+        forceRelay: { type: boolean }
+    MeetIceServer:
+      type: object
+      required: [urls]
+      properties:
+        urls:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+        username: { type: ["string", "null"] }
+        credential: { type: ["string", "null"] }
+    MeetIceConfig:
+      type: object
+      required:
+        [iceServers, iceTransportPolicy, iceCandidatePoolSize, bundlePolicy, rtcpMuxPolicy, warning]
+      properties:
+        iceServers:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeetIceServer"
+        iceTransportPolicy:
+          type: string
+          enum: [all, relay]
+        iceCandidatePoolSize: { type: number }
+        bundlePolicy:
+          type: string
+          enum: [balanced, max-compat, max-bundle]
+        rtcpMuxPolicy:
+          type: string
+          enum: [negotiate, require]
+        warning: { type: ["string", "null"] }
     Provider:
       type: object
       required:

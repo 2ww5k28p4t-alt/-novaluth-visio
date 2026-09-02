@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "radix-ui": "^1.6.7"
+    "radix-ui": "^1.6.7",
+    "socket.io-client": "^4.8.3"
   }
 }

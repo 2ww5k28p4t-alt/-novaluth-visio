@@ -23,6 +23,7 @@ import Commande from '@/pages/Commande';
 import NotFound from '@/pages/not-found';
 import Classement from '@/pages/Classement';
 import Transparence from '@/pages/Transparence';
+import P2PMeet from '@/pages/P2PMeet';
 import { LegalContrat, LegalDevis, LegalNotice } from '@/pages/LegalKit';
 
 const queryClient = new QueryClient({
@@ -54,6 +55,7 @@ function Router() {
           <Route path="/legal/contrat" component={LegalContrat} />
           <Route path="/legal/notice" component={LegalNotice} />
           <Route path="/transparence" component={Transparence} />
+          <Route path="/meet" component={P2PMeet} />
           <Route component={NotFound} />
         </Switch>
       </RoutedErrorBoundary>

@@ -18,6 +18,33 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * @summary Get the P2P Meet room configuration
+ */
+export const GetMeetConfigResponse = zod.object({
+  "maxPeers": zod.number(),
+  "accessCodeRequired": zod.boolean(),
+  "forceRelay": zod.boolean()
+})
+
+
+/**
+ * @summary Get the browser ICE configuration for P2P Meet
+ */
+export const GetMeetIceConfigResponse = zod.object({
+  "iceServers": zod.array(zod.object({
+  "urls": zod.union([zod.string(),zod.array(zod.string())]),
+  "username": zod.string().nullish(),
+  "credential": zod.string().nullish()
+})),
+  "iceTransportPolicy": zod.enum(['all', 'relay']),
+  "iceCandidatePoolSize": zod.number(),
+  "bundlePolicy": zod.enum(['balanced', 'max-compat', 'max-bundle']),
+  "rtcpMuxPolicy": zod.enum(['negotiate', 'require']),
+  "warning": zod.string().nullable()
+})
+
+
+/**
  * Shows configuration presence and quotas without exposing keys.
  * @summary Get the sanitized gateway health state
  */
