@@ -115,13 +115,19 @@ fi
 
 mkdir "$socket_dir"
 
-initdb \
+if initdb \
   --auth=trust \
   --encoding=UTF8 \
   --no-locale \
   --username=schema_check \
   --pgdata="$data_dir" \
-  >/dev/null
+  >/dev/null; then
+  :
+else
+  initdb_status=$?
+  echo "Failed to initialize the isolated PostgreSQL data directory (initdb exit status $initdb_status)." >&2
+  exit "$initdb_status"
+fi
 
 if pg_ctl \
   --pgdata="$data_dir" \

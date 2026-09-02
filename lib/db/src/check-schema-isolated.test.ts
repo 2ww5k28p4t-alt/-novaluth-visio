@@ -316,6 +316,84 @@ exec "${realPgCtl}" "$@"
   }
 });
 
+test("reports an initdb failure and removes its temporary directory", () => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "novaluth-schema-check-initdb-test-"),
+  );
+  const fakeBin = path.join(temporaryRoot, "bin");
+  const fakeInitdb = path.join(fakeBin, "initdb");
+  const initdbInvocationMarker = path.join(temporaryRoot, "initdb-invoked");
+  fs.mkdirSync(fakeBin);
+  fs.writeFileSync(
+    fakeInitdb,
+    `#!/usr/bin/env bash
+set -Eeuo pipefail
+data_dir=""
+for argument in "$@"; do
+  if [[ "$argument" == --pgdata=* ]]; then
+    data_dir="\${argument#--pgdata=}"
+  fi
+done
+mkdir -p "$data_dir"
+printf '%s\n' "partial initdb state" > "$data_dir/partial-state"
+printf '%s\n' "initdb invoked" > "\${TMPDIR}/initdb-invoked"
+echo "simulated PostgreSQL initdb failure" >&2
+exit 43
+`,
+    { mode: 0o755 },
+  );
+
+  try {
+    let subprocessError: {
+      status?: number | null;
+      stderr?: string | Buffer;
+      stdout?: string | Buffer;
+    };
+
+    try {
+      execFileSync("bash", [isolatedCheckScript], {
+        cwd: packageRoot,
+        env: {
+          ...process.env,
+          DATABASE_URL: "postgresql://development.invalid/novaluth",
+          NODE_ENV: "development",
+          PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+          TMPDIR: temporaryRoot,
+        },
+        encoding: "utf8",
+      });
+      assert.fail("the isolated PostgreSQL initdb unexpectedly succeeded");
+    } catch (error) {
+      subprocessError = error as {
+        status?: number | null;
+        stderr?: string | Buffer;
+        stdout?: string | Buffer;
+      };
+    }
+
+    assert.equal(subprocessError.status, 43);
+    assert.equal(fs.readFileSync(initdbInvocationMarker, "utf8").trim(), "initdb invoked");
+    const output = [
+      subprocessError.stdout ?? "",
+      subprocessError.stderr ?? "",
+    ].join("\n");
+    assert.match(
+      output,
+      /Failed to initialize the isolated PostgreSQL data directory \(initdb exit status 43\)\./,
+    );
+    assert.match(output, /simulated PostgreSQL initdb failure/);
+    assert.deepEqual(
+      fs
+        .readdirSync(temporaryRoot)
+        .filter((entry) => entry.startsWith("novaluth-schema-check.")),
+      [],
+      "the isolated PostgreSQL temporary directory was not removed",
+    );
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("reports a PostgreSQL shutdown failure without masking the requested command status", () => {
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "novaluth-schema-check-shutdown-test-"),
