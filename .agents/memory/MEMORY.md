@@ -7,3 +7,4 @@
 - [Inline TypeScript commands](inline-tsx-resolution.md) — Inline tsx evaluation resolves imports from its invoking package, not reliably from the changed working directory.
 - [Monorepo build environment](monorepo-build-environment.md) — Full builds need artifact-specific PORT and BASE_PATH variables for Vite configuration loading.
 - [Isolated PostgreSQL validation](isolated-postgres-validation.md) — Disposable local clusters need explicit socket and dynamic port configuration in the Replit container.
+- [Shutdown fallback test fixtures](shutdown-fallback-test-fixtures.md) — Detached stubborn-process fixtures need readiness synchronization before ownership checks.
