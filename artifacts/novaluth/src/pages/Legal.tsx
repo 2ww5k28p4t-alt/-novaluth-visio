@@ -94,6 +94,12 @@ export default function Legal() {
             <p className="mt-3">
               Pour une commande protégée, les coordonnées nécessaires au suivi sont traitées pour l’exécution du parcours, les notifications et les obligations légales. Contact RGPD : {legalKitConfig.contacts.rgpd}.
             </p>
+            <p className="mt-3">
+              NovaLuth Meet transmet directement entre les navigateurs l’audio, la vidéo, le partage d’écran et les messages de la salle. NovaLuth ne reçoit, n’enregistre et ne transcrit pas ces contenus. La signalisation technique est temporaire ; les événements d’entrée et de sortie sont journalisés sans adresse IP en clair.
+            </p>
+            <p className="mt-3">
+              Le mot de passe éventuel d’une salle n’est conservé qu’en mémoire sous forme dérivée et disparaît lorsque la dernière personne quitte la salle. Un relais TURN peut être utilisé lorsque la connexion directe est impossible, sans déchiffrer le média.
+            </p>
           </section>
 
           <section>

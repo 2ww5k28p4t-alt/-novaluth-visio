@@ -6,6 +6,7 @@ import {
   CameraOff,
   Check,
   Copy,
+  LockKeyhole,
   Loader2,
   MessageSquare,
   Mic,
@@ -41,8 +42,10 @@ type PeerConnectionState = RemotePeer & { pc: RTCPeerConnection };
 type JoinResponse = {
   ok: boolean;
   error?: string;
+  needRoomPassword?: boolean;
   selfId?: string;
   room?: string;
+  protected?: boolean;
   peers?: Array<{ id: string; name: string }>;
 };
 
@@ -68,6 +71,8 @@ export default function P2PMeet() {
   const [name, setName] = useState(() => params.get("name") ?? localStorage.getItem("p2pmeet.name") ?? "");
   const [room, setRoom] = useState(() => params.get("room") ?? "");
   const [code, setCode] = useState("");
+  const [roomPassword, setRoomPassword] = useState("");
+  const [roomPasswordRequired, setRoomPasswordRequired] = useState(false);
   const { data: config, isError: configQueryFailed } = useGetMeetConfig();
   const { data: iceData, isError: iceQueryFailed } = useGetMeetIceConfig();
   const iceConfig = useMemo<IceConfig | null>(
@@ -91,6 +96,7 @@ export default function P2PMeet() {
   const [joined, setJoined] = useState(false);
   const [joining, setJoining] = useState(false);
   const [activeRoom, setActiveRoom] = useState("");
+  const [roomProtected, setRoomProtected] = useState(false);
   const [selfId, setSelfId] = useState("");
   const [localStreamReady, setLocalStreamReady] = useState(false);
   const [remotePeers, setRemotePeers] = useState<RemotePeer[]>([]);
@@ -289,10 +295,11 @@ export default function P2PMeet() {
       socket.on("connect", () => {
         socket.emit(
           "join",
-          { room: cleanRoom, name: cleanName, code },
+          { room: cleanRoom, name: cleanName, code, roomPassword },
           (response: JoinResponse) => {
             if (!response.ok) {
               setJoinError(response.error || "Connexion refusée.");
+              setRoomPasswordRequired(Boolean(response.needRoomPassword));
               stopStream(localStreamRef.current);
               socket.disconnect();
               setLocalStreamReady(false);
@@ -303,6 +310,8 @@ export default function P2PMeet() {
             const joinedRoom = response.room || cleanRoom;
             activeRoomRef.current = joinedRoom;
             setActiveRoom(joinedRoom);
+            setRoomProtected(Boolean(response.protected));
+            setRoomPasswordRequired(false);
             setSelfId(response.selfId || "");
             setJoined(true);
             setJoining(false);
@@ -321,6 +330,11 @@ export default function P2PMeet() {
         updatePeer(from, { audio, video });
       });
       socket.on("chat", (message: ChatMessage) => setChatMessages((current) => [...current, message]));
+      socket.on("connect_error", () => {
+        setJoinError("La connexion sécurisée à la salle a échoué.");
+        setConnectionState("offline");
+        setJoining(false);
+      });
       socket.on("disconnect", () => setConnectionState("offline"));
     } catch (error) {
       const message = error instanceof Error && error.message === "WebRTC_NOT_SUPPORTED"
@@ -371,6 +385,17 @@ export default function P2PMeet() {
     );
   };
 
+  const stopSharing = async () => {
+    const currentScreenStream = screenStreamRef.current;
+    if (!currentScreenStream) return;
+    screenStreamRef.current = null;
+    setSharing(false);
+    stopStream(currentScreenStream);
+    if (cameraTrackRef.current?.readyState === "live") {
+      await replaceOutgoingVideo(cameraTrackRef.current);
+    }
+  };
+
   const flipCamera = async () => {
     if (sharing || !navigator.mediaDevices) return;
     facingModeRef.current = facingModeRef.current === "user" ? "environment" : "user";
@@ -398,10 +423,7 @@ export default function P2PMeet() {
 
   const toggleShare = async () => {
     if (sharing) {
-      stopStream(screenStreamRef.current);
-      screenStreamRef.current = null;
-      setSharing(false);
-      if (cameraTrackRef.current) await replaceOutgoingVideo(cameraTrackRef.current);
+      await stopSharing();
       return;
     }
     if (!navigator.mediaDevices.getDisplayMedia) {
@@ -416,8 +438,8 @@ export default function P2PMeet() {
       screenStreamRef.current = screenStream;
       setSharing(true);
       screenTrack.addEventListener("ended", () => {
-        void toggleShare();
-      });
+        void stopSharing();
+      }, { once: true });
     } catch (error) {
       if (error instanceof DOMException && error.name !== "NotAllowedError") {
         setJoinError("Partage d'écran impossible.");
@@ -439,6 +461,7 @@ export default function P2PMeet() {
     setJoined(false);
     setLocalStreamReady(false);
     setActiveRoom("");
+    setRoomProtected(false);
     setSelfId("");
     setChatMessages([]);
     setChatOpen(false);
@@ -498,6 +521,28 @@ export default function P2PMeet() {
                 <span className="text-sm font-medium text-slate-200">Nom de la salle</span>
                 <input value={room} onChange={(event) => setRoom(event.target.value)} maxLength={60} required placeholder="Ex. projet-atelier" className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none transition placeholder:text-slate-600 focus:border-emerald-400" />
               </label>
+              <label className="block space-y-2">
+                <span className="flex items-center justify-between gap-3 text-sm font-medium text-slate-200">
+                  <span>Mot de passe de la salle</span>
+                  <span className="text-xs font-normal text-slate-500">
+                    {roomPasswordRequired ? "Requis pour cette salle" : "Optionnel"}
+                  </span>
+                </span>
+                <input
+                  value={roomPassword}
+                  onChange={(event) => setRoomPassword(event.target.value)}
+                  type="password"
+                  minLength={roomPasswordRequired ? 1 : undefined}
+                  maxLength={128}
+                  required={roomPasswordRequired}
+                  autoComplete="off"
+                  placeholder={roomPasswordRequired ? "Saisissez le mot de passe reçu" : "8 caractères minimum pour protéger la salle"}
+                  className={`h-12 w-full rounded-xl border bg-[#0b0f14] px-4 text-sm outline-none transition placeholder:text-slate-600 focus:border-emerald-400 ${roomPasswordRequired ? "border-amber-400/70" : "border-slate-600"}`}
+                />
+                <p className="text-xs leading-5 text-slate-500">
+                  La première personne peut protéger la salle. Le mot de passe reste uniquement en mémoire et disparaît quand la salle se vide.
+                </p>
+              </label>
               {config?.accessCodeRequired && (
                 <label className="block space-y-2">
                   <span className="text-sm font-medium text-slate-200">Code d’accès</span>
@@ -530,6 +575,11 @@ export default function P2PMeet() {
             <p className="font-semibold text-white">{activeRoom}</p>
             <p className="text-xs text-slate-400">{connectionLabel}</p>
           </div>
+          {roomProtected && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs text-emerald-200">
+              <LockKeyhole className="h-3.5 w-3.5" /> Salle protégée
+            </span>
+          )}
           <span className="rounded-full border border-slate-600 px-2 py-0.5 text-xs text-slate-300">{totalParticipants}</span>
         </div>
         <div className="flex items-center gap-2">
