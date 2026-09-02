@@ -123,7 +123,7 @@ initdb \
   --pgdata="$data_dir" \
   >/dev/null
 
-if ! pg_ctl \
+if pg_ctl \
   --pgdata="$data_dir" \
   --log="$log_file" \
   --options="-h 127.0.0.1 -k $socket_dir -p $port" \
@@ -131,8 +131,14 @@ if ! pg_ctl \
   --wait \
   start \
   >/dev/null; then
-  cat "$log_file" >&2
-  exit 1
+  :
+else
+  startup_status=$?
+  echo "Failed to start the isolated PostgreSQL server (pg_ctl exit status $startup_status)." >&2
+  if [[ -f "$log_file" ]]; then
+    cat "$log_file" >&2
+  fi
+  exit "$startup_status"
 fi
 
 database_url="postgresql://schema_check@127.0.0.1:$port/postgres"

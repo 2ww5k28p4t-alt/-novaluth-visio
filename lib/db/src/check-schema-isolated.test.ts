@@ -239,6 +239,83 @@ test("cleans up the isolated PostgreSQL server when the requested command fails"
   }
 });
 
+test("reports a PostgreSQL startup failure and removes its temporary directory", () => {
+  const temporaryRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "novaluth-schema-check-startup-test-"),
+  );
+  const fakeBin = path.join(temporaryRoot, "bin");
+  const realPgCtl = execFileSync("bash", ["-c", "command -v pg_ctl"], {
+    encoding: "utf8",
+  }).trim();
+  const fakePgCtl = path.join(fakeBin, "pg_ctl");
+  fs.mkdirSync(fakeBin);
+  fs.writeFileSync(
+    fakePgCtl,
+    `#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "\${*: -1}" == "start" ]]; then
+  for argument in "$@"; do
+    if [[ "$argument" == --log=* ]]; then
+      printf '%s\n' "simulated PostgreSQL startup failure" > "\${argument#--log=}"
+    fi
+  done
+  exit 47
+fi
+exec "${realPgCtl}" "$@"
+`,
+    { mode: 0o755 },
+  );
+
+  try {
+    let subprocessError: {
+      status?: number | null;
+      stderr?: string | Buffer;
+      stdout?: string | Buffer;
+    };
+
+    try {
+      execFileSync("bash", [isolatedCheckScript], {
+        cwd: packageRoot,
+        env: {
+          ...process.env,
+          DATABASE_URL: "postgresql://development.invalid/novaluth",
+          NODE_ENV: "development",
+          PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+          TMPDIR: temporaryRoot,
+        },
+        encoding: "utf8",
+      });
+      assert.fail("the isolated PostgreSQL startup unexpectedly succeeded");
+    } catch (error) {
+      subprocessError = error as {
+        status?: number | null;
+        stderr?: string | Buffer;
+        stdout?: string | Buffer;
+      };
+    }
+
+    assert.equal(subprocessError.status, 47);
+    const output = [
+      subprocessError.stdout ?? "",
+      subprocessError.stderr ?? "",
+    ].join("\n");
+    assert.match(
+      output,
+      /Failed to start the isolated PostgreSQL server \(pg_ctl exit status 47\)\./,
+    );
+    assert.match(output, /simulated PostgreSQL startup failure/);
+    assert.deepEqual(
+      fs
+        .readdirSync(temporaryRoot)
+        .filter((entry) => entry.startsWith("novaluth-schema-check.")),
+      [],
+      "the isolated PostgreSQL temporary directory was not removed",
+    );
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("reports a PostgreSQL shutdown failure without masking the requested command status", () => {
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "novaluth-schema-check-shutdown-test-"),
