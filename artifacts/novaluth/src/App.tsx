@@ -23,6 +23,7 @@ import Commande from '@/pages/Commande';
 import NotFound from '@/pages/not-found';
 import Classement from '@/pages/Classement';
 import Transparence from '@/pages/Transparence';
+import { LegalContrat, LegalDevis, LegalNotice } from '@/pages/LegalKit';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +50,9 @@ function Router() {
           <Route path="/admin" component={Admin} />
           <Route path="/legal" component={Legal} />
           <Route path="/legal/classement" component={Classement} />
+          <Route path="/legal/devis" component={LegalDevis} />
+          <Route path="/legal/contrat" component={LegalContrat} />
+          <Route path="/legal/notice" component={LegalNotice} />
           <Route path="/transparence" component={Transparence} />
           <Route component={NotFound} />
         </Switch>

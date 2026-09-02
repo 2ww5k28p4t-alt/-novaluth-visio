@@ -44,8 +44,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <img className="nv-pied-logo" src={assetPath("novaluth-wordmark.png")} alt="NovaLuth" width="1200" height="247" />
           <p className="nv-baseline">L'avenir de l'instrument</p>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            Un espace de découverte pour les musiciens exigeants. Aucun achat direct,
-            aucune commission : la relation reste entre le musicien et l'artisan.
+            Un espace de découverte pour les musiciens exigeants. Les commandes et paiements
+            simulés sont encadrés séparément ; la relation de lutherie reste entre le musicien et l’artisan.
           </p>
           <nav className="nv-pied-links items-center">
             {health?.status === 'ok' && (
