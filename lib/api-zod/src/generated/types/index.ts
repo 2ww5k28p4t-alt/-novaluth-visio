@@ -102,5 +102,6 @@ export * from './visioAppointmentObjet';
 export * from './visioAppointmentStatut';
 export * from './visioLink';
 export * from './visioRoom';
+export * from './visioRoomModeVisio';
 export * from './visioRoomObjet';
 export * from './visioRoomRole';

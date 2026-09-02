@@ -5,6 +5,7 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { VisioRoomModeVisio } from './visioRoomModeVisio';
 import type { VisioRoomObjet } from './visioRoomObjet';
 import type { VisioRoomRole } from './visioRoomRole';
 
@@ -17,6 +18,11 @@ export interface VisioRoom {
   /** @nullable */
   date_heure: Date | null;
   expire_le: Date;
+  mode_visio: VisioRoomModeVisio;
   domaine_jitsi: string;
   nom_salle: string;
+  /** @nullable */
+  jeton_jwt: string | null;
+  domaine_jitsi_secours: string;
+  nom_salle_secours: string;
 }

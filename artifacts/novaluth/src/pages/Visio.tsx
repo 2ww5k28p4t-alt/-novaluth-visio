@@ -13,6 +13,7 @@ declare global {
   interface Window {
     JitsiMeetExternalAPI?: new (domain: string, options: {
       roomName: string;
+      jwt?: string;
       parentNode: HTMLElement;
       width?: string;
       height?: string;
@@ -24,6 +25,10 @@ declare global {
 
 function cleanDomain(domain: string) {
   return domain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
+function encodeRoomPath(roomName: string) {
+  return roomName.split("/").map(encodeURIComponent).join("/");
 }
 
 export default function Visio() {
@@ -77,7 +82,12 @@ function VisioRoomView({ room }: { room: VisioRoom }) {
   const [isApiReady, setIsApiReady] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
   const domain = cleanDomain(room.domaine_jitsi);
-  const directUrl = `https://${domain}/${encodeURIComponent(room.nom_salle)}`;
+  const directUrl = `https://${domain}/${encodeRoomPath(room.nom_salle)}${
+    room.jeton_jwt ? `?jwt=${encodeURIComponent(room.jeton_jwt)}` : ""
+  }`;
+  const fallbackUrl = `https://${cleanDomain(room.domaine_jitsi_secours)}/${encodeRoomPath(
+    room.nom_salle_secours,
+  )}`;
 
   useEffect(() => {
     let disposed = false;
@@ -90,23 +100,28 @@ function VisioRoomView({ room }: { room: VisioRoom }) {
         if (!disposed) setIsFallback(true);
         return;
       }
-      api = new window.JitsiMeetExternalAPI(domain, {
-        roomName: room.nom_salle,
-        parentNode: meetingRef.current,
-        width: "100%",
-        height: "100%",
-        configOverwrite: {
-          prejoinPageEnabled: true,
-          disableAP: true,
-          recording: { enabled: false },
-          transcription: { enabled: false },
-        },
-        interfaceConfigOverwrite: {
-          DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
-          TOOLBAR_BUTTONS: ["microphone", "camera", "chat", "tileview", "fullscreen", "hangup"],
-        },
-      });
-      setIsApiReady(true);
+      try {
+        api = new window.JitsiMeetExternalAPI(domain, {
+          roomName: room.nom_salle,
+          ...(room.jeton_jwt ? { jwt: room.jeton_jwt } : {}),
+          parentNode: meetingRef.current,
+          width: "100%",
+          height: "100%",
+          configOverwrite: {
+            prejoinPageEnabled: true,
+            disableAP: true,
+            recording: { enabled: false },
+            transcription: { enabled: false },
+          },
+          interfaceConfigOverwrite: {
+            DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+            TOOLBAR_BUTTONS: ["microphone", "camera", "chat", "tileview", "fullscreen", "hangup"],
+          },
+        });
+        setIsApiReady(true);
+      } catch {
+        setIsFallback(true);
+      }
     };
 
     const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
@@ -132,7 +147,7 @@ function VisioRoomView({ room }: { room: VisioRoom }) {
       api?.dispose();
       if (meetingRef.current) meetingRef.current.innerHTML = "";
     };
-  }, [domain, room.nom_salle]);
+  }, [domain, room.nom_salle, room.jeton_jwt]);
 
   return (
     <main className="min-h-[100dvh] bg-background px-4 py-6 md:px-8 md:py-10">
@@ -145,6 +160,9 @@ function VisioRoomView({ room }: { room: VisioRoom }) {
               </Badge>
               <Badge variant="outline" className="border-border text-muted-foreground">
                 {room.role === "atelier" ? "Côté atelier" : "Côté musicien"}
+              </Badge>
+              <Badge variant="outline" className="border-border text-muted-foreground">
+                {room.mode_visio === "jaas" ? "JaaS prioritaire" : "Jitsi public"}
               </Badge>
             </div>
             <h1 className="max-w-3xl font-serif text-3xl leading-tight text-primary md:text-5xl">
@@ -179,16 +197,18 @@ function VisioRoomView({ room }: { room: VisioRoom }) {
                     </div>
                     <CardTitle className="font-serif">La salle intégrée n’a pas pu s’ouvrir</CardTitle>
                     <CardDescription>
-                      Le service de réunion est disponible via son lien direct. Vos échanges restent privés et ne sont pas enregistrés par NovaLuth.
+                      {room.mode_visio === "jaas"
+                        ? "JaaS n’a pas pu ouvrir la salle intégrée. Le service public Jitsi est disponible en secours."
+                        : "La salle intégrée n’a pas pu s’ouvrir. Le service public Jitsi est disponible via son lien direct."} Vos échanges restent privés et ne sont pas enregistrés par NovaLuth.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Button data-testid="link-visio-direct" asChild className="w-full">
-                      <a href={directUrl} target="_blank" rel="noreferrer">
-                        <ExternalLink className="mr-2 h-4 w-4" /> Ouvrir la salle directement
+                      <a href={fallbackUrl} target="_blank" rel="noreferrer">
+                        <ExternalLink className="mr-2 h-4 w-4" /> Ouvrir avec Jitsi public
                       </a>
                     </Button>
-                    <p className="mt-3 break-all text-xs text-muted-foreground">{directUrl}</p>
+                    <p className="mt-3 break-all text-xs text-muted-foreground">{fallbackUrl}</p>
                   </CardContent>
                 </Card>
               </div>

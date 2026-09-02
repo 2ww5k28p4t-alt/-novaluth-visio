@@ -841,6 +841,14 @@ export const VisioRoomObjet = {
   autre: 'autre',
 } as const;
 
+export type VisioRoomModeVisio = typeof VisioRoomModeVisio[keyof typeof VisioRoomModeVisio];
+
+
+export const VisioRoomModeVisio = {
+  jaas: 'jaas',
+  jitsi: 'jitsi',
+} as const;
+
 export interface VisioRoom {
   reference: string;
   role: VisioRoomRole;
@@ -850,8 +858,13 @@ export interface VisioRoom {
   /** @nullable */
   date_heure: string | null;
   expire_le: string;
+  mode_visio: VisioRoomModeVisio;
   domaine_jitsi: string;
   nom_salle: string;
+  /** @nullable */
+  jeton_jwt: string | null;
+  domaine_jitsi_secours: string;
+  nom_salle_secours: string;
 }
 
 export interface AtelierAccessRequestInput {

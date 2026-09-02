@@ -188,8 +188,12 @@ router.get("/visio/:token", async (req, res, next): Promise<void> => {
         objet_libelle: room.purposeLabel,
         date_heure: room.scheduledAt?.toISOString() ?? null,
         expire_le: room.expiresAt.toISOString(),
+        mode_visio: room.provider,
         domaine_jitsi: room.jitsiDomain,
         nom_salle: room.roomName,
+        jeton_jwt: room.jwt,
+        domaine_jitsi_secours: room.fallbackDomain,
+        nom_salle_secours: room.fallbackRoomName,
       }),
     );
   } catch (error) {

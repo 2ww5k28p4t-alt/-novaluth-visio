@@ -1,5 +1,10 @@
 import { and, desc, eq, gt, isNull, lte, or } from "drizzle-orm";
-import { createHash, randomBytes } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createSign,
+  randomBytes,
+} from "node:crypto";
 import {
   db,
   novaluthProfilesTable,
@@ -11,6 +16,7 @@ import {
   type NovaLuthDbExecutor,
 } from "./novaluth-email-outbox";
 import { getNovaLuthPublicUrl } from "./novaluth-email";
+import { logger } from "./logger";
 
 export const visioPurposeLabels = {
   projet: "Rendez-vous projet, avant devis",
@@ -22,10 +28,25 @@ export const visioPurposeLabels = {
 } as const;
 
 export const VISIO_VALIDITY_DAYS = 30;
+const VISIO_MODE = (process.env.NOVALUTH_VISIO ?? "jaas").trim().toLowerCase();
 const JITSI_DOMAIN =
   process.env.NOVALUTH_JITSI_DOMAIN ??
   process.env.NOVALUTH_JITSI_DOMAINE ??
   "meet.jit.si";
+const JAAS_DOMAIN = (process.env.JAAS_DOMAIN ?? "8x8.vc").replace(
+  /^https?:\/\//,
+  "",
+).replace(/\/+$/, "");
+const JAAS_APP_ID = process.env.JAAS_APP_ID?.trim() ?? "";
+const JAAS_API_KEY_ID = process.env.JAAS_API_KEY_ID?.trim() ?? "";
+const JAAS_PRIVATE_KEY = (
+  process.env.JAAS_PRIVATE_KEY ??
+  process.env.JAAS_CLE_PRIVEE ??
+  ""
+).trim();
+const JAAS_TOKEN_VALIDITY_HOURS = 3;
+
+type VisioProvider = "jaas" | "jitsi";
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -41,6 +62,129 @@ function createRoomName() {
 
 function createReference() {
   return `VIS-${randomBytes(7).toString("hex").toUpperCase()}`;
+}
+
+function base64Url(value: string | Buffer) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function jaasIsConfigured() {
+  return Boolean(JAAS_APP_ID && JAAS_API_KEY_ID && JAAS_PRIVATE_KEY);
+}
+
+function createJaasJwt({
+  roomName,
+  displayName,
+  email,
+  moderator,
+}: {
+  roomName: string;
+  displayName: string;
+  email: string;
+  moderator: boolean;
+}) {
+  if (VISIO_MODE === "public" || !jaasIsConfigured()) return null;
+
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const header = {
+      alg: "RS256",
+      kid: JAAS_API_KEY_ID,
+      typ: "JWT",
+    };
+    const payload = {
+      aud: "jitsi",
+      iss: "chat",
+      sub: JAAS_APP_ID,
+      room: roomName,
+      nbf: now - 5 * 60,
+      exp: now + JAAS_TOKEN_VALIDITY_HOURS * 60 * 60,
+      context: {
+        user: {
+          id: randomBytes(16).toString("hex"),
+          name: displayName,
+          email,
+          moderator: moderator ? "true" : "false",
+          "hidden-from-recorder": "false",
+        },
+        features: {
+          recording: false,
+          livestreaming: false,
+          transcription: false,
+          "sip-inbound-call": false,
+          "sip-outbound-call": false,
+          "inbound-call": false,
+          "outbound-call": false,
+          "file-upload": false,
+        },
+        room: { regex: false },
+      },
+    };
+    const encodedHeader = base64Url(JSON.stringify(header));
+    const encodedPayload = base64Url(JSON.stringify(payload));
+    const signingInput = `${encodedHeader}.${encodedPayload}`;
+    const signer = createSign("RSA-SHA256");
+    signer.update(signingInput);
+    signer.end();
+    const privateKey = createPrivateKey(JAAS_PRIVATE_KEY.replace(/\\n/g, "\n"));
+    const signature = signer.sign(privateKey).toString("base64url");
+    return `${signingInput}.${signature}`;
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : "unknown signing error" },
+      "JaaS JWT signing failed; falling back to public Jitsi",
+    );
+    return null;
+  }
+}
+
+function visioAccess({
+  roomName,
+  role,
+  atelierName,
+  atelierEmail,
+  musicianEmail,
+}: {
+  roomName: string;
+  role: "atelier" | "musicien";
+  atelierName: string;
+  atelierEmail: string;
+  musicianEmail: string;
+}): {
+  provider: VisioProvider;
+  domain: string;
+  roomName: string;
+  jwt: string | null;
+  fallbackDomain: string;
+  fallbackRoomName: string;
+} {
+  const isAtelier = role === "atelier";
+  const jwt = createJaasJwt({
+    roomName,
+    displayName: isAtelier ? atelierName : "Musicien",
+    email: isAtelier ? atelierEmail : musicianEmail,
+    moderator: isAtelier,
+  });
+
+  if (jwt) {
+    return {
+      provider: "jaas",
+      domain: JAAS_DOMAIN,
+      roomName: `${JAAS_APP_ID}/${roomName}`,
+      jwt,
+      fallbackDomain: JITSI_DOMAIN,
+      fallbackRoomName: roomName,
+    };
+  }
+
+  return {
+    provider: "jitsi",
+    domain: JITSI_DOMAIN,
+    roomName,
+    jwt: null,
+    fallbackDomain: JITSI_DOMAIN,
+    fallbackRoomName: roomName,
+  };
 }
 
 function appointmentStatus(appointment: NovaluthVisioAppointment, now = new Date()) {
@@ -208,6 +352,14 @@ export async function getVisioAppointmentByToken(token: string) {
 
   const role =
     appointment.atelierTokenHash === tokenHash ? ("atelier" as const) : ("musicien" as const);
+  const atelierNameValue = await atelierName(appointment.atelierSlug);
+  const access = visioAccess({
+    roomName: appointment.roomName,
+    role,
+    atelierName: atelierNameValue,
+    atelierEmail: appointment.atelierEmail,
+    musicianEmail: appointment.musicianEmail,
+  });
   await db
     .update(novaluthVisioAppointmentsTable)
     .set({ [role === "atelier" ? "atelierJoinedAt" : "musicianJoinedAt"]: new Date() })
@@ -216,15 +368,19 @@ export async function getVisioAppointmentByToken(token: string) {
   return {
     reference: appointment.reference,
     role,
-    atelierName: await atelierName(appointment.atelierSlug),
+    atelierName: atelierNameValue,
     purpose: appointment.purpose,
     purposeLabel:
       visioPurposeLabels[appointment.purpose as keyof typeof visioPurposeLabels] ??
       appointment.purpose,
     scheduledAt: appointment.scheduledAt,
     expiresAt: appointment.expiresAt,
-    jitsiDomain: JITSI_DOMAIN,
-    roomName: appointment.roomName,
+    provider: access.provider,
+    jitsiDomain: access.domain,
+    roomName: access.roomName,
+    jwt: access.jwt,
+    fallbackDomain: access.fallbackDomain,
+    fallbackRoomName: access.fallbackRoomName,
   };
 }
 

@@ -1027,8 +1027,12 @@ export const GetVisioRoomResponse = zod.object({
   "objet_libelle": zod.string(),
   "date_heure": zod.coerce.date().nullable(),
   "expire_le": zod.coerce.date(),
+  "mode_visio": zod.enum(['jaas', 'jitsi']),
   "domaine_jitsi": zod.string(),
-  "nom_salle": zod.string()
+  "nom_salle": zod.string(),
+  "jeton_jwt": zod.string().nullable(),
+  "domaine_jitsi_secours": zod.string(),
+  "nom_salle_secours": zod.string()
 })
 
 

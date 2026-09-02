@@ -1531,7 +1531,7 @@ components:
     VisioRoom:
       type: object
       required:
-        [reference, role, atelier_nom, objet, objet_libelle, date_heure, expire_le, domaine_jitsi, nom_salle]
+        [reference, role, atelier_nom, objet, objet_libelle, date_heure, expire_le, mode_visio, domaine_jitsi, nom_salle, jeton_jwt, domaine_jitsi_secours, nom_salle_secours]
       properties:
         reference: { type: string }
         role: { type: string, enum: [atelier, musicien] }
@@ -1540,8 +1540,12 @@ components:
         objet_libelle: { type: string }
         date_heure: { type: ["string", "null"], format: date-time }
         expire_le: { type: string, format: date-time }
+        mode_visio: { type: string, enum: [jaas, jitsi] }
         domaine_jitsi: { type: string }
         nom_salle: { type: string }
+        jeton_jwt: { type: ["string", "null"] }
+        domaine_jitsi_secours: { type: string }
+        nom_salle_secours: { type: string }
     AtelierAccessRequestInput:
       type: object
       required: [session, reference_projet, offre]
