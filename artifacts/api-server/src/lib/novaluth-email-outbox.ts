@@ -18,8 +18,9 @@ const MAX_ERROR_LENGTH = 2_000;
 
 export type NovaLuthDbExecutor = Pick<typeof db, "insert">;
 
-type StoredEmailDetails = Omit<EmailDetails, "accessEndsAt"> & {
+type StoredEmailDetails = Omit<EmailDetails, "accessEndsAt" | "meetingAt"> & {
   accessEndsAt?: string | null;
+  meetingAt?: string | null;
 };
 
 type ClaimedEmail = Pick<
@@ -45,6 +46,7 @@ export async function enqueueNovaLuthEmail(
   const payload: StoredEmailDetails = {
     ...details,
     accessEndsAt: details.accessEndsAt?.toISOString() ?? null,
+    meetingAt: details.meetingAt?.toISOString() ?? null,
   };
   const [inserted] = await executor
     .insert(novaluthEmailOutboxTable)
@@ -74,6 +76,7 @@ function toEmailDetails(payload: unknown): EmailDetails {
   return {
     ...raw,
     accessEndsAt: raw.accessEndsAt ? new Date(raw.accessEndsAt) : null,
+    meetingAt: raw.meetingAt ? new Date(raw.meetingAt) : null,
   };
 }
 

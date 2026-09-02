@@ -47,7 +47,13 @@ import type {
   RecommendationResponse,
   Sn13PurgeIncidentHistory,
   StatusUpdate,
-  Transparency
+  Transparency,
+  VisioAppointment,
+  VisioAppointmentCreated,
+  VisioAppointmentInput,
+  VisioAppointmentList,
+  VisioLink,
+  VisioRoom
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1372,6 +1378,382 @@ export const useUseAtelierFollowupCredit = <TError = ErrorType<void>,
       > => {
       return useMutation(getUseAtelierFollowupCreditMutationOptions(options));
     }
+
+export const getListVisioAppointmentsUrl = (slug: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/visio`
+}
+
+/**
+ * @summary List video appointments for an atelier
+ */
+export const listVisioAppointments = async (slug: string, options?: Parameters<typeof customFetch>[1]): Promise<VisioAppointmentList> => {
+
+  return customFetch<VisioAppointmentList>(getListVisioAppointmentsUrl(slug),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVisioAppointmentsQueryKey = (slug: string,) => {
+    return [
+    `/api/ateliers/${slug}/visio`
+    ] as const;
+    }
+
+
+export const getListVisioAppointmentsQueryOptions = <TData = Awaited<ReturnType<typeof listVisioAppointments>>, TError = ErrorType<void>>(slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVisioAppointments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVisioAppointmentsQueryKey(slug);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVisioAppointments>>> = ({ signal }) => listVisioAppointments(slug, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: slug !== null && slug !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVisioAppointments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVisioAppointmentsQueryResult = NonNullable<Awaited<ReturnType<typeof listVisioAppointments>>>
+export type ListVisioAppointmentsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List video appointments for an atelier
+ */
+
+export function useListVisioAppointments<TData = Awaited<ReturnType<typeof listVisioAppointments>>, TError = ErrorType<void>>(
+ slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVisioAppointments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVisioAppointmentsQueryOptions(slug,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateVisioAppointmentUrl = (slug: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/visio`
+}
+
+/**
+ * Creates a free, private Jitsi appointment. NovaLuth does not join, record, transcribe or store the call content.
+ * @summary Create a private video appointment
+ */
+export const createVisioAppointment = async (slug: string,
+    visioAppointmentInput: VisioAppointmentInput, options?: Parameters<typeof customFetch>[1]): Promise<VisioAppointmentCreated> => {
+
+  return customFetch<VisioAppointmentCreated>(getCreateVisioAppointmentUrl(slug),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(visioAppointmentInput)
+  }
+);}
+
+
+
+
+
+export const getCreateVisioAppointmentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createVisioAppointment>>, TError,{slug: string;data: BodyType<VisioAppointmentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createVisioAppointment>>, TError,{slug: string;data: BodyType<VisioAppointmentInput>}, TContext> => {
+
+const mutationKey = ['createVisioAppointment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createVisioAppointment>>, {slug: string;data: BodyType<VisioAppointmentInput>}> = (props) => {
+          const {slug,data} = props ?? {};
+
+          return  createVisioAppointment(slug,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateVisioAppointmentMutationResult = NonNullable<Awaited<ReturnType<typeof createVisioAppointment>>>
+    export type CreateVisioAppointmentMutationBody = BodyType<VisioAppointmentInput>
+    export type CreateVisioAppointmentMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a private video appointment
+ */
+export const useCreateVisioAppointment = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createVisioAppointment>>, TError,{slug: string;data: BodyType<VisioAppointmentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createVisioAppointment>>,
+        TError,
+        {slug: string;data: BodyType<VisioAppointmentInput>},
+        TContext
+      > => {
+      return useMutation(getCreateVisioAppointmentMutationOptions(options));
+    }
+
+export const getCancelVisioAppointmentUrl = (slug: string,
+    reference: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/visio/${reference}/annulation`
+}
+
+/**
+ * @summary Cancel a video appointment
+ */
+export const cancelVisioAppointment = async (slug: string,
+    reference: string,
+    atelierActionInput: AtelierActionInput, options?: Parameters<typeof customFetch>[1]): Promise<VisioAppointment> => {
+
+  return customFetch<VisioAppointment>(getCancelVisioAppointmentUrl(slug,reference),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(atelierActionInput)
+  }
+);}
+
+
+
+
+
+export const getCancelVisioAppointmentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelVisioAppointment>>, TError,{slug: string;reference: string;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelVisioAppointment>>, TError,{slug: string;reference: string;data: BodyType<AtelierActionInput>}, TContext> => {
+
+const mutationKey = ['cancelVisioAppointment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelVisioAppointment>>, {slug: string;reference: string;data: BodyType<AtelierActionInput>}> = (props) => {
+          const {slug,reference,data} = props ?? {};
+
+          return  cancelVisioAppointment(slug,reference,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelVisioAppointmentMutationResult = NonNullable<Awaited<ReturnType<typeof cancelVisioAppointment>>>
+    export type CancelVisioAppointmentMutationBody = BodyType<AtelierActionInput>
+    export type CancelVisioAppointmentMutationError = ErrorType<void>
+
+    /**
+ * @summary Cancel a video appointment
+ */
+export const useCancelVisioAppointment = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelVisioAppointment>>, TError,{slug: string;reference: string;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelVisioAppointment>>,
+        TError,
+        {slug: string;reference: string;data: BodyType<AtelierActionInput>},
+        TContext
+      > => {
+      return useMutation(getCancelVisioAppointmentMutationOptions(options));
+    }
+
+export const getRotateVisioAtelierLinkUrl = (slug: string,
+    reference: string,) => {
+
+
+
+
+  return `/api/ateliers/${slug}/visio/${reference}/lien-atelier`
+}
+
+/**
+ * The previous atelier token is invalidated; the musician token is unchanged.
+ * @summary Generate a new private atelier link
+ */
+export const rotateVisioAtelierLink = async (slug: string,
+    reference: string,
+    atelierActionInput: AtelierActionInput, options?: Parameters<typeof customFetch>[1]): Promise<VisioLink> => {
+
+  return customFetch<VisioLink>(getRotateVisioAtelierLinkUrl(slug,reference),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(atelierActionInput)
+  }
+);}
+
+
+
+
+
+export const getRotateVisioAtelierLinkMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rotateVisioAtelierLink>>, TError,{slug: string;reference: string;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rotateVisioAtelierLink>>, TError,{slug: string;reference: string;data: BodyType<AtelierActionInput>}, TContext> => {
+
+const mutationKey = ['rotateVisioAtelierLink'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rotateVisioAtelierLink>>, {slug: string;reference: string;data: BodyType<AtelierActionInput>}> = (props) => {
+          const {slug,reference,data} = props ?? {};
+
+          return  rotateVisioAtelierLink(slug,reference,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RotateVisioAtelierLinkMutationResult = NonNullable<Awaited<ReturnType<typeof rotateVisioAtelierLink>>>
+    export type RotateVisioAtelierLinkMutationBody = BodyType<AtelierActionInput>
+    export type RotateVisioAtelierLinkMutationError = ErrorType<void>
+
+    /**
+ * @summary Generate a new private atelier link
+ */
+export const useRotateVisioAtelierLink = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rotateVisioAtelierLink>>, TError,{slug: string;reference: string;data: BodyType<AtelierActionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rotateVisioAtelierLink>>,
+        TError,
+        {slug: string;reference: string;data: BodyType<AtelierActionInput>},
+        TContext
+      > => {
+      return useMutation(getRotateVisioAtelierLinkMutationOptions(options));
+    }
+
+export const getGetVisioRoomUrl = (token: string,) => {
+
+
+
+
+  return `/api/visio/${token}`
+}
+
+/**
+ * @summary Open a private video room using a personal token
+ */
+export const getVisioRoom = async (token: string, options?: Parameters<typeof customFetch>[1]): Promise<VisioRoom> => {
+
+  return customFetch<VisioRoom>(getGetVisioRoomUrl(token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVisioRoomQueryKey = (token: string,) => {
+    return [
+    `/api/visio/${token}`
+    ] as const;
+    }
+
+
+export const getGetVisioRoomQueryOptions = <TData = Awaited<ReturnType<typeof getVisioRoom>>, TError = ErrorType<void>>(token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVisioRoom>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVisioRoomQueryKey(token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVisioRoom>>> = ({ signal }) => getVisioRoom(token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: token !== null && token !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVisioRoom>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVisioRoomQueryResult = NonNullable<Awaited<ReturnType<typeof getVisioRoom>>>
+export type GetVisioRoomQueryError = ErrorType<void>
+
+
+/**
+ * @summary Open a private video room using a personal token
+ */
+
+export function useGetVisioRoom<TData = Awaited<ReturnType<typeof getVisioRoom>>, TError = ErrorType<void>>(
+ token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVisioRoom>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVisioRoomQueryOptions(token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListProtectedOrdersUrl = (slug: string,) => {
 

@@ -23,6 +23,7 @@ import Commande from '@/pages/Commande';
 import NotFound from '@/pages/not-found';
 import Classement from '@/pages/Classement';
 import Transparence from '@/pages/Transparence';
+import Visio from '@/pages/Visio';
 import { LegalContrat, LegalDevis, LegalNotice } from '@/pages/LegalKit';
 
 const queryClient = new QueryClient({
@@ -43,6 +44,7 @@ function Router() {
           <Route path="/annuaire" component={Annuaire} />
           <Route path="/fiche/:slug" component={Fiche} />
           <Route path="/atelier/:slug" component={Atelier} />
+          <Route path="/visio/:token" component={Visio} />
           <Route path="/projets/:reference/portail/:token" component={Portail} />
           <Route path="/commandes/:reference/confirmation/:token" component={Commande} />
           <Route path="/commandes/:reference/livraison/:token" component={Commande} />

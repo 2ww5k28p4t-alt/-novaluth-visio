@@ -731,6 +731,129 @@ export interface AtelierActionInput {
   session: string;
 }
 
+export type VisioAppointmentInputObjet = typeof VisioAppointmentInputObjet[keyof typeof VisioAppointmentInputObjet];
+
+
+export const VisioAppointmentInputObjet = {
+  projet: 'projet',
+  bois: 'bois',
+  assemblage: 'assemblage',
+  finition: 'finition',
+  final: 'final',
+  autre: 'autre',
+} as const;
+
+export interface VisioAppointmentInput {
+  /** @minLength 20 */
+  session: string;
+  /**
+     * @minLength 3
+     * @maxLength 320
+     */
+  email_musicien: string;
+  /**
+     * @minLength 3
+     * @maxLength 320
+     */
+  email_atelier: string;
+  objet: VisioAppointmentInputObjet;
+  /** @nullable */
+  date_heure?: string | null;
+  /**
+     * @maxLength 120
+     * @nullable
+     */
+  reference_projet?: string | null;
+  /** @nullable */
+  commande_id?: number | null;
+}
+
+export type VisioAppointmentObjet = typeof VisioAppointmentObjet[keyof typeof VisioAppointmentObjet];
+
+
+export const VisioAppointmentObjet = {
+  projet: 'projet',
+  bois: 'bois',
+  assemblage: 'assemblage',
+  finition: 'finition',
+  final: 'final',
+  autre: 'autre',
+} as const;
+
+export type VisioAppointmentStatut = typeof VisioAppointmentStatut[keyof typeof VisioAppointmentStatut];
+
+
+export const VisioAppointmentStatut = {
+  active: 'active',
+  annulee: 'annulee',
+  expiree: 'expiree',
+} as const;
+
+export interface VisioAppointment {
+  id: number;
+  reference: string;
+  atelier_slug: string;
+  atelier_nom: string;
+  /**
+     * @minLength 3
+     * @maxLength 320
+     */
+  email_musicien: string;
+  objet: VisioAppointmentObjet;
+  objet_libelle: string;
+  /** @nullable */
+  date_heure: string | null;
+  expire_le: string;
+  statut: VisioAppointmentStatut;
+  /** @nullable */
+  lien_atelier: string | null;
+}
+
+export type VisioAppointmentList = VisioAppointment[];
+
+export interface VisioAppointmentCreated {
+  rendez_vous: VisioAppointment;
+  lien_musicien: string;
+  courriel_envoye: boolean;
+}
+
+export interface VisioLink {
+  lien_atelier: string;
+}
+
+export type VisioRoomRole = typeof VisioRoomRole[keyof typeof VisioRoomRole];
+
+
+export const VisioRoomRole = {
+  atelier: 'atelier',
+  musicien: 'musicien',
+} as const;
+
+export type VisioRoomObjet = typeof VisioRoomObjet[keyof typeof VisioRoomObjet];
+
+
+export const VisioRoomObjet = {
+  projet: 'projet',
+  bois: 'bois',
+  assemblage: 'assemblage',
+  finition: 'finition',
+  final: 'final',
+  autre: 'autre',
+} as const;
+
+export interface VisioRoom {
+  reference: string;
+  role: VisioRoomRole;
+  atelier_nom: string;
+  objet: VisioRoomObjet;
+  objet_libelle: string;
+  /** @nullable */
+  date_heure: string | null;
+  expire_le: string;
+  domaine_jitsi: string;
+  nom_salle: string;
+}
+
 export interface AtelierAccessRequestInput {
   /** @minLength 20 */
   session: string;

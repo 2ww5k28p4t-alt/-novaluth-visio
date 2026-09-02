@@ -20,6 +20,7 @@ export type NovaLuthEmailEvent =
   | "order_client_cancelled"
   | "order_workshop_cancelled"
   | "order_not_confirmed"
+  | "video_invitation"
   | "sn13_degradation"
   | "sn13_purge_failure";
 
@@ -49,6 +50,8 @@ export type EmailDetails = {
   amountCents?: number;
   commissionCents?: number;
   accessEndsAt?: Date | null;
+  meetingAt?: Date | null;
+  meetingPurpose?: string;
   sn13?: Sn13AlertDetails;
   sn13Purge?: Sn13PurgeAlertDetails;
 };
@@ -77,12 +80,12 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#039;");
 }
 
-function formatDate(value: Date | null | undefined) {
+function formatDate(value: Date | string | null | undefined) {
   return value
     ? new Intl.DateTimeFormat("fr-FR", {
         dateStyle: "long",
         timeZone: "Europe/Paris",
-      }).format(value)
+      }).format(typeof value === "string" ? new Date(value) : value)
     : "prochainement";
 }
 
@@ -253,6 +256,15 @@ function contentFor(details: EmailDetails) {
         title: "Réception non confirmée",
         intro: `La réception de la commande ${details.reference} n’a pas été confirmée dans le délai prévu.`,
         body: "Aucune commission n’est encaissée au titre de cette commande. Contactez directement l’atelier pour la suite.",
+      };
+    case "video_invitation":
+      return {
+        subject: `Invitation à un rendez-vous NovaLuth · ${details.reference}`,
+        title: "Votre rendez-vous en visioconférence",
+        intro: details.meetingAt
+          ? `Le rendez-vous est prévu le ${formatDate(details.meetingAt)}.`
+          : "Un rendez-vous vous est proposé par votre interlocuteur.",
+        body: `Objet : ${details.meetingPurpose ?? "échange de projet"}. Le rendez-vous est gratuit, sans enregistrement par NovaLuth et sans engagement de commande.`,
       };
   }
 }
