@@ -408,7 +408,7 @@ test("keeps every installed Drizzle Kit command explicitly classified", async ()
     { cwd: repositoryRoot },
   );
 
-  assert.match(stdout, /Drizzle Kit command surface is classified/);
+  assert.match(stdout, /Drizzle Kit command and alias surfaces are classified/);
 });
 
 test("requires review when Drizzle Kit exposes a new command", async () => {
@@ -487,6 +487,51 @@ fi
         assert.match(
           stderr,
           /Review whether each option can write to a database/,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("requires review when a Drizzle Kit command exposes a new alias", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "schema-cli-aliases-"));
+  const repositoryRoot = new URL("../../..", import.meta.url);
+  const installedDrizzleKit = fileURLToPath(
+    new URL("../node_modules/.bin/drizzle-kit", import.meta.url),
+  );
+  const fakeDrizzleKit = join(directory, "drizzle-kit");
+
+  try {
+    await writeFile(
+      fakeDrizzleKit,
+      `#!/usr/bin/env bash
+if [[ "$1" == "generate" && "$2" == "--help" ]]; then
+  "${installedDrizzleKit}" "$@" | sed '/^Global flags:/i\\Aliases:\\n  generate, apply-directly\\n'
+else
+  exec "${installedDrizzleKit}" "$@"
+fi
+`,
+      { mode: 0o755 },
+    );
+
+    await assert.rejects(
+      execFileAsync("bash", ["scripts/check-schema-wiring.sh"], {
+        cwd: repositoryRoot,
+        env: { ...process.env, DRIZZLE_KIT_BIN: fakeDrizzleKit },
+      }),
+      (error: unknown) => {
+        assert.ok(error && typeof error === "object" && "stderr" in error);
+        const stderr = String((error as { stderr: unknown }).stderr);
+        assert.match(
+          stderr,
+          /Unreviewed Drizzle alias: generate -> apply-directly/,
+        );
+        assert.match(
+          stderr,
+          /Review whether each alias can write to a database/,
         );
         return true;
       },

@@ -15,6 +15,20 @@ drizzle_kit_bin="${DRIZZLE_KIT_BIN:-$repo_root/lib/db/node_modules/.bin/drizzle-
 readonly drizzle_local_commands=(check drop export generate introspect studio up)
 readonly drizzle_database_commands=(migrate push)
 
+approved_command_aliases() {
+  case "$1" in
+    introspect)
+      printf '%s\n' introspect pull
+      ;;
+    check | drop | export | generate | studio | up | migrate | push)
+      # These commands currently expose no Aliases section.
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 approved_local_command_options() {
   case "$1" in
     check)
@@ -86,6 +100,49 @@ if ((${#unknown_drizzle_commands[@]} > 0)); then
   echo "Schema validation wiring check failed: the installed Drizzle Kit exposes unclassified commands." >&2
   printf 'Unclassified Drizzle command: %s\n' "${unknown_drizzle_commands[@]}" >&2
   echo "Review whether each command can apply data or schema changes, then add it to the explicit local or database command inventory." >&2
+  exit 1
+fi
+
+unknown_drizzle_aliases=()
+for command in "${drizzle_local_commands[@]}" "${drizzle_database_commands[@]}"; do
+  mapfile -t installed_aliases < <(
+    "$drizzle_kit_bin" "$command" --help |
+      awk '
+        /^Aliases:/ { in_aliases = 1; next }
+        in_aliases && /^[^[:space:]]/ { exit }
+        in_aliases {
+          line = $0
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+          count = split(line, aliases, /,[[:space:]]*/)
+          for (alias_index = 1; alias_index <= count; alias_index++) {
+            if (aliases[alias_index] ~ /^[[:alnum:]][[:alnum:]-]*$/) {
+              print aliases[alias_index]
+            }
+          }
+        }
+      ' |
+      sort -u
+  )
+  mapfile -t approved_aliases < <(approved_command_aliases "$command")
+
+  for alias in "${installed_aliases[@]}"; do
+    approved=false
+    for known_alias in "${approved_aliases[@]}"; do
+      if [[ "$alias" == "$known_alias" ]]; then
+        approved=true
+        break
+      fi
+    done
+    if [[ "$approved" == false ]]; then
+      unknown_drizzle_aliases+=("$command -> $alias")
+    fi
+  done
+done
+
+if ((${#unknown_drizzle_aliases[@]} > 0)); then
+  echo "Schema validation wiring check failed: a Drizzle Kit command exposes unreviewed aliases." >&2
+  printf 'Unreviewed Drizzle alias: %s\n' "${unknown_drizzle_aliases[@]}" >&2
+  echo "Review whether each alias can write to a database, then add only confirmed local or read-only aliases to the explicit inventory." >&2
   exit 1
 fi
 
@@ -249,4 +306,4 @@ if ! grep -qE "$raw_force_push_pattern" "$repo_root/$authorized_force_push"; the
   exit 1
 fi
 
-echo "Schema validation wiring passed: the installed Drizzle Kit command surface is classified and local-option surfaces are reviewed, workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized destructive schema command exists."
+echo "Schema validation wiring passed: the installed Drizzle Kit command and alias surfaces are classified and local-option surfaces are reviewed, workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized destructive schema command exists."
