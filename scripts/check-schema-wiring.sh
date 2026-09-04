@@ -11,6 +11,51 @@ authorized_force_push="lib/db/scripts/push-schema-isolated.sh"
 authorized_reviewed_push_manifest="lib/db/package.json"
 raw_force_push_pattern='drizzle-kit[[:space:]]+push([[:space:]][^[:space:]]+)*[[:space:]]+--force([[:space:]]|=|$)'
 destructive_schema_command_pattern='drizzle-kit[[:space:]]+(push|migrate)([[:space:]]|$)'
+drizzle_kit_bin="${DRIZZLE_KIT_BIN:-$repo_root/lib/db/node_modules/.bin/drizzle-kit}"
+readonly drizzle_local_commands=(check drop export generate introspect studio up)
+readonly drizzle_database_commands=(migrate push)
+
+if [[ ! -x "$drizzle_kit_bin" ]]; then
+  echo "Schema validation wiring check failed: could not execute the installed Drizzle Kit CLI at $drizzle_kit_bin." >&2
+  exit 1
+fi
+
+mapfile -t installed_drizzle_commands < <(
+  "$drizzle_kit_bin" --help |
+    awk '
+      /^Available Commands:/ { in_commands = 1; next }
+      in_commands && /^Flags:/ { exit }
+      in_commands && /^[[:space:]]+[[:alnum:]][[:alnum:]-]*([[:space:]]|$)/ {
+        print $1
+      }
+    '
+)
+
+if ((${#installed_drizzle_commands[@]} == 0)); then
+  echo "Schema validation wiring check failed: could not read the installed Drizzle Kit command surface." >&2
+  exit 1
+fi
+
+unknown_drizzle_commands=()
+for command in "${installed_drizzle_commands[@]}"; do
+  classified=false
+  for known_command in "${drizzle_local_commands[@]}" "${drizzle_database_commands[@]}"; do
+    if [[ "$command" == "$known_command" ]]; then
+      classified=true
+      break
+    fi
+  done
+  if [[ "$classified" == false ]]; then
+    unknown_drizzle_commands+=("$command")
+  fi
+done
+
+if ((${#unknown_drizzle_commands[@]} > 0)); then
+  echo "Schema validation wiring check failed: the installed Drizzle Kit exposes unclassified commands." >&2
+  printf 'Unclassified Drizzle command: %s\n' "${unknown_drizzle_commands[@]}" >&2
+  echo "Review whether each command can apply data or schema changes, then add it to the explicit local or database command inventory." >&2
+  exit 1
+fi
 
 if [[ ! -f "$replit_file" ]]; then
   echo "Schema validation wiring check failed: could not find $replit_file." >&2
@@ -141,4 +186,4 @@ if ! grep -qE "$raw_force_push_pattern" "$repo_root/$authorized_force_push"; the
   exit 1
 fi
 
-echo "Schema validation wiring passed: workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized destructive schema command exists."
+echo "Schema validation wiring passed: the installed Drizzle Kit command surface is classified, workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized destructive schema command exists."

@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import {
@@ -399,6 +400,57 @@ test("wires normal and force pushes through their respective safety guards", asy
   );
 });
 
+test("keeps every installed Drizzle Kit command explicitly classified", async () => {
+  const repositoryRoot = new URL("../../..", import.meta.url);
+  const { stdout } = await execFileAsync(
+    "bash",
+    ["scripts/check-schema-wiring.sh"],
+    { cwd: repositoryRoot },
+  );
+
+  assert.match(stdout, /Drizzle Kit command surface is classified/);
+});
+
+test("requires review when Drizzle Kit exposes a new command", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "schema-cli-surface-"));
+  const repositoryRoot = new URL("../../..", import.meta.url);
+  const installedDrizzleKit = fileURLToPath(
+    new URL("../node_modules/.bin/drizzle-kit", import.meta.url),
+  );
+  const fakeDrizzleKit = join(directory, "drizzle-kit");
+
+  try {
+    const { stdout: help } = await execFileAsync(
+      installedDrizzleKit,
+      ["--help"],
+    );
+    await writeFile(
+      fakeDrizzleKit,
+      `#!/usr/bin/env bash\ncat <<'EOF'\n${help.replace("Flags:", "  apply-next\n\nFlags:")}EOF\n`,
+      { mode: 0o755 },
+    );
+
+    await assert.rejects(
+      execFileAsync("bash", ["scripts/check-schema-wiring.sh"], {
+        cwd: repositoryRoot,
+        env: { ...process.env, DRIZZLE_KIT_BIN: fakeDrizzleKit },
+      }),
+      (error: unknown) => {
+        assert.ok(error && typeof error === "object" && "stderr" in error);
+        const stderr = String((error as { stderr: unknown }).stderr);
+        assert.match(stderr, /Unclassified Drizzle command: apply-next/);
+        assert.match(
+          stderr,
+          /Review whether each command can apply data or schema changes/,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects raw Drizzle destructive command families outside approved entry points", async () => {
   const directory = await mkdtemp(join(tmpdir(), "schema-wiring-"));
   const repositoryRoot = new URL("../../..", import.meta.url);
@@ -410,6 +462,30 @@ test("rejects raw Drizzle destructive command families outside approved entry po
     await mkdir(join(directory, "scripts"), { recursive: true });
     await mkdir(join(directory, "tools"), { recursive: true });
     await mkdir(join(directory, "lib/db/scripts"), { recursive: true });
+    await mkdir(join(directory, "lib/db/node_modules/.bin"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(directory, "lib/db/node_modules/.bin/drizzle-kit"),
+      `#!/usr/bin/env bash
+cat <<'EOF'
+Available Commands:
+  generate
+  migrate
+  introspect
+  push
+  studio
+  up
+  check
+  drop
+  export
+
+Flags:
+  -h, --help
+EOF
+`,
+      { mode: 0o755 },
+    );
     await writeFile(
       join(directory, ".replit"),
       [
