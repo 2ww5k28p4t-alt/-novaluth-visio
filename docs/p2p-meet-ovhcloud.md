@@ -42,6 +42,50 @@ d’adresse IP ou de domaine) arrête l’installation avant toute modification 
 la configuration existante et exige une migration explicite ; le script ne
 réutilise pas silencieusement des valeurs Coturn obsolètes.
 
+### Migration volontaire d’adresse IP ou de domaine
+
+Une migration n’est pas une réinstallation idempotente. Préparer d’abord la
+nouvelle destination sans arrêter l’ancien relais :
+
+1. mettre à jour l’enregistrement DNS `A` et attendre que
+   `dig +short NOUVEAU_DOMAINE` renvoie la nouvelle IPv4 ;
+2. si le domaine change, vérifier que le port 80 du nouveau VPS est accessible
+   afin que Certbot puisse obtenir un certificat couvrant ce nouveau domaine ;
+3. conserver le même secret TURN pendant la migration et le saisir à l’invite,
+   sans l’ajouter à la commande ni à l’historique du shell ;
+4. lancer explicitement :
+
+```bash
+sudo env \
+  TURN_DOMAIN=NOUVEAU_DOMAINE \
+  PUBLIC_IP=NOUVELLE_IP \
+  CERTBOT_EMAIL=adresse-operateur@example.com \
+  TURN_MIGRATION_CONFIRM=MIGRATE_TURN_CONFIGURATION \
+  bash scripts/install-coturn-ovh.sh
+```
+
+Le script refuse toute migration sans cette phrase exacte. Il vérifie le DNS,
+obtient ou contrôle le certificat et valide toutes les valeurs de la
+configuration candidate avant de toucher à `/etc/turnserver.conf`. Il crée
+ensuite une sauvegarde protégée
+`/etc/turnserver.conf.backup.<horodatage UTC>`, remplace atomiquement la
+configuration, puis redémarre Coturn. Le chemin de sauvegarde est affiché,
+jamais le secret TURN.
+
+Après le redémarrage réussi, mettre à jour les Secrets NovaLuth :
+
+- `TURN_HOST` avec le nouveau domaine ;
+- conserver `TURN_STATIC_AUTH_SECRET` avec la même valeur secrète, sans
+  l’afficher ni la recopier dans un journal ou une commande ;
+- laisser `TURN_TLS_443=false`, sauf si un véritable écouteur Coturn sur 443 a
+  été configuré et vérifié.
+
+Relancer ensuite le service API NovaLuth, contrôler `/api/meet/ice`, puis
+effectuer un appel depuis deux réseaux distincts. Ne retirer l’ancien DNS,
+l’ancien certificat ou l’ancien relais qu’après ces contrôles. En cas
+d’échec après remplacement, la sauvegarde indiquée permet à l’opérateur de
+restaurer manuellement la configuration antérieure.
+
 Le script n’active pas le port 443. Le relais TLS standard écoute sur 5349.
 N’activer `TURN_TLS_443=true` dans Replit qu’après avoir configuré et vérifié
 un écouteur Coturn réel sur 443.
@@ -55,9 +99,9 @@ pnpm run test:coturn-installer
 Ce contrôle utilise uniquement des répertoires et commandes simulés. Il vérifie
 la syntaxe, les ports, le refus d’un DNS incorrect, le refus d’écraser un
 secret existant, le refus d’une IP ou d’un domaine devenus obsolètes, une
-installation complète et une seconde exécution idempotente avec les mêmes
-paramètres. Il ne demande aucun secret réel et ne contacte aucun serveur
-public.
+migration explicitement confirmée avec sauvegarde, une installation complète
+et une seconde exécution idempotente avec les mêmes paramètres. Il ne demande
+aucun secret réel et ne contacte aucun serveur public.
 
 ## 1. Préparer le serveur
 

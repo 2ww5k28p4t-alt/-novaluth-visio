@@ -12,6 +12,7 @@
 #   TURN_DOMAIN=turn.novaluth.com
 #   PUBLIC_IP=1.2.3.4
 #   CERTBOT_EMAIL=contact@example.com
+#   TURN_MIGRATION_CONFIRM=MIGRATE_TURN_CONFIGURATION
 #
 set -euo pipefail
 umask 077
@@ -19,12 +20,15 @@ umask 077
 TURN_DOMAIN="${TURN_DOMAIN:-turn.novaluth.com}"
 PUBLIC_IP="${PUBLIC_IP:-}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
+TURN_MIGRATION_CONFIRM="${TURN_MIGRATION_CONFIRM:-}"
 TEST_ROOT="${NOVALUTH_COTURN_TEST_ROOT:-}"
 ETC_DIR="$TEST_ROOT/etc"
 CONFIG_FILE="$ETC_DIR/turnserver.conf"
 CERT_DIR="$ETC_DIR/letsencrypt/live/$TURN_DOMAIN"
 DEFAULT_FILE="$ETC_DIR/default/coturn"
 RENEWAL_FILE="$ETC_DIR/cron.d/novaluth-coturn-cert"
+MIGRATION_MODE=0
+CONFIG_MISMATCHES=()
 
 title() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 info() { printf '   %s\n' "$*"; }
@@ -56,7 +60,6 @@ if [ -f "$CONFIG_FILE" ]; then
   [ "$EXISTING_SECRET" = "$TURN_SECRET" ] ||
     fail "$CONFIG_FILE existe avec un autre secret ; refuse de l'écraser"
 
-  CONFIG_MISMATCHES=()
   check_existing_config_value() {
     local key="$1"
     local expected="$2"
@@ -71,8 +74,12 @@ if [ -f "$CONFIG_FILE" ]; then
   check_existing_config_value "cert" "$CERT_DIR/fullchain.pem"
   check_existing_config_value "pkey" "$CERT_DIR/privkey.pem"
 
-  [ "${#CONFIG_MISMATCHES[@]}" -eq 0 ] ||
-    fail "$CONFIG_FILE est incompatible avec les paramètres demandés (${CONFIG_MISMATCHES[*]}) ; migration explicite requise, refuse de l'écraser"
+  if [ "${#CONFIG_MISMATCHES[@]}" -ne 0 ]; then
+    [ "$TURN_MIGRATION_CONFIRM" = "MIGRATE_TURN_CONFIGURATION" ] ||
+      fail "$CONFIG_FILE est incompatible avec les paramètres demandés (${CONFIG_MISMATCHES[*]}) ; relancez volontairement avec TURN_MIGRATION_CONFIRM=MIGRATE_TURN_CONFIGURATION"
+    MIGRATION_MODE=1
+    info "migration explicitement confirmée pour : ${CONFIG_MISMATCHES[*]}"
+  fi
 fi
 
 title "1. Vérification DNS"
@@ -112,10 +119,9 @@ else
 fi
 
 title "4. Configuration Coturn"
-if [ -f "$CONFIG_FILE" ]; then
-  ok "configuration existante conservée"
-else
-  cat > "$CONFIG_FILE" <<EOF
+write_config() {
+  local destination="$1"
+  cat > "$destination" <<EOF
 listening-ip=0.0.0.0
 external-ip=$PUBLIC_IP
 listening-port=3478
@@ -157,7 +163,44 @@ max-bps=1000000
 log-file=syslog
 simple-log
 EOF
-  chmod 600 "$CONFIG_FILE"
+  chmod 600 "$destination"
+}
+
+validate_candidate_config() {
+  local candidate="$1"
+  local key expected actual
+  while IFS='|' read -r key expected; do
+    actual="$(sed -n "s/^${key}=//p" "$candidate" | head -n 1)"
+    [ "$actual" = "$expected" ] ||
+      fail "la configuration candidate est invalide pour $key ; configuration existante conservée"
+  done <<EOF
+external-ip|$PUBLIC_IP
+realm|$TURN_DOMAIN
+server-name|$TURN_DOMAIN
+static-auth-secret|$TURN_SECRET
+cert|$CERT_DIR/fullchain.pem
+pkey|$CERT_DIR/privkey.pem
+EOF
+  [ -r "$CERT_DIR/fullchain.pem" ] && [ -r "$CERT_DIR/privkey.pem" ] ||
+    fail "le nouveau certificat ou sa clé privée est illisible ; configuration existante conservée"
+}
+
+if [ "$MIGRATION_MODE" -eq 1 ]; then
+  CONFIG_CANDIDATE="$(mktemp "${CONFIG_FILE}.candidate.XXXXXX")"
+  trap 'rm -f "${CONFIG_CANDIDATE:-}"' EXIT
+  write_config "$CONFIG_CANDIDATE"
+  validate_candidate_config "$CONFIG_CANDIDATE"
+  CONFIG_BACKUP="${CONFIG_FILE}.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  cp -p "$CONFIG_FILE" "$CONFIG_BACKUP"
+  chmod 600 "$CONFIG_BACKUP"
+  mv -f "$CONFIG_CANDIDATE" "$CONFIG_FILE"
+  CONFIG_CANDIDATE=""
+  ok "configuration migrée après validation ; sauvegarde : $CONFIG_BACKUP"
+elif [ -f "$CONFIG_FILE" ]; then
+  ok "configuration existante conservée"
+else
+  write_config "$CONFIG_FILE"
+  validate_candidate_config "$CONFIG_FILE"
   ok "configuration Coturn créée"
 fi
 
@@ -169,8 +212,13 @@ EOF
 chmod 644 "$RENEWAL_FILE"
 
 title "5. Démarrage et contrôle"
-systemctl enable --now coturn
-systemctl reload coturn
+if [ "$MIGRATION_MODE" -eq 1 ]; then
+  systemctl enable coturn
+  systemctl restart coturn
+else
+  systemctl enable --now coturn
+  systemctl reload coturn
+fi
 systemctl is-active --quiet coturn || {
   journalctl -u coturn -n 60 --no-pager
   fail "Coturn ne démarre pas"

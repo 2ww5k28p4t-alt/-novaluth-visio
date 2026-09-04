@@ -50,6 +50,7 @@ run_installer() {
   local output="$3"
   local public_ip="${4:-203.0.113.10}"
   local turn_domain="${5:-turn.test.invalid}"
+  local migration_confirm="${6:-}"
   set +e
   printf '%s\n' "$secret" |
     env \
@@ -61,13 +62,14 @@ run_installer() {
       TURN_DOMAIN="$turn_domain" \
       PUBLIC_IP="$public_ip" \
       CERTBOT_EMAIL=admin@example.test \
+      TURN_MIGRATION_CONFIRM="$migration_confirm" \
       bash "$installer" >"$output" 2>&1
   local status=$?
   set -e
   return "$status"
 }
 
-printf '1/5 Vérification statique de l’installateur\n'
+printf '1/6 Vérification statique de l’installateur\n'
 bash -n "$installer"
 assert_contains "$installer" "set -euo pipefail"
 assert_contains "$installer" "umask 077"
@@ -132,7 +134,7 @@ printf 'tcp LISTEN 0 128 0.0.0.0:5349 0.0.0.0:*\n'
 EOF
 chmod +x "$mock_bin"/*
 
-printf '2/5 Refus d’un DNS incorrect sans accès réseau\n'
+printf '2/6 Refus d’un DNS incorrect sans accès réseau\n'
 dns_root="$tmp_dir/dns-root"
 dns_output="$tmp_dir/dns-output.log"
 if run_installer "$dns_root" "198.51.100.25" "$dns_output"; then
@@ -143,7 +145,7 @@ assert_not_contains "$dns_output" "$secret"
 [ ! -e "$dns_root/etc/turnserver.conf" ] ||
   fail "une configuration a été écrite malgré le refus DNS"
 
-printf '3/5 Refus d’écraser un secret TURN différent\n'
+printf '3/6 Refus d’écraser un secret TURN différent\n'
 config_root="$tmp_dir/config-root"
 config_file="$config_root/etc/turnserver.conf"
 cert_dir="$config_root/etc/letsencrypt/live/turn.test.invalid"
@@ -163,7 +165,7 @@ assert_not_contains "$config_output" "$secret"
 [ ! -e "$config_root/etc/default/coturn" ] ||
   fail "Coturn a été activé malgré le conflit de secret"
 
-printf '4/5 Installation complète et refus des paramètres obsolètes\n'
+printf '4/6 Installation complète et refus des paramètres obsolètes\n'
 success_root="$tmp_dir/success-root"
 first_output="$tmp_dir/success-first.log"
 success_config="$success_root/etc/turnserver.conf"
@@ -199,7 +201,7 @@ stale_ip_output="$tmp_dir/stale-ip-output.log"
 if run_installer "$success_root" "198.51.100.25" "$stale_ip_output" "198.51.100.25"; then
   fail "l’installateur a accepté une adresse external-ip obsolète"
 fi
-assert_contains "$stale_ip_output" "incompatible avec les paramètres demandés (external-ip)"
+assert_contains "$stale_ip_output" "TURN_MIGRATION_CONFIRM=MIGRATE_TURN_CONFIGURATION"
 assert_not_contains "$stale_ip_output" "$secret"
 cmp -s "$tmp_dir/turnserver.conf.before-stale-ip" "$success_config" ||
   fail "le changement d’IP a modifié la configuration Coturn existante"
@@ -209,17 +211,36 @@ stale_domain_output="$tmp_dir/stale-domain-output.log"
 if run_installer "$success_root" "203.0.113.10" "$stale_domain_output" "203.0.113.10" "turn-new.test.invalid"; then
   fail "l’installateur a accepté un domaine Coturn obsolète"
 fi
-assert_contains "$stale_domain_output" "incompatible avec les paramètres demandés (realm server-name cert pkey)"
+assert_contains "$stale_domain_output" "TURN_MIGRATION_CONFIRM=MIGRATE_TURN_CONFIGURATION"
 assert_not_contains "$stale_domain_output" "$secret"
 cmp -s "$tmp_dir/turnserver.conf.before-stale-domain" "$success_config" ||
   fail "le changement de domaine a modifié la configuration Coturn existante"
 [ ! -e "$success_root/etc/letsencrypt/live/turn-new.test.invalid" ] ||
   fail "le changement de domaine a créé des fichiers avant le refus"
 
-printf '5/5 Réinstallation idempotente avec des paramètres identiques\n'
+printf '5/6 Migration confirmée avec sauvegarde et redémarrage\n'
+migration_before="$tmp_dir/turnserver.conf.before-migration"
+cp "$success_config" "$migration_before"
+migration_output="$tmp_dir/migration-output.log"
+run_installer "$success_root" "198.51.100.25" "$migration_output" \
+  "198.51.100.25" "turn.test.invalid" "MIGRATE_TURN_CONFIGURATION" ||
+  fail "la migration explicitement confirmée a échoué"
+assert_contains "$migration_output" "migration explicitement confirmée pour : external-ip"
+assert_contains "$migration_output" "configuration migrée après validation ; sauvegarde :"
+assert_not_contains "$migration_output" "$secret"
+assert_contains "$success_config" "external-ip=198.51.100.25"
+migration_backup="$(find "$success_root/etc" -maxdepth 1 -name 'turnserver.conf.backup.*' -print -quit)"
+[ -n "$migration_backup" ] || fail "la migration n’a créé aucune sauvegarde"
+cmp -s "$migration_before" "$migration_backup" ||
+  fail "la sauvegarde ne correspond pas à la configuration antérieure"
+[ "$(stat -c '%a' "$migration_backup")" = "600" ] ||
+  fail "la sauvegarde Coturn n’a pas les permissions 600"
+assert_contains "$command_log" "systemctl restart coturn"
+
+printf '6/6 Réinstallation idempotente avec des paramètres identiques\n'
 second_output="$tmp_dir/success-second.log"
 cp "$success_config" "$tmp_dir/turnserver.conf.before-reinstall"
-run_installer "$success_root" "203.0.113.10" "$second_output" ||
+run_installer "$success_root" "198.51.100.25" "$second_output" "198.51.100.25" ||
   fail "la réinstallation simulée avec le même secret a échoué"
 assert_contains "$second_output" "configuration existante conservée"
 assert_contains "$second_output" "certificat existant conservé"
@@ -233,8 +254,8 @@ assert_count "$success_renewal" 1 "certbot renew --quiet"
 assert_count "$command_log" 1 "certbot certonly"
 assert_count "$command_log" 2 "systemctl enable --now coturn"
 assert_count "$command_log" 2 "systemctl reload coturn"
-assert_count "$command_log" 2 "systemctl is-active --quiet coturn"
-assert_count "$command_log" 2 "ss -lntup"
+assert_count "$command_log" 3 "systemctl is-active --quiet coturn"
+assert_count "$command_log" 3 "ss -lntup"
 assert_not_contains "$command_log" "$secret"
 
 printf 'PASS: installation et réinstallation Coturn validées sans serveur ni secret réel.\n'
