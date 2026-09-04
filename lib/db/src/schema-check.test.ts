@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -397,6 +397,61 @@ test("wires normal and force pushes through their respective safety guards", asy
     isolatedScript,
     /NOVALUTH_ISOLATED_SCHEMA_CHECK=1 pnpm run push-force/,
   );
+});
+
+test("rejects a new raw Drizzle force push outside the isolated wrapper", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "schema-wiring-"));
+  const repositoryRoot = new URL("../../..", import.meta.url);
+  const forcePush = ["drizzle-kit", "push", "--force"].join(" ");
+
+  try {
+    await mkdir(join(directory, "scripts"), { recursive: true });
+    await mkdir(join(directory, "tools"), { recursive: true });
+    await mkdir(join(directory, "lib/db/scripts"), { recursive: true });
+    await writeFile(
+      join(directory, ".replit"),
+      [
+        'name = "db-schema"',
+        'args = "pnpm --filter @workspace/db run check-schema:wiring && pnpm --filter @workspace/db run check-schema:isolated"',
+      ].join("\n"),
+    );
+    await writeFile(
+      join(directory, "scripts/post-merge.sh"),
+      "pnpm --filter @workspace/db run check-schema:isolated\n",
+    );
+    await writeFile(
+      join(directory, "lib/db/scripts/push-schema-isolated.sh"),
+      `exec ${forcePush} --config ./drizzle.config.ts\n`,
+    );
+    await writeFile(
+      join(directory, "tools/unsafe-schema-push.sh"),
+      `${forcePush} --config ./lib/db/drizzle.config.ts\n`,
+    );
+    await writeFile(
+      join(directory, "tools/unsafe-schema-push-equals.sh"),
+      `${forcePush}=true --config ./lib/db/drizzle.config.ts\n`,
+    );
+
+    await assert.rejects(
+      execFileAsync("bash", ["scripts/check-schema-wiring.sh", directory], {
+        cwd: repositoryRoot,
+      }),
+      (error: unknown) => {
+        assert.ok(error && typeof error === "object" && "stderr" in error);
+        assert.match(
+          String((error as { stderr: unknown }).stderr),
+          /Unauthorized invocation: tools\/unsafe-schema-push\.sh:1:/,
+        );
+        assert.match(
+          String((error as { stderr: unknown }).stderr),
+          /Unauthorized invocation: tools\/unsafe-schema-push-equals\.sh:1:/,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("refuses a direct developer invocation of the force push primitive", async () => {

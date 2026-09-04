@@ -7,6 +7,8 @@ replit_file="$repo_root/.replit"
 post_merge_file="$repo_root/scripts/post-merge.sh"
 isolated_command="pnpm --filter @workspace/db run check-schema:isolated"
 wiring_command="check-schema:wiring"
+authorized_force_push="lib/db/scripts/push-schema-isolated.sh"
+raw_force_push_pattern='drizzle-kit[[:space:]]+push([[:space:]][^[:space:]]+)*[[:space:]]+--force([[:space:]]|=|$)'
 
 if [[ ! -f "$replit_file" ]]; then
   echo "Schema validation wiring check failed: could not find $replit_file." >&2
@@ -50,4 +52,62 @@ if [[ "$post_merge_isolated_lines" != "$isolated_command" ]]; then
   exit 1
 fi
 
-echo "Schema validation wiring passed: workflow and post-merge hook use isolated PostgreSQL checks."
+unauthorized_force_pushes=()
+tracked_files() {
+  if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$repo_root" ls-files -z
+    return
+  fi
+
+  find "$repo_root" \
+    \( -type d \( \
+      -name .git -o \
+      -name node_modules -o \
+      -name dist -o \
+      -name build -o \
+      -name coverage -o \
+      -name .agents -o \
+      -name .local \
+    \) -prune \) -o \
+    \( -type f -print0 \)
+}
+
+while IFS= read -r -d '' tracked_path; do
+  if [[ "$tracked_path" == /* ]]; then
+    candidate="$tracked_path"
+  else
+    candidate="$repo_root/$tracked_path"
+  fi
+  relative_path="${candidate#"$repo_root"/}"
+
+  case "$relative_path" in
+    "$authorized_force_push")
+      continue
+      ;;
+    .agents/* | .local/* | attached_assets/* | docs/* | */node_modules/* | */dist/* | */build/* | */coverage/*)
+      continue
+      ;;
+  esac
+
+  if [[ ! -f "$candidate" ]]; then
+    continue
+  fi
+
+  while IFS= read -r match; do
+    unauthorized_force_pushes+=("$relative_path:$match")
+  done < <(grep -InE "$raw_force_push_pattern" "$candidate" || true)
+done < <(tracked_files)
+
+if ((${#unauthorized_force_pushes[@]} > 0)); then
+  echo "Schema validation wiring check failed: raw 'drizzle-kit push --force' invocations are only allowed in $authorized_force_push." >&2
+  printf 'Unauthorized invocation: %s\n' "${unauthorized_force_pushes[@]}" >&2
+  echo "Route forced schema application through the isolated PostgreSQL wrapper instead." >&2
+  exit 1
+fi
+
+if ! grep -qE "$raw_force_push_pattern" "$repo_root/$authorized_force_push"; then
+  echo "Schema validation wiring check failed: the authorized force-push wrapper no longer contains the expected Drizzle primitive." >&2
+  exit 1
+fi
+
+echo "Schema validation wiring passed: workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized raw force push exists."
