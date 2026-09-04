@@ -51,6 +51,30 @@ read -r -s -p "Secret TURN (la même valeur que TURN_STATIC_AUTH_SECRET dans Rep
 printf '\n'
 [ "${#TURN_SECRET}" -ge 32 ] || fail "le secret TURN doit contenir au moins 32 caractères"
 
+if [ -f "$CONFIG_FILE" ]; then
+  EXISTING_SECRET="$(sed -n 's/^static-auth-secret=//p' "$CONFIG_FILE" | head -n 1)"
+  [ "$EXISTING_SECRET" = "$TURN_SECRET" ] ||
+    fail "$CONFIG_FILE existe avec un autre secret ; refuse de l'écraser"
+
+  CONFIG_MISMATCHES=()
+  check_existing_config_value() {
+    local key="$1"
+    local expected="$2"
+    local actual
+    actual="$(sed -n "s/^${key}=//p" "$CONFIG_FILE" | head -n 1)"
+    [ "$actual" = "$expected" ] || CONFIG_MISMATCHES+=("$key")
+  }
+
+  check_existing_config_value "external-ip" "$PUBLIC_IP"
+  check_existing_config_value "realm" "$TURN_DOMAIN"
+  check_existing_config_value "server-name" "$TURN_DOMAIN"
+  check_existing_config_value "cert" "$CERT_DIR/fullchain.pem"
+  check_existing_config_value "pkey" "$CERT_DIR/privkey.pem"
+
+  [ "${#CONFIG_MISMATCHES[@]}" -eq 0 ] ||
+    fail "$CONFIG_FILE est incompatible avec les paramètres demandés (${CONFIG_MISMATCHES[*]}) ; migration explicite requise, refuse de l'écraser"
+fi
+
 title "1. Vérification DNS"
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl dnsutils ufw coturn certbot
@@ -89,8 +113,6 @@ fi
 
 title "4. Configuration Coturn"
 if [ -f "$CONFIG_FILE" ]; then
-  EXISTING_SECRET="$(sed -n 's/^static-auth-secret=//p' "$CONFIG_FILE" | head -n 1)"
-  [ "$EXISTING_SECRET" = "$TURN_SECRET" ] || fail "$CONFIG_FILE existe avec un autre secret ; refuse de l'écraser"
   ok "configuration existante conservée"
 else
   cat > "$CONFIG_FILE" <<EOF

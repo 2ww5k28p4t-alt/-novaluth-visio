@@ -35,8 +35,12 @@ sudo bash scripts/install-coturn-ovh.sh
 Le script vérifie le DNS, demande le secret TURN sans l’afficher, obtient le
 certificat Let's Encrypt, applique le pare-feu, écrit la configuration
 Coturn, active son renouvellement et vérifie les ports d’écoute. Il est
-relançable : une configuration existante n’est pas écrasée si son secret ne
-correspond pas.
+relançable uniquement si la configuration existante correspond exactement aux
+paramètres demandés : secret TURN, `external-ip`, `realm`, `server-name` et
+les chemins `cert`/`pkey`. Une divergence (par exemple après un changement
+d’adresse IP ou de domaine) arrête l’installation avant toute modification de
+la configuration existante et exige une migration explicite ; le script ne
+réutilise pas silencieusement des valeurs Coturn obsolètes.
 
 Le script n’active pas le port 443. Le relais TLS standard écoute sur 5349.
 N’activer `TURN_TLS_443=true` dans Replit qu’après avoir configuré et vérifié
@@ -50,9 +54,10 @@ pnpm run test:coturn-installer
 
 Ce contrôle utilise uniquement des répertoires et commandes simulés. Il vérifie
 la syntaxe, les ports, le refus d’un DNS incorrect, le refus d’écraser un
-secret existant, une installation complète et une seconde exécution
-idempotente avec le même secret. Il ne demande aucun secret réel et ne contacte
-aucun serveur public.
+secret existant, le refus d’une IP ou d’un domaine devenus obsolètes, une
+installation complète et une seconde exécution idempotente avec les mêmes
+paramètres. Il ne demande aucun secret réel et ne contacte aucun serveur
+public.
 
 ## 1. Préparer le serveur
 
