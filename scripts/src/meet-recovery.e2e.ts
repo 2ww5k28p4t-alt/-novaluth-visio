@@ -73,6 +73,52 @@ async function waitForJson<T>(url: string, timeoutMs = 15_000): Promise<T> {
   throw new Error(`Délai dépassé pour ${url}: ${String(lastError ?? "aucune réponse")}`);
 }
 
+async function requireHttpEndpoint(url: string, label: string) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+  } catch (error) {
+    throw new Error(
+      `${label} indisponible sur ${url}. Vérifiez que les workflows ` +
+      `"artifacts/novaluth: web" et "artifacts/api-server: API Server" sont démarrés. ` +
+      `Cause: ${String(error)}`,
+    );
+  }
+}
+
+async function requireChromium(chromium: string) {
+  const child = spawn(chromium, ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+  const exitCode = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  }).catch((error) => {
+    throw new Error(
+      `Chromium est requis pour la validation Meet (CHROMIUM_BIN=${chromium}). Cause: ${String(error)}`,
+    );
+  });
+  if (exitCode !== 0) {
+    throw new Error(`Chromium ne démarre pas (${chromium}, code ${exitCode}): ${stderr.trim()}`);
+  }
+}
+
+function signalBrowser(browser: ChildProcess, signal: NodeJS.Signals) {
+  if (browser.pid && process.platform !== "win32") {
+    try {
+      process.kill(-browser.pid, signal);
+      return;
+    } catch {
+      // Le processus principal peut déjà être sorti; tente alors le signal direct.
+    }
+  }
+  browser.kill(signal);
+}
+
 async function openPage(debugPort: number, url: string) {
   const response = await fetch(
     `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(url)}`,
@@ -196,9 +242,14 @@ async function main() {
   let browserLogs = "";
 
   try {
+    console.log(
+      "Précontrôle: Chromium headless avec faux périphériques audio/vidéo; " +
+      "les workflows NovaLuth web et API doivent être accessibles.",
+    );
+    await requireChromium(chromium);
+    await requireHttpEndpoint(appUrl, "Frontend NovaLuth Meet");
     const healthUrl = new URL("/api/healthz", appUrl).toString();
-    const health = await fetch(healthUrl);
-    if (!health.ok) throw new Error(`API indisponible sur ${healthUrl} (${health.status})`);
+    await requireHttpEndpoint(healthUrl, "API NovaLuth");
 
     browser = spawn(chromium, [
       "--headless=new",
@@ -210,7 +261,7 @@ async function main() {
       `--remote-debugging-port=${debugPort}`,
       `--user-data-dir=${profile}`,
       "about:blank",
-    ], { stdio: ["ignore", "ignore", "pipe"] });
+    ], { detached: process.platform !== "win32", stdio: ["ignore", "ignore", "pipe"] });
     browserExited = new Promise<void>((resolve) => {
       browser?.once("exit", () => resolve());
     });
@@ -321,12 +372,28 @@ async function main() {
     throw error;
   } finally {
     pages.forEach((page) => page.close());
-    browser?.kill("SIGTERM");
-    if (browserExited) {
-      await Promise.race([browserExited, delay(3_000)]);
+    if (browser && browserExited) {
+      signalBrowser(browser, "SIGTERM");
+      const exited = await Promise.race([
+        browserExited.then(() => true),
+        delay(3_000).then(() => false),
+      ]);
+      if (!exited) {
+        signalBrowser(browser, "SIGKILL");
+        await Promise.race([browserExited, delay(1_000)]);
+      }
     }
     await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
 
-await main();
+try {
+  await main();
+  // La commande est un exécutable de validation autonome. Certaines versions de
+  // Chromium conservent des handles CDP internes après leur arrêt; ne les laissez
+  // pas transformer un scénario réussi en expiration de la validation.
+  process.exit(0);
+} catch (error) {
+  console.error(error);
+  process.exit(1);
+}

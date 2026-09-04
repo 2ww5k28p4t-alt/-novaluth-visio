@@ -13,3 +13,4 @@
 - [TURN port advertisement](turn-port-advertisement.md) — Advertise TLS port 443 only when Coturn actually owns it; web proxies commonly occupy that port.
 - [Meet account persistence](meet-account-persistence.md) — Future Meet accounts must use PostgreSQL and NovaLuth identity, never deployment-local JSON files.
 - [Drizzle orphan cleanup prompts](drizzle-orphan-cleanup-prompts.md) — `drizzle-kit push --force` may still require a TTY when resolving orphaned table names.
+- [Chromium CDP validation exit](chromium-cdp-validation-exit.md) — Standalone CDP checks may need an explicit exit after cleanup to avoid false validation timeouts.

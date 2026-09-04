@@ -28,6 +28,10 @@ args = "meet-auth"
 task = "workflow.run"
 args = "coturn-installer"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "meet-recovery"
+
 [[workflows.workflow]]
 name = "db-schema"
 author = "agent"
@@ -57,6 +61,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm run test:coturn-installer"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "meet-recovery"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm run test:meet-recovery"
 
 [workflows.workflow.metadata]
 isValidation = true
