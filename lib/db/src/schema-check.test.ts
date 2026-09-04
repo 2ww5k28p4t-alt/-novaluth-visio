@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { promisify } from "node:util";
 
 import {
   getTableConfig,
@@ -31,6 +33,7 @@ import * as sourceSchema from "./schema";
 const originalNodeEnv = process.env.NODE_ENV;
 const originalDatabaseUrl = process.env.DATABASE_URL;
 const originalOrphanReviewFile = process.env.SCHEMA_ORPHAN_REVIEW_FILE;
+const execFileAsync = promisify(execFile);
 
 afterEach(() => {
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
@@ -375,14 +378,71 @@ test("does not require a cleanup review when no orphaned tables exist", () => {
   );
 });
 
-test("wires the normal push through orphan review while keeping isolated force push direct", async () => {
+test("wires normal and force pushes through their respective safety guards", async () => {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   ) as { scripts: Record<string, string> };
+  const isolatedScript = await readFile(
+    new URL("../scripts/check-schema-isolated.sh", import.meta.url),
+    "utf8",
+  );
 
   assert.match(packageJson.scripts.push, /^pnpm run check-schema:before-push && /);
   assert.match(packageJson.scripts["check-schema:before-push"], /--before-push$/);
-  assert.doesNotMatch(packageJson.scripts["push-force"], /before-push|orphans/);
+  assert.equal(
+    packageJson.scripts["push-force"],
+    "bash ./scripts/push-schema-isolated.sh",
+  );
+  assert.match(
+    isolatedScript,
+    /NOVALUTH_ISOLATED_SCHEMA_CHECK=1 pnpm run push-force/,
+  );
+});
+
+test("refuses a direct developer invocation of the force push primitive", async () => {
+  const environment = { ...process.env };
+  delete environment.NOVALUTH_ISOLATED_SCHEMA_CHECK;
+
+  await assert.rejects(
+    execFileAsync("pnpm", ["run", "push-force"], {
+      cwd: new URL("..", import.meta.url),
+      env: {
+        ...environment,
+        NODE_ENV: "test",
+        DATABASE_URL: "postgresql://schema_check@127.0.0.1:5432/postgres",
+      },
+    }),
+    (error: unknown) => {
+      assert.ok(error && typeof error === "object" && "stderr" in error);
+      assert.match(
+        String((error as { stderr: unknown }).stderr),
+        /Refusing unreviewed schema force push/,
+      );
+      return true;
+    },
+  );
+});
+
+test("refuses the isolated marker when the database is not the disposable local cluster", async () => {
+  await assert.rejects(
+    execFileAsync("pnpm", ["run", "push-force"], {
+      cwd: new URL("..", import.meta.url),
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        NOVALUTH_ISOLATED_SCHEMA_CHECK: "1",
+        DATABASE_URL: "postgresql://schema_check@database.example/postgres",
+      },
+    }),
+    (error: unknown) => {
+      assert.ok(error && typeof error === "object" && "stderr" in error);
+      assert.match(
+        String((error as { stderr: unknown }).stderr),
+        /outside the isolated PostgreSQL validation database/,
+      );
+      return true;
+    },
+  );
 });
 
 test("blocks the pre-push entry point when orphan review is missing or incomplete", async () => {

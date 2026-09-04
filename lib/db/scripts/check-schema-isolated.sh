@@ -152,7 +152,7 @@ database_url="postgresql://schema_check@127.0.0.1:$port/postgres"
 echo "Applying the current Drizzle schema to an isolated PostgreSQL database..."
 # Deliberately use the raw force primitive here: this disposable database is
 # empty, while the developer-facing `push` performs orphan review first.
-DATABASE_URL="$database_url" NODE_ENV=test pnpm run push-force
+DATABASE_URL="$database_url" NODE_ENV=test NOVALUTH_ISOLATED_SCHEMA_CHECK=1 pnpm run push-force
 
 echo "Running the schema preflight against the isolated database..."
 DATABASE_URL="$database_url" NODE_ENV=test pnpm run check-schema

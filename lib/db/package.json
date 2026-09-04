@@ -9,7 +9,7 @@
   },
   "scripts": {
     "push": "pnpm run check-schema:before-push && drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+    "push-force": "bash ./scripts/push-schema-isolated.sh",
     "check-schema": "../../scripts/node_modules/.bin/tsx ./src/schema-check.ts",
     "check-schema:before-push": "../../scripts/node_modules/.bin/tsx ./src/schema-check.ts --before-push",
     "check-schema:orphans": "../../scripts/node_modules/.bin/tsx ./src/schema-check.ts --orphans",
