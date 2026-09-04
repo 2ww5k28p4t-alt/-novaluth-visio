@@ -451,6 +451,51 @@ test("requires review when Drizzle Kit exposes a new command", async () => {
   }
 });
 
+test("requires review when a local Drizzle Kit command exposes a new option", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "schema-cli-options-"));
+  const repositoryRoot = new URL("../../..", import.meta.url);
+  const installedDrizzleKit = fileURLToPath(
+    new URL("../node_modules/.bin/drizzle-kit", import.meta.url),
+  );
+  const fakeDrizzleKit = join(directory, "drizzle-kit");
+
+  try {
+    await writeFile(
+      fakeDrizzleKit,
+      `#!/usr/bin/env bash
+if [[ "$1" == "generate" && "$2" == "--help" ]]; then
+  "${installedDrizzleKit}" "$@" | sed '/^Global flags:/i\\  --apply-directly   Apply generated changes to the database\\n'
+else
+  exec "${installedDrizzleKit}" "$@"
+fi
+`,
+      { mode: 0o755 },
+    );
+
+    await assert.rejects(
+      execFileAsync("bash", ["scripts/check-schema-wiring.sh"], {
+        cwd: repositoryRoot,
+        env: { ...process.env, DRIZZLE_KIT_BIN: fakeDrizzleKit },
+      }),
+      (error: unknown) => {
+        assert.ok(error && typeof error === "object" && "stderr" in error);
+        const stderr = String((error as { stderr: unknown }).stderr);
+        assert.match(
+          stderr,
+          /Unreviewed Drizzle option: generate --apply-directly/,
+        );
+        assert.match(
+          stderr,
+          /Review whether each option can write to a database/,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects raw Drizzle destructive command families outside approved entry points", async () => {
   const directory = await mkdtemp(join(tmpdir(), "schema-wiring-"));
   const repositoryRoot = new URL("../../..", import.meta.url);

@@ -15,6 +15,38 @@ drizzle_kit_bin="${DRIZZLE_KIT_BIN:-$repo_root/lib/db/node_modules/.bin/drizzle-
 readonly drizzle_local_commands=(check drop export generate introspect studio up)
 readonly drizzle_database_commands=(migrate push)
 
+approved_local_command_options() {
+  case "$1" in
+    check)
+      printf '%s\n' config dialect out help version
+      ;;
+    drop)
+      printf '%s\n' config out driver help version
+      ;;
+    export)
+      printf '%s\n' sql config dialect schema help version
+      ;;
+    generate)
+      printf '%s\n' config dialect driver casing schema out name breakpoints custom prefix help version
+      ;;
+    introspect)
+      printf '%s\n' \
+        config dialect out breakpoints introspect-casing tablesFilter \
+        schemaFilters extensionsFilters url host port user password database ssl \
+        auth-token tlsSecurity driver help version
+      ;;
+    studio)
+      printf '%s\n' config port host verbose help version
+      ;;
+    up)
+      printf '%s\n' config dialect out help version
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 if [[ ! -x "$drizzle_kit_bin" ]]; then
   echo "Schema validation wiring check failed: could not execute the installed Drizzle Kit CLI at $drizzle_kit_bin." >&2
   exit 1
@@ -54,6 +86,37 @@ if ((${#unknown_drizzle_commands[@]} > 0)); then
   echo "Schema validation wiring check failed: the installed Drizzle Kit exposes unclassified commands." >&2
   printf 'Unclassified Drizzle command: %s\n' "${unknown_drizzle_commands[@]}" >&2
   echo "Review whether each command can apply data or schema changes, then add it to the explicit local or database command inventory." >&2
+  exit 1
+fi
+
+unknown_local_command_options=()
+for command in "${drizzle_local_commands[@]}"; do
+  mapfile -t installed_options < <(
+    "$drizzle_kit_bin" "$command" --help |
+      grep -oE -- '--[[:alnum:]][[:alnum:]-]*' |
+      sed 's/^--//' |
+      sort -u
+  )
+  mapfile -t approved_options < <(approved_local_command_options "$command")
+
+  for option in "${installed_options[@]}"; do
+    approved=false
+    for known_option in "${approved_options[@]}"; do
+      if [[ "$option" == "$known_option" ]]; then
+        approved=true
+        break
+      fi
+    done
+    if [[ "$approved" == false ]]; then
+      unknown_local_command_options+=("$command --$option")
+    fi
+  done
+done
+
+if ((${#unknown_local_command_options[@]} > 0)); then
+  echo "Schema validation wiring check failed: a local Drizzle Kit command exposes unreviewed options." >&2
+  printf 'Unreviewed Drizzle option: %s\n' "${unknown_local_command_options[@]}" >&2
+  echo "Review whether each option can write to a database, then add only confirmed local or read-only options to the explicit inventory." >&2
   exit 1
 fi
 
@@ -186,4 +249,4 @@ if ! grep -qE "$raw_force_push_pattern" "$repo_root/$authorized_force_push"; the
   exit 1
 fi
 
-echo "Schema validation wiring passed: the installed Drizzle Kit command surface is classified, workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized destructive schema command exists."
+echo "Schema validation wiring passed: the installed Drizzle Kit command surface is classified and local-option surfaces are reviewed, workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized destructive schema command exists."
