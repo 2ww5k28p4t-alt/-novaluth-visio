@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 type CdpReply = {
   id?: number;
@@ -57,6 +58,21 @@ class CdpClient {
 
 const delay = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+const roomProcessEntropy = `${process.pid.toString(36)}-${randomUUID().replaceAll("-", "")}`;
+let roomSequence = 0;
+
+function createMeetTestRoom() {
+  roomSequence += 1;
+  return `reprise-${roomProcessEntropy}-${roomSequence.toString(36)}`;
+}
+
+function assertMeetTestRoomUniqueness() {
+  const rooms = [createMeetTestRoom(), createMeetTestRoom()];
+  if (new Set(rooms).size !== rooms.length) {
+    throw new Error("Le générateur de salles Meet doit produire des identifiants uniques.");
+  }
+}
 
 async function waitForJson<T>(url: string, timeoutMs = 15_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -318,6 +334,7 @@ const mediaSnapshotExpression = `(() => {
 })()`;
 
 async function main() {
+  assertMeetTestRoomUniqueness();
   const appUrl = process.env.MEET_E2E_URL ?? "http://127.0.0.1:80/meet";
   const chromium = process.env.CHROMIUM_BIN ?? "chromium";
   const requestedDebugPort = parseRequestedDebugPort(process.env.MEET_E2E_DEBUG_PORT);
@@ -368,7 +385,7 @@ async function main() {
     const bob = await openPage(debugPort, appUrl);
     pages.push(alice, bob);
 
-    const room = `reprise-${Date.now().toString(36)}`;
+    const room = createMeetTestRoom();
     await fillAndJoin(alice, "Alice", room);
     await fillAndJoin(bob, "Bob", room);
     console.log("2/6 Deux participants connectés");
