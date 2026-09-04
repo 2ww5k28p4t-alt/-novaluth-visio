@@ -71,6 +71,19 @@ function stopStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
+function getParticipantId() {
+  try {
+    const stored = sessionStorage.getItem("p2pmeet.participantId");
+    if (stored) return stored;
+    const participantId = globalThis.crypto?.randomUUID?.()
+      ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    sessionStorage.setItem("p2pmeet.participantId", participantId);
+    return participantId;
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 export default function P2PMeet() {
   const params = new URLSearchParams(window.location.search);
   const [name, setName] = useState(() => params.get("name") ?? localStorage.getItem("p2pmeet.name") ?? "");
@@ -127,7 +140,9 @@ export default function P2PMeet() {
   const [camOn, setCamOn] = useState(true);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [connectionState, setConnectionState] = useState<"ready" | "connecting" | "connected" | "offline">("ready");
+  const [connectionState, setConnectionState] = useState<
+    "ready" | "connecting" | "connected" | "reconnecting" | "offline"
+  >("ready");
 
   const socketRef = useRef<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -138,6 +153,9 @@ export default function P2PMeet() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const facingModeRef = useRef<"user" | "environment">("user");
   const activeRoomRef = useRef("");
+  const hasJoinedRef = useRef(false);
+  const participantIdRef = useRef("");
+  if (!participantIdRef.current) participantIdRef.current = getParticipantId();
 
   const showPeerStream = useCallback((peer: RemotePeer) => {
     const video = videoRefs.current.get(peer.id);
@@ -314,12 +332,28 @@ export default function P2PMeet() {
         path: socketPath,
         transports: ["websocket", "polling"],
         withCredentials: true,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1_000,
+        reconnectionDelayMax: 5_000,
       });
       socketRef.current = socket;
       socket.on("connect", () => {
+        const reconnecting = hasJoinedRef.current;
+        if (reconnecting) {
+          peersRef.current.forEach((peer) => peer.pc.close());
+          peersRef.current.clear();
+          setRemotePeers([]);
+        }
         socket.emit(
           "join",
-          { room: cleanRoom, name: cleanName, code, roomPassword },
+          {
+            room: cleanRoom,
+            name: cleanName,
+            code,
+            roomPassword,
+            participantId: participantIdRef.current,
+          },
           (response: JoinResponse) => {
             if (!response.ok) {
               setJoinError(response.error || "Connexion refusée.");
@@ -338,6 +372,7 @@ export default function P2PMeet() {
             setRoomPasswordRequired(false);
             setSelfId(response.selfId || "");
             setJoined(true);
+            hasJoinedRef.current = true;
             setJoining(false);
             setConnectionState("connected");
             window.history.replaceState(null, "", `?room=${encodeURIComponent(joinedRoom)}`);
@@ -348,6 +383,10 @@ export default function P2PMeet() {
       socket.on("peer-joined", ({ id, name: peerName }: { id: string; name: string }) => {
         createPeer(id, peerName, false);
       });
+      socket.on("peer-reconnected", ({ id, name: peerName }: { id: string; name: string }) => {
+        removePeer(id);
+        createPeer(id, peerName, false);
+      });
       socket.on("signal", handleSignal);
       socket.on("peer-left", ({ id }: { id: string }) => removePeer(id));
       socket.on("state", ({ from, audio, video }: { from: string; audio: boolean; video: boolean }) => {
@@ -355,11 +394,21 @@ export default function P2PMeet() {
       });
       socket.on("chat", (message: ChatMessage) => setChatMessages((current) => [...current, message]));
       socket.on("connect_error", () => {
+        if (hasJoinedRef.current) {
+          setConnectionState("reconnecting");
+          return;
+        }
         setJoinError("La connexion sécurisée à la salle a échoué.");
         setConnectionState("offline");
         setJoining(false);
       });
-      socket.on("disconnect", () => setConnectionState("offline"));
+      socket.on("disconnect", (reason) => {
+        if (reason !== "io client disconnect" && hasJoinedRef.current) {
+          setConnectionState("reconnecting");
+        } else if (reason !== "io client disconnect") {
+          setConnectionState("offline");
+        }
+      });
     } catch (error) {
       const message = error instanceof Error && error.message === "WebRTC_NOT_SUPPORTED"
         ? "Ce navigateur ne prend pas en charge WebRTC."
@@ -482,6 +531,7 @@ export default function P2PMeet() {
     socketRef.current?.disconnect();
     socketRef.current = null;
     setRemotePeers([]);
+    hasJoinedRef.current = false;
     setJoined(false);
     setLocalStreamReady(false);
     setActiveRoom("");
@@ -538,6 +588,7 @@ export default function P2PMeet() {
   const totalParticipants = remotePeers.length + 1;
   const connectionLabel =
     connectionState === "connected" ? "Connecté" :
+      connectionState === "reconnecting" ? "Reconnexion…" :
       connectionState === "offline" ? "Signalisation interrompue" :
         connectionState === "connecting" ? "Connexion…" : "Prêt à rejoindre";
 

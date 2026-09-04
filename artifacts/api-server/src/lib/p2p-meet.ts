@@ -13,8 +13,12 @@ const ACCESS_CODE = process.env.ACCESS_CODE ?? "";
 const LOG_SALT = process.env.LOG_SALT ?? process.env.SESSION_SECRET ?? "novaluth-meet";
 const JOIN_WINDOW_MS = 15 * 60 * 1000;
 const JOIN_ATTEMPT_LIMIT = 15;
+const RECOVERY_WINDOW_MS = Math.max(
+  10_000,
+  Number(process.env.MEET_RECOVERY_WINDOW_MS ?? 120_000),
+);
 
-type RoomPeer = { name: string };
+type RoomPeer = { name: string; socketId: string; connected: boolean };
 type RoomState = {
   peers: Map<string, RoomPeer>;
   passwordSalt: string | null;
@@ -26,6 +30,7 @@ type RoomPayload = {
   name?: unknown;
   code?: unknown;
   roomPassword?: unknown;
+  participantId?: unknown;
 };
 
 function sanitize(value: unknown, maxLength: number) {
@@ -114,10 +119,44 @@ export function registerP2PMeet(server: HttpServer) {
     serveClient: false,
     maxHttpBufferSize: 100_000,
     pingTimeout: 30_000,
+    connectionStateRecovery: {
+      maxDisconnectionDuration: RECOVERY_WINDOW_MS,
+      skipMiddlewares: false,
+    },
     cors: { origin: false },
   });
   const rooms = new Map<string, RoomState>();
   const joinAttempts = new Map<string, { count: number; firstAt: number }>();
+  const pendingPeerRemoval = new Map<string, ReturnType<typeof setTimeout>>();
+
+  const recoveryKey = (room: string, peerId: string) => `${room}:${peerId}`;
+
+  const cancelPendingPeerRemoval = (room: string, peerId: string) => {
+    const key = recoveryKey(room, peerId);
+    const timer = pendingPeerRemoval.get(key);
+    if (!timer) return;
+    clearTimeout(timer);
+    pendingPeerRemoval.delete(key);
+  };
+
+  const schedulePeerRemoval = (room: string, peerId: string) => {
+    const key = recoveryKey(room, peerId);
+    cancelPendingPeerRemoval(room, peerId);
+    const timer = setTimeout(() => {
+      pendingPeerRemoval.delete(key);
+      const roomState = rooms.get(room);
+      if (!roomState?.peers.has(peerId)) return;
+      roomState.peers.delete(peerId);
+      io.to(room).emit("peer-left", { id: peerId });
+      if (roomState.peers.size === 0) rooms.delete(room);
+      logger.info(
+        { room, peerId, event: "meet_room_peer_expired" },
+        "P2P Meet disconnected peer expired after recovery window",
+      );
+    }, RECOVERY_WINDOW_MS);
+    timer.unref();
+    pendingPeerRemoval.set(key, timer);
+  };
 
   io.use(async (socket, next) => {
     if (!isMeetAuthRequired()) {
@@ -164,7 +203,10 @@ export function registerP2PMeet(server: HttpServer) {
   };
 
   io.on("connection", (socket: Socket) => {
-    let currentRoom: string | null = null;
+    let currentRoom: string | null =
+      typeof socket.data.room === "string" ? socket.data.room : null;
+    let currentPeerId: string | null =
+      typeof socket.data.peerId === "string" ? socket.data.peerId : null;
     const forwardedFor = socket.handshake.headers["x-forwarded-for"];
     const address = Array.isArray(forwardedFor)
       ? forwardedFor[0]
@@ -177,6 +219,7 @@ export function registerP2PMeet(server: HttpServer) {
         sanitize(payload.name, 24)
         || (isMeetAuthRequired() ? sanitize(socket.data.account?.displayName, 24) : "")
         || "Invité";
+      const participantId = sanitize(payload.participantId, 80) || currentPeerId || socket.id;
       const code = String(payload.code ?? "");
       const roomPassword = String(payload.roomPassword ?? "").slice(0, 128);
 
@@ -228,20 +271,37 @@ export function registerP2PMeet(server: HttpServer) {
         return;
       }
 
-      if (roomState.peers.size >= MAX_PEERS) {
+      const recoveredPeer = roomState.peers.get(participantId);
+      const connectedPeerCount = Array.from(roomState.peers.values())
+        .filter((peer) => peer.connected)
+        .length;
+      if (!recoveredPeer && connectedPeerCount >= MAX_PEERS) {
         sendAck(ack, { ok: false, error: `Salle pleine (${MAX_PEERS} participants maximum).` });
         return;
       }
 
       currentRoom = room;
+      currentPeerId = participantId;
       socket.data.name = name;
+      socket.data.room = room;
+      socket.data.peerId = participantId;
       socket.join(room);
-      const existing = Array.from(roomState.peers, ([id, info]) => ({ id, name: info.name }));
-      roomState.peers.set(socket.id, { name });
-      socket.to(room).emit("peer-joined", { id: socket.id, name });
+      const existing = Array.from(roomState.peers, ([id, info]) => ({ id, name: info.name }))
+        .filter(({ id }) => id !== participantId)
+        .filter(({ id }) => roomState?.peers.get(id)?.connected);
+      if (recoveredPeer) {
+        cancelPendingPeerRemoval(room, participantId);
+        recoveredPeer.name = name;
+        recoveredPeer.socketId = socket.id;
+        recoveredPeer.connected = true;
+        socket.to(room).emit("peer-reconnected", { id: participantId, name });
+      } else {
+        roomState.peers.set(participantId, { name, socketId: socket.id, connected: true });
+        socket.to(room).emit("peer-joined", { id: participantId, name });
+      }
       sendAck(ack, {
         ok: true,
-        selfId: socket.id,
+        selfId: participantId,
         room,
         protected: Boolean(roomState.passwordHash),
         peers: existing,
@@ -253,18 +313,23 @@ export function registerP2PMeet(server: HttpServer) {
     });
 
     socket.on("signal", ({ to, data }: SignalPayload = {}) => {
-      if (!currentRoom || !to || !data) return;
+      if (!currentRoom || !currentPeerId || !to || !data) return;
       const roomState = rooms.get(currentRoom);
-      if (!roomState?.peers.has(to)) return;
-      io.to(to).emit("signal", { from: socket.id, name: socket.data.name, data });
+      const targetPeer = roomState?.peers.get(to);
+      if (!targetPeer?.connected) return;
+      io.to(targetPeer.socketId).emit("signal", {
+        from: currentPeerId,
+        name: socket.data.name,
+        data,
+      });
     });
 
     socket.on("chat", (payload: { text?: unknown } = {}) => {
-      if (!currentRoom) return;
+      if (!currentRoom || !currentPeerId) return;
       const text = sanitize(payload.text, 800);
       if (!text) return;
       io.to(currentRoom).emit("chat", {
-        from: socket.id,
+        from: currentPeerId,
         name: socket.data.name,
         text,
         at: Date.now(),
@@ -272,23 +337,40 @@ export function registerP2PMeet(server: HttpServer) {
     });
 
     socket.on("state", (state: { audio?: unknown; video?: unknown } = {}) => {
-      if (!currentRoom) return;
+      if (!currentRoom || !currentPeerId) return;
       socket.to(currentRoom).emit("state", {
-        from: socket.id,
+        from: currentPeerId,
         audio: Boolean(state.audio),
         video: Boolean(state.video),
       });
     });
 
-    socket.on("disconnect", () => {
-      if (!currentRoom) return;
+    socket.on("disconnect", (reason) => {
+      if (!currentRoom || !currentPeerId) return;
       const roomState = rooms.get(currentRoom);
-      roomState?.peers.delete(socket.id);
-      if (roomState?.peers.size === 0) rooms.delete(currentRoom);
-      socket.to(currentRoom).emit("peer-left", { id: socket.id });
+      const peer = roomState?.peers.get(currentPeerId);
+      if (!peer || peer.socketId !== socket.id) return;
+      if (reason === "client namespace disconnect") {
+        roomState?.peers.delete(currentPeerId);
+        if (roomState?.peers.size === 0) rooms.delete(currentRoom);
+        socket.to(currentRoom).emit("peer-left", { id: currentPeerId });
+        logger.info(
+          { room: currentRoom, ipHash, event: "meet_room_left" },
+          "P2P Meet peer left",
+        );
+        return;
+      }
+      peer.connected = false;
+      schedulePeerRemoval(currentRoom, currentPeerId);
+      socket.to(currentRoom).emit("peer-disconnected", { id: currentPeerId });
       logger.info(
-        { room: currentRoom, ipHash, event: "meet_room_left" },
-        "P2P Meet peer left",
+        {
+          room: currentRoom,
+          ipHash,
+          recovered: socket.recovered,
+          event: "meet_room_disconnected",
+        },
+        "P2P Meet peer disconnected; waiting for recovery",
       );
     });
   });
