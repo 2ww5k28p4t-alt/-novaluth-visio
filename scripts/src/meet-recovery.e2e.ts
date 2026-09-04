@@ -73,6 +73,92 @@ async function waitForJson<T>(url: string, timeoutMs = 15_000): Promise<T> {
   throw new Error(`Délai dépassé pour ${url}: ${String(lastError ?? "aucune réponse")}`);
 }
 
+function parseRequestedDebugPort(rawValue: string | undefined) {
+  if (rawValue === undefined || rawValue.trim() === "") return undefined;
+  const port = Number(rawValue);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(
+      `MEET_E2E_DEBUG_PORT doit être un port TCP local compris entre 1 et 65535 (reçu : ${rawValue}).`,
+    );
+  }
+  return port;
+}
+
+function chromiumStartupError(
+  debugPort: number | undefined,
+  browserLogs: string,
+  cause: unknown,
+) {
+  if (/address already in use|eaddrinuse|bind\(\) failed/i.test(browserLogs)) {
+    return new Error(
+      `Conflit de port CDP${debugPort === undefined ? "" : ` (${debugPort}`}${debugPort === undefined ? "" : ")"}. ` +
+      "Un autre Chromium ou une validation Meet utilise déjà ce port. " +
+      "Supprimez MEET_E2E_DEBUG_PORT pour laisser Chromium choisir un port libre.",
+    );
+  }
+  return new Error(
+    `Navigateur Chromium indisponible : il n'a pas ouvert son endpoint CDP` +
+    `${debugPort === undefined ? "" : ` sur le port ${debugPort}`}. ` +
+    `Vérifiez CHROMIUM_BIN et le démarrage du navigateur. Cause: ${String(cause)}`,
+  );
+}
+
+async function waitForDebugPort(
+  browser: ChildProcess,
+  requestedPort: number | undefined,
+  getBrowserLogs: () => string,
+  timeoutMs = 15_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const browserLogs = getBrowserLogs();
+    if (/address already in use|eaddrinuse|bind\(\) failed/i.test(browserLogs)) {
+      throw chromiumStartupError(requestedPort, browserLogs, "échec de bind");
+    }
+
+    const match = browserLogs.match(
+      /DevTools listening on ws:\/\/(?:127\.0\.0\.1|localhost):([0-9]+)\//i,
+    );
+    if (match) {
+      const port = Number(match[1]);
+      if (
+        requestedPort !== undefined &&
+        Number.isInteger(port) &&
+        port !== requestedPort
+      ) {
+        throw new Error(
+          `Chromium a annoncé le port CDP ${port}, différent du port demandé ${requestedPort}.`,
+        );
+      }
+      if (Number.isInteger(port) && port >= 1 && port <= 65_535) {
+        try {
+          await waitForJson(
+            `http://127.0.0.1:${port}/json/version`,
+            Math.max(1, deadline - Date.now()),
+          );
+          return port;
+        } catch (error) {
+          throw chromiumStartupError(port, getBrowserLogs(), error);
+        }
+      }
+    }
+    if (browser.exitCode !== null) {
+      throw chromiumStartupError(
+        requestedPort,
+        getBrowserLogs(),
+        `code ${browser.exitCode}`,
+      );
+    }
+    await delay(100);
+  }
+
+  throw chromiumStartupError(
+    requestedPort,
+    getBrowserLogs(),
+    `délai dépassé de ${timeoutMs} ms`,
+  );
+}
+
 async function requireHttpEndpoint(url: string, label: string) {
   try {
     const response = await fetch(url);
@@ -234,7 +320,7 @@ const mediaSnapshotExpression = `(() => {
 async function main() {
   const appUrl = process.env.MEET_E2E_URL ?? "http://127.0.0.1:80/meet";
   const chromium = process.env.CHROMIUM_BIN ?? "chromium";
-  const debugPort = Number(process.env.MEET_E2E_DEBUG_PORT ?? 9228);
+  const requestedDebugPort = parseRequestedDebugPort(process.env.MEET_E2E_DEBUG_PORT);
   const profile = await mkdtemp(path.join(tmpdir(), "novaluth-meet-e2e-"));
   let browser: ChildProcess | null = null;
   let browserExited: Promise<void> | null = null;
@@ -258,7 +344,8 @@ async function main() {
       "--autoplay-policy=no-user-gesture-required",
       "--use-fake-ui-for-media-stream",
       "--use-fake-device-for-media-stream",
-      `--remote-debugging-port=${debugPort}`,
+      `--remote-debugging-address=127.0.0.1`,
+      `--remote-debugging-port=${requestedDebugPort ?? 0}`,
       `--user-data-dir=${profile}`,
       "about:blank",
     ], { detached: process.platform !== "win32", stdio: ["ignore", "ignore", "pipe"] });
@@ -269,8 +356,14 @@ async function main() {
       browserLogs = `${browserLogs}${String(chunk)}`.slice(-8_000);
     });
 
-    await waitForJson(`http://127.0.0.1:${debugPort}/json/version`);
-    console.log("1/6 Chromium prêt");
+    const debugPort = await waitForDebugPort(
+      browser,
+      requestedDebugPort,
+      () => browserLogs,
+    );
+    console.log(
+      `1/6 Chromium prêt (port CDP ${debugPort}${requestedDebugPort === undefined ? ", choisi automatiquement" : ""})`,
+    );
     const alice = await openPage(debugPort, appUrl);
     const bob = await openPage(debugPort, appUrl);
     pages.push(alice, bob);
