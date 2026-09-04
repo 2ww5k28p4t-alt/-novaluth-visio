@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useGetAdminSummary, useGetSn13PurgeIncidents, useRunAccessMaintenance, useUpdateFicheStatus, StatusUpdateStatut, getGetAdminSummaryQueryKey, getGetSn13PurgeIncidentsQueryKey } from "@workspace/api-client-react";
+import { useGetAdminSummary, useGetSn13PurgeIncidents, useRunAccessMaintenance, useUpdateFicheStatus, StatusUpdateStatut, getGetAdminSummaryQueryKey, getGetSn13PurgeIncidentsQueryKey, useListMeetAccounts, useCreateMeetAccount, useUpdateMeetAccount, useResetMeetAccountPassword, getListMeetAccountsQueryKey, CreateMeetAccountRole } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,6 +74,11 @@ export default function Admin() {
 function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [newAccountLogin, setNewAccountLogin] = useState("");
+  const [newAccountName, setNewAccountName] = useState("");
+  const [newAccountRole, setNewAccountRole] = useState<CreateMeetAccountRole>(CreateMeetAccountRole.musicien);
+  const [newAccountAtelier, setNewAccountAtelier] = useState("");
+  const [temporaryPassword, setTemporaryPassword] = useState("");
   
   const { data: summary, isLoading, error, refetch } = useGetAdminSummary({
     request: { headers: { 'X-Admin-Token': token } },
@@ -92,6 +97,19 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
   });
   const maintenance = useRunAccessMaintenance({
     request: { headers: { 'X-Admin-Token': token } }
+  });
+  const meetAccounts = useListMeetAccounts({
+    request: { headers: { "X-Admin-Token": token } },
+    query: { retry: false, queryKey: getListMeetAccountsQueryKey() },
+  });
+  const createMeetAccount = useCreateMeetAccount({
+    request: { headers: { "X-Admin-Token": token } },
+  });
+  const updateMeetAccount = useUpdateMeetAccount({
+    request: { headers: { "X-Admin-Token": token } },
+  });
+  const resetMeetAccountPassword = useResetMeetAccountPassword({
+    request: { headers: { "X-Admin-Token": token } },
   });
 
   // Handle auth error (401/403)
@@ -126,6 +144,75 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
           });
         }
       }
+    );
+  };
+
+  const handleCreateMeetAccount = (event: React.FormEvent) => {
+    event.preventDefault();
+    createMeetAccount.mutate(
+      {
+        data: {
+          login: newAccountLogin,
+          displayName: newAccountName,
+          role: newAccountRole,
+          atelierSlug: newAccountAtelier.trim() || null,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          setNewAccountLogin("");
+          setNewAccountName("");
+          setNewAccountAtelier("");
+          setTemporaryPassword(result.temporaryPassword);
+          queryClient.invalidateQueries({ queryKey: getListMeetAccountsQueryKey() });
+          toast({
+            title: "Accès Meet créé",
+            description: "Copiez le mot de passe temporaire et transmettez-le au titulaire.",
+          });
+        },
+        onError: () => toast({
+          variant: "destructive",
+          title: "Création impossible",
+          description: "Vérifiez l’identifiant, le rôle et le lien atelier.",
+        }),
+      },
+    );
+  };
+
+  const handleToggleMeetAccount = (accountId: number, active: boolean) => {
+    updateMeetAccount.mutate(
+      { accountId, data: { active: !active } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListMeetAccountsQueryKey() });
+          toast({ title: active ? "Accès désactivé" : "Accès réactivé" });
+        },
+        onError: () => toast({
+          variant: "destructive",
+          title: "Modification impossible",
+          description: "L’état du compte n’a pas été modifié.",
+        }),
+      },
+    );
+  };
+
+  const handleResetMeetAccount = (accountId: number) => {
+    resetMeetAccountPassword.mutate(
+      { accountId },
+      {
+        onSuccess: (result) => {
+          setTemporaryPassword(result.temporaryPassword);
+          toast({
+            title: "Mot de passe réinitialisé",
+            description: "Le nouveau mot de passe est affiché une seule fois.",
+          });
+        },
+        onError: () => toast({
+          variant: "destructive",
+          title: "Réinitialisation impossible",
+          description: "Le compte Meet est introuvable ou inaccessible.",
+        }),
+      },
     );
   };
 
@@ -219,6 +306,108 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
           </div>
         ))}
       </div>
+
+      <section className="bg-card border border-border/50 p-6 mb-12">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5 mb-6">
+          <div>
+            <h2 className="text-xl font-serif text-primary">Accès NovaLuth Meet</h2>
+            <p className="text-sm text-muted-foreground">
+              Comptes persistants liés aux rôles NovaLuth. Les mots de passe sont hachés et ne sont jamais conservés en clair.
+            </p>
+          </div>
+          <Badge variant="outline" className="rounded-none self-start">
+            {meetAccounts.data?.accounts.length ?? 0} compte(s)
+          </Badge>
+        </div>
+
+        <form onSubmit={handleCreateMeetAccount} className="grid gap-3 border border-border/50 bg-background/40 p-4 md:grid-cols-5 md:items-end">
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Identifiant</span>
+            <Input value={newAccountLogin} onChange={(event) => setNewAccountLogin(event.target.value)} placeholder="prenom.nom" required maxLength={80} className="rounded-none" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Nom affiché</span>
+            <Input value={newAccountName} onChange={(event) => setNewAccountName(event.target.value)} placeholder="Prénom Nom" required maxLength={80} className="rounded-none" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Rôle</span>
+            <select value={newAccountRole} onChange={(event) => setNewAccountRole(event.target.value as CreateMeetAccountRole)} className="h-10 w-full rounded-none border border-input bg-background px-3 text-sm">
+              <option value={CreateMeetAccountRole.musicien}>Musicien</option>
+              <option value={CreateMeetAccountRole.artisan}>Artisan</option>
+              <option value={CreateMeetAccountRole.admin}>Administrateur</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-muted-foreground">Atelier lié <span className="text-xs">(facultatif)</span></span>
+            <Input value={newAccountAtelier} onChange={(event) => setNewAccountAtelier(event.target.value)} placeholder="slug-de-l-atelier" maxLength={120} className="rounded-none" />
+          </label>
+          <Button type="submit" disabled={createMeetAccount.isPending} className="rounded-none">
+            {createMeetAccount.isPending ? "Création…" : "Créer l’accès"}
+          </Button>
+        </form>
+
+        {temporaryPassword && (
+          <div className="mt-4 flex flex-col gap-3 border border-amber-500/40 bg-amber-500/10 p-4 text-sm md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="font-medium text-amber-800 dark:text-amber-200">Mot de passe temporaire — à transmettre maintenant</p>
+              <code className="mt-1 block select-all font-mono text-base text-foreground">{temporaryPassword}</code>
+              <p className="mt-1 text-xs text-muted-foreground">Il ne sera plus affiché après fermeture ou actualisation de cette page.</p>
+            </div>
+            <Button type="button" variant="outline" className="rounded-none" onClick={() => void navigator.clipboard?.writeText(temporaryPassword)}>
+              Copier
+            </Button>
+          </div>
+        )}
+
+        {meetAccounts.isLoading ? (
+          <p className="py-6 text-sm text-muted-foreground">Chargement des comptes Meet…</p>
+        ) : meetAccounts.isError ? (
+          <p className="py-6 text-sm text-destructive">La liste des comptes Meet est indisponible.</p>
+        ) : (meetAccounts.data?.accounts.length ?? 0) === 0 ? (
+          <p className="py-6 text-sm text-muted-foreground">Aucun accès Meet n’a encore été créé.</p>
+        ) : (
+          <div className="mt-6 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border/50 hover:bg-transparent">
+                  <TableHead>Compte</TableHead>
+                  <TableHead>Rôle</TableHead>
+                  <TableHead>Atelier</TableHead>
+                  <TableHead>État</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {meetAccounts.data?.accounts.map((account) => (
+                  <TableRow key={account.id} className="border-border/50">
+                    <TableCell>
+                      <p className="font-medium text-primary">{account.displayName}</p>
+                      <p className="text-xs text-muted-foreground">{account.login}</p>
+                    </TableCell>
+                    <TableCell className="text-sm capitalize">{account.role}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{account.atelierSlug || "—"}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className={`rounded-none ${account.active ? "bg-green-700/10 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                        {account.active ? "Actif" : "Désactivé"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button type="button" size="sm" variant="outline" className="h-8 rounded-none" disabled={updateMeetAccount.isPending} onClick={() => handleToggleMeetAccount(account.id, account.active)}>
+                          {account.active ? "Désactiver" : "Réactiver"}
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" className="h-8 rounded-none" disabled={resetMeetAccountPassword.isPending || !account.active} onClick={() => handleResetMeetAccount(account.id)}>
+                          Réinitialiser
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
 
         <section className="bg-card border border-border/50 p-6 mb-12">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5 mb-6">

@@ -2,6 +2,11 @@ import crypto from "node:crypto";
 import type { Server as HttpServer } from "node:http";
 import { Server as SocketIOServer, type Socket } from "socket.io";
 import { logger } from "./logger";
+import {
+  accountForSession,
+  isMeetAuthRequired,
+  sessionTokenFromCookie,
+} from "./p2p-meet-auth";
 
 const MAX_PEERS = Math.max(2, Number(process.env.MAX_PEERS_PER_ROOM ?? 8));
 const ACCESS_CODE = process.env.ACCESS_CODE ?? "";
@@ -114,6 +119,32 @@ export function registerP2PMeet(server: HttpServer) {
   const rooms = new Map<string, RoomState>();
   const joinAttempts = new Map<string, { count: number; firstAt: number }>();
 
+  io.use(async (socket, next) => {
+    if (!isMeetAuthRequired()) {
+      next();
+      return;
+    }
+    try {
+      const account = await accountForSession(
+        sessionTokenFromCookie(socket.handshake.headers.cookie),
+      );
+      if (!account) {
+        next(new Error("Une session NovaLuth est requise pour Meet."));
+        return;
+      }
+      socket.data.account = {
+        id: account.id,
+        login: account.login,
+        displayName: account.displayName,
+        role: account.role,
+      };
+      next();
+    } catch (error) {
+      logger.error({ err: error }, "P2P Meet session verification failed");
+      next(new Error("La session NovaLuth n’a pas pu être vérifiée."));
+    }
+  });
+
   const joinAllowed = (key: string) => {
     const now = Date.now();
     const current = joinAttempts.get(key);
@@ -142,7 +173,10 @@ export function registerP2PMeet(server: HttpServer) {
 
     socket.on("join", (payload: RoomPayload = {}, ack?: unknown) => {
       const room = normalizeRoom(payload.room);
-      const name = sanitize(payload.name, 24) || "Invité";
+      const name =
+        sanitize(payload.name, 24)
+        || (isMeetAuthRequired() ? sanitize(socket.data.account?.displayName, 24) : "")
+        || "Invité";
       const code = String(payload.code ?? "");
       const roomPassword = String(payload.roomPassword ?? "").slice(0, 128);
 

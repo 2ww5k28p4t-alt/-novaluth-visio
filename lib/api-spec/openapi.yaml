@@ -52,6 +52,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MeetConfig"
+  /meet/auth/session:
+    get:
+      operationId: getMeetAuthSession
+      tags: [meet]
+      summary: Get the current NovaLuth Meet account session
+      responses:
+        "200":
+          description: Current account, or an anonymous session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetAuthSession"
+  /meet/auth/login:
+    post:
+      operationId: loginMeetAccount
+      tags: [meet]
+      summary: Open a NovaLuth Meet account session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeetAuthLogin"
+      responses:
+        "200":
+          description: Authenticated Meet account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetAuthSession"
+        "401":
+          description: Invalid or disabled account
+  /meet/auth/logout:
+    post:
+      operationId: logoutMeetAccount
+      tags: [meet]
+      summary: Close the current NovaLuth Meet account session
+      responses:
+        "204":
+          description: Session closed
   /meet/ice:
     get:
       operationId: getMeetIceConfig
@@ -649,6 +689,101 @@ paths:
                 $ref: "#/components/schemas/AdminSummary"
         "401":
           description: Missing or invalid admin token
+  /admin/meet/accounts:
+    get:
+      operationId: listMeetAccounts
+      tags: [admin]
+      summary: List NovaLuth Meet accounts
+      security:
+        - adminToken: []
+      responses:
+        "200":
+          description: Meet accounts without password material
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetAccountList"
+        "401":
+          description: Missing or invalid administrator credentials
+    post:
+      operationId: createMeetAccount
+      tags: [admin]
+      summary: Create a NovaLuth Meet account and generate a temporary password
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMeetAccount"
+      responses:
+        "201":
+          description: Account created; the temporary password is returned once
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetAccountCredential"
+        "400":
+          description: Invalid account details
+        "401":
+          description: Missing or invalid administrator credentials
+        "409":
+          description: Login already exists
+  /admin/meet/accounts/{accountId}:
+    patch:
+      operationId: updateMeetAccount
+      tags: [admin]
+      summary: Enable or disable a NovaLuth Meet account
+      security:
+        - adminToken: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeetAccount"
+      responses:
+        "200":
+          description: Updated account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetAccount"
+        "400":
+          description: Invalid account state
+        "401":
+          description: Missing or invalid administrator credentials
+        "404":
+          description: Account not found
+  /admin/meet/accounts/{accountId}/reset-password:
+    post:
+      operationId: resetMeetAccountPassword
+      tags: [admin]
+      summary: Reset an account password without storing it in clear text
+      security:
+        - adminToken: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: New temporary password, returned once
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetAccountCredential"
+        "401":
+          description: Missing or invalid administrator credentials
+        "404":
+          description: Account not found
   /admin/sn13/purge/incidents:
     get:
       operationId: getSn13PurgeIncidents
@@ -757,11 +892,70 @@ components:
         - status
     MeetConfig:
       type: object
-      required: [maxPeers, accessCodeRequired, forceRelay]
+      required: [maxPeers, accessCodeRequired, forceRelay, authRequired]
       properties:
         maxPeers: { type: number }
         accessCodeRequired: { type: boolean }
         forceRelay: { type: boolean }
+        authRequired: { type: boolean }
+    MeetAccount:
+      type: object
+      required: [id, login, displayName, role, atelierSlug, active, mustChangePassword, createdAt, lastLoginAt]
+      properties:
+        id: { type: number }
+        login: { type: string }
+        displayName: { type: string }
+        role:
+          type: string
+          enum: [admin, artisan, musicien]
+        atelierSlug: { type: ["string", "null"] }
+        active: { type: boolean }
+        mustChangePassword: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        lastLoginAt: { type: ["string", "null"], format: date-time }
+    MeetAuthSession:
+      type: object
+      required: [authenticated, account]
+      properties:
+        authenticated: { type: boolean }
+        account:
+          oneOf:
+            - $ref: "#/components/schemas/MeetAccount"
+            - type: "null"
+    MeetAuthLogin:
+      type: object
+      required: [login, password]
+      properties:
+        login: { type: string, minLength: 3, maxLength: 80 }
+        password: { type: string, minLength: 1, maxLength: 200 }
+    CreateMeetAccount:
+      type: object
+      required: [login, displayName, role]
+      properties:
+        login: { type: string, minLength: 3, maxLength: 80 }
+        displayName: { type: string, minLength: 1, maxLength: 80 }
+        role:
+          type: string
+          enum: [admin, artisan, musicien]
+        atelierSlug: { type: ["string", "null"], maxLength: 120 }
+    UpdateMeetAccount:
+      type: object
+      required: [active]
+      properties:
+        active: { type: boolean }
+    MeetAccountList:
+      type: object
+      required: [accounts]
+      properties:
+        accounts:
+          type: array
+          items: { $ref: "#/components/schemas/MeetAccount" }
+    MeetAccountCredential:
+      type: object
+      required: [account, temporaryPassword]
+      properties:
+        account: { $ref: "#/components/schemas/MeetAccount" }
+        temporaryPassword: { type: string }
     MeetIceServer:
       type: object
       required: [urls]

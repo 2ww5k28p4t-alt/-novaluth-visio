@@ -5,10 +5,8 @@
  * API publique de NovaLuth
  * OpenAPI spec version: 0.1.0
  */
+import type { MeetAccount } from './meetAccount';
 
-export interface MeetConfig {
-  maxPeers: number;
-  accessCodeRequired: boolean;
-  forceRelay: boolean;
-  authRequired: boolean;
+export interface MeetAccountList {
+  accounts: MeetAccount[];
 }

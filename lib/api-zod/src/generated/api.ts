@@ -23,8 +23,65 @@ export const HealthCheckResponse = zod.object({
 export const GetMeetConfigResponse = zod.object({
   "maxPeers": zod.number(),
   "accessCodeRequired": zod.boolean(),
-  "forceRelay": zod.boolean()
+  "forceRelay": zod.boolean(),
+  "authRequired": zod.boolean()
 })
+
+
+/**
+ * @summary Get the current NovaLuth Meet account session
+ */
+export const GetMeetAuthSessionResponse = zod.object({
+  "authenticated": zod.boolean(),
+  "account": zod.union([zod.object({
+  "id": zod.number(),
+  "login": zod.string(),
+  "displayName": zod.string(),
+  "role": zod.enum(['admin', 'artisan', 'musicien']),
+  "atelierSlug": zod.string().nullable(),
+  "active": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "lastLoginAt": zod.coerce.date().nullable()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Open a NovaLuth Meet account session
+ */
+export const loginMeetAccountBodyLoginMin = 3;
+export const loginMeetAccountBodyLoginMax = 80;
+
+export const loginMeetAccountBodyPasswordMax = 200;
+
+
+
+export const LoginMeetAccountBody = zod.object({
+  "login": zod.string().min(loginMeetAccountBodyLoginMin).max(loginMeetAccountBodyLoginMax),
+  "password": zod.string().min(1).max(loginMeetAccountBodyPasswordMax)
+})
+
+export const LoginMeetAccountResponse = zod.object({
+  "authenticated": zod.boolean(),
+  "account": zod.union([zod.object({
+  "id": zod.number(),
+  "login": zod.string(),
+  "displayName": zod.string(),
+  "role": zod.enum(['admin', 'artisan', 'musicien']),
+  "atelierSlug": zod.string().nullable(),
+  "active": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "lastLoginAt": zod.coerce.date().nullable()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Close the current NovaLuth Meet account session
+ */
+export const LogoutMeetAccountResponse = zod.void()
 
 
 /**
@@ -1442,6 +1499,106 @@ export const GetAdminSummaryResponse = zod.object({
   "engagements": zod.number(),
   "commissions": zod.number()
 })
+})
+
+
+/**
+ * @summary List NovaLuth Meet accounts
+ */
+export const ListMeetAccountsResponse = zod.object({
+  "accounts": zod.array(zod.object({
+  "id": zod.number(),
+  "login": zod.string(),
+  "displayName": zod.string(),
+  "role": zod.enum(['admin', 'artisan', 'musicien']),
+  "atelierSlug": zod.string().nullable(),
+  "active": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "lastLoginAt": zod.coerce.date().nullable()
+}))
+})
+
+
+/**
+ * @summary Create a NovaLuth Meet account and generate a temporary password
+ */
+export const createMeetAccountBodyLoginMin = 3;
+export const createMeetAccountBodyLoginMax = 80;
+
+export const createMeetAccountBodyDisplayNameMax = 80;
+
+export const createMeetAccountBodyAtelierSlugMax = 120;
+
+
+
+export const CreateMeetAccountBody = zod.object({
+  "login": zod.string().min(createMeetAccountBodyLoginMin).max(createMeetAccountBodyLoginMax),
+  "displayName": zod.string().min(1).max(createMeetAccountBodyDisplayNameMax),
+  "role": zod.enum(['admin', 'artisan', 'musicien']),
+  "atelierSlug": zod.string().max(createMeetAccountBodyAtelierSlugMax).nullish()
+})
+
+export const CreateMeetAccountResponse = zod.object({
+  "account": zod.object({
+  "id": zod.number(),
+  "login": zod.string(),
+  "displayName": zod.string(),
+  "role": zod.enum(['admin', 'artisan', 'musicien']),
+  "atelierSlug": zod.string().nullable(),
+  "active": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "lastLoginAt": zod.coerce.date().nullable()
+}),
+  "temporaryPassword": zod.string()
+})
+
+
+/**
+ * @summary Enable or disable a NovaLuth Meet account
+ */
+export const UpdateMeetAccountParams = zod.object({
+  "accountId": zod.coerce.number()
+})
+
+export const UpdateMeetAccountBody = zod.object({
+  "active": zod.boolean()
+})
+
+export const UpdateMeetAccountResponse = zod.object({
+  "id": zod.number(),
+  "login": zod.string(),
+  "displayName": zod.string(),
+  "role": zod.enum(['admin', 'artisan', 'musicien']),
+  "atelierSlug": zod.string().nullable(),
+  "active": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "lastLoginAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Reset an account password without storing it in clear text
+ */
+export const ResetMeetAccountPasswordParams = zod.object({
+  "accountId": zod.coerce.number()
+})
+
+export const ResetMeetAccountPasswordResponse = zod.object({
+  "account": zod.object({
+  "id": zod.number(),
+  "login": zod.string(),
+  "displayName": zod.string(),
+  "role": zod.enum(['admin', 'artisan', 'musicien']),
+  "atelierSlug": zod.string().nullable(),
+  "active": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
+  "createdAt": zod.coerce.date(),
+  "lastLoginAt": zod.coerce.date().nullable()
+}),
+  "temporaryPassword": zod.string()
 })
 
 

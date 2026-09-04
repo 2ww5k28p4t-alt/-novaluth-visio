@@ -31,11 +31,17 @@ import type {
   AtelierSessionInput,
   BriefInput,
   BriefReceipt,
+  CreateMeetAccount,
   Fiche,
   FichesMeta,
   GatewayHealth,
   HealthStatus,
   ListFichesParams,
+  MeetAccount,
+  MeetAccountCredential,
+  MeetAccountList,
+  MeetAuthLogin,
+  MeetAuthSession,
   MeetConfig,
   MeetIceConfig,
   MusicianDecisionInput,
@@ -49,7 +55,8 @@ import type {
   RecommendationResponse,
   Sn13PurgeIncidentHistory,
   StatusUpdate,
-  Transparency
+  Transparency,
+  UpdateMeetAccount
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -233,6 +240,225 @@ export function useGetMeetConfig<TData = Awaited<ReturnType<typeof getMeetConfig
 
 
 
+
+export const getGetMeetAuthSessionUrl = () => {
+
+
+
+
+  return `/api/meet/auth/session`
+}
+
+/**
+ * @summary Get the current NovaLuth Meet account session
+ */
+export const getMeetAuthSession = async ( options?: Parameters<typeof customFetch>[1]): Promise<MeetAuthSession> => {
+
+  return customFetch<MeetAuthSession>(getGetMeetAuthSessionUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMeetAuthSessionQueryKey = () => {
+    return [
+    `/api/meet/auth/session`
+    ] as const;
+    }
+
+
+export const getGetMeetAuthSessionQueryOptions = <TData = Awaited<ReturnType<typeof getMeetAuthSession>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMeetAuthSession>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMeetAuthSessionQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMeetAuthSession>>> = ({ signal }) => getMeetAuthSession({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMeetAuthSession>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMeetAuthSessionQueryResult = NonNullable<Awaited<ReturnType<typeof getMeetAuthSession>>>
+export type GetMeetAuthSessionQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the current NovaLuth Meet account session
+ */
+
+export function useGetMeetAuthSession<TData = Awaited<ReturnType<typeof getMeetAuthSession>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMeetAuthSession>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMeetAuthSessionQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getLoginMeetAccountUrl = () => {
+
+
+
+
+  return `/api/meet/auth/login`
+}
+
+/**
+ * @summary Open a NovaLuth Meet account session
+ */
+export const loginMeetAccount = async (meetAuthLogin: MeetAuthLogin, options?: Parameters<typeof customFetch>[1]): Promise<MeetAuthSession> => {
+
+  return customFetch<MeetAuthSession>(getLoginMeetAccountUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(meetAuthLogin)
+  }
+);}
+
+
+
+
+
+export const getLoginMeetAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof loginMeetAccount>>, TError,{data: BodyType<MeetAuthLogin>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof loginMeetAccount>>, TError,{data: BodyType<MeetAuthLogin>}, TContext> => {
+
+const mutationKey = ['loginMeetAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof loginMeetAccount>>, {data: BodyType<MeetAuthLogin>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  loginMeetAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LoginMeetAccountMutationResult = NonNullable<Awaited<ReturnType<typeof loginMeetAccount>>>
+    export type LoginMeetAccountMutationBody = BodyType<MeetAuthLogin>
+    export type LoginMeetAccountMutationError = ErrorType<void>
+
+    /**
+ * @summary Open a NovaLuth Meet account session
+ */
+export const useLoginMeetAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof loginMeetAccount>>, TError,{data: BodyType<MeetAuthLogin>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof loginMeetAccount>>,
+        TError,
+        {data: BodyType<MeetAuthLogin>},
+        TContext
+      > => {
+      return useMutation(getLoginMeetAccountMutationOptions(options));
+    }
+
+export const getLogoutMeetAccountUrl = () => {
+
+
+
+
+  return `/api/meet/auth/logout`
+}
+
+/**
+ * @summary Close the current NovaLuth Meet account session
+ */
+export const logoutMeetAccount = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getLogoutMeetAccountUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getLogoutMeetAccountMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logoutMeetAccount>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof logoutMeetAccount>>, TError,void, TContext> => {
+
+const mutationKey = ['logoutMeetAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof logoutMeetAccount>>, void> = () => {
+
+
+          return  logoutMeetAccount(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LogoutMeetAccountMutationResult = NonNullable<Awaited<ReturnType<typeof logoutMeetAccount>>>
+
+    export type LogoutMeetAccountMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Close the current NovaLuth Meet account session
+ */
+export const useLogoutMeetAccount = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logoutMeetAccount>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof logoutMeetAccount>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getLogoutMeetAccountMutationOptions(options));
+    }
 
 export const getGetMeetIceConfigUrl = () => {
 
@@ -2213,6 +2439,297 @@ export function useGetAdminSummary<TData = Awaited<ReturnType<typeof getAdminSum
 
 
 
+
+export const getListMeetAccountsUrl = () => {
+
+
+
+
+  return `/api/admin/meet/accounts`
+}
+
+/**
+ * @summary List NovaLuth Meet accounts
+ */
+export const listMeetAccounts = async ( options?: Parameters<typeof customFetch>[1]): Promise<MeetAccountList> => {
+
+  return customFetch<MeetAccountList>(getListMeetAccountsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMeetAccountsQueryKey = () => {
+    return [
+    `/api/admin/meet/accounts`
+    ] as const;
+    }
+
+
+export const getListMeetAccountsQueryOptions = <TData = Awaited<ReturnType<typeof listMeetAccounts>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMeetAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMeetAccountsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMeetAccounts>>> = ({ signal }) => listMeetAccounts({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMeetAccounts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMeetAccountsQueryResult = NonNullable<Awaited<ReturnType<typeof listMeetAccounts>>>
+export type ListMeetAccountsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List NovaLuth Meet accounts
+ */
+
+export function useListMeetAccounts<TData = Awaited<ReturnType<typeof listMeetAccounts>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMeetAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMeetAccountsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateMeetAccountUrl = () => {
+
+
+
+
+  return `/api/admin/meet/accounts`
+}
+
+/**
+ * @summary Create a NovaLuth Meet account and generate a temporary password
+ */
+export const createMeetAccount = async (createMeetAccount: CreateMeetAccount, options?: Parameters<typeof customFetch>[1]): Promise<MeetAccountCredential> => {
+
+  return customFetch<MeetAccountCredential>(getCreateMeetAccountUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createMeetAccount)
+  }
+);}
+
+
+
+
+
+export const getCreateMeetAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createMeetAccount>>, TError,{data: BodyType<CreateMeetAccount>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createMeetAccount>>, TError,{data: BodyType<CreateMeetAccount>}, TContext> => {
+
+const mutationKey = ['createMeetAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createMeetAccount>>, {data: BodyType<CreateMeetAccount>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createMeetAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateMeetAccountMutationResult = NonNullable<Awaited<ReturnType<typeof createMeetAccount>>>
+    export type CreateMeetAccountMutationBody = BodyType<CreateMeetAccount>
+    export type CreateMeetAccountMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a NovaLuth Meet account and generate a temporary password
+ */
+export const useCreateMeetAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createMeetAccount>>, TError,{data: BodyType<CreateMeetAccount>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createMeetAccount>>,
+        TError,
+        {data: BodyType<CreateMeetAccount>},
+        TContext
+      > => {
+      return useMutation(getCreateMeetAccountMutationOptions(options));
+    }
+
+export const getUpdateMeetAccountUrl = (accountId: number,) => {
+
+
+
+
+  return `/api/admin/meet/accounts/${accountId}`
+}
+
+/**
+ * @summary Enable or disable a NovaLuth Meet account
+ */
+export const updateMeetAccount = async (accountId: number,
+    updateMeetAccount: UpdateMeetAccount, options?: Parameters<typeof customFetch>[1]): Promise<MeetAccount> => {
+
+  return customFetch<MeetAccount>(getUpdateMeetAccountUrl(accountId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateMeetAccount)
+  }
+);}
+
+
+
+
+
+export const getUpdateMeetAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMeetAccount>>, TError,{accountId: number;data: BodyType<UpdateMeetAccount>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateMeetAccount>>, TError,{accountId: number;data: BodyType<UpdateMeetAccount>}, TContext> => {
+
+const mutationKey = ['updateMeetAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMeetAccount>>, {accountId: number;data: BodyType<UpdateMeetAccount>}> = (props) => {
+          const {accountId,data} = props ?? {};
+
+          return  updateMeetAccount(accountId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateMeetAccountMutationResult = NonNullable<Awaited<ReturnType<typeof updateMeetAccount>>>
+    export type UpdateMeetAccountMutationBody = BodyType<UpdateMeetAccount>
+    export type UpdateMeetAccountMutationError = ErrorType<void>
+
+    /**
+ * @summary Enable or disable a NovaLuth Meet account
+ */
+export const useUpdateMeetAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMeetAccount>>, TError,{accountId: number;data: BodyType<UpdateMeetAccount>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateMeetAccount>>,
+        TError,
+        {accountId: number;data: BodyType<UpdateMeetAccount>},
+        TContext
+      > => {
+      return useMutation(getUpdateMeetAccountMutationOptions(options));
+    }
+
+export const getResetMeetAccountPasswordUrl = (accountId: number,) => {
+
+
+
+
+  return `/api/admin/meet/accounts/${accountId}/reset-password`
+}
+
+/**
+ * @summary Reset an account password without storing it in clear text
+ */
+export const resetMeetAccountPassword = async (accountId: number, options?: Parameters<typeof customFetch>[1]): Promise<MeetAccountCredential> => {
+
+  return customFetch<MeetAccountCredential>(getResetMeetAccountPasswordUrl(accountId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getResetMeetAccountPasswordMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetMeetAccountPassword>>, TError,{accountId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resetMeetAccountPassword>>, TError,{accountId: number}, TContext> => {
+
+const mutationKey = ['resetMeetAccountPassword'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetMeetAccountPassword>>, {accountId: number}> = (props) => {
+          const {accountId} = props ?? {};
+
+          return  resetMeetAccountPassword(accountId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResetMeetAccountPasswordMutationResult = NonNullable<Awaited<ReturnType<typeof resetMeetAccountPassword>>>
+
+    export type ResetMeetAccountPasswordMutationError = ErrorType<void>
+
+    /**
+ * @summary Reset an account password without storing it in clear text
+ */
+export const useResetMeetAccountPassword = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetMeetAccountPassword>>, TError,{accountId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resetMeetAccountPassword>>,
+        TError,
+        {accountId: number},
+        TContext
+      > => {
+      return useMutation(getResetMeetAccountPasswordMutationOptions(options));
+    }
 
 export const getGetSn13PurgeIncidentsUrl = () => {
 

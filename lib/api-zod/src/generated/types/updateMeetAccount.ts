@@ -6,9 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface MeetConfig {
-  maxPeers: number;
-  accessCodeRequired: boolean;
-  forceRelay: boolean;
-  authRequired: boolean;
+export interface UpdateMeetAccount {
+  active: boolean;
 }

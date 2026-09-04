@@ -22,8 +22,13 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import {
+  useGetMeetAuthSession,
   useGetMeetConfig,
   useGetMeetIceConfig,
+  useLoginMeetAccount,
+  useLogoutMeetAccount,
+  getGetMeetAuthSessionQueryKey,
+  getGetMeetIceConfigQueryKey,
   type MeetIceConfig,
 } from "@workspace/api-client-react";
 
@@ -73,8 +78,23 @@ export default function P2PMeet() {
   const [code, setCode] = useState("");
   const [roomPassword, setRoomPassword] = useState("");
   const [roomPasswordRequired, setRoomPasswordRequired] = useState(false);
+  const [authLogin, setAuthLogin] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const authSession = useGetMeetAuthSession({
+    query: { retry: false, queryKey: getGetMeetAuthSessionQueryKey() },
+  });
   const { data: config, isError: configQueryFailed } = useGetMeetConfig();
-  const { data: iceData, isError: iceQueryFailed } = useGetMeetIceConfig();
+  const loginMutation = useLoginMeetAccount();
+  const logoutMutation = useLogoutMeetAccount();
+  const currentAccount = authSession.data?.account ?? null;
+  const authRequired = config?.authRequired ?? false;
+  const { data: iceData, isError: iceQueryFailed } = useGetMeetIceConfig({
+    query: {
+      enabled: config?.authRequired === false || Boolean(currentAccount),
+      queryKey: getGetMeetIceConfigQueryKey(),
+    },
+  });
   const iceConfig = useMemo<IceConfig | null>(
     () =>
       iceData
@@ -290,7 +310,11 @@ export default function P2PMeet() {
       setLocalStreamReady(true);
       localStorage.setItem("p2pmeet.name", cleanName);
 
-      const socket = io({ path: socketPath, transports: ["websocket", "polling"] });
+      const socket = io({
+        path: socketPath,
+        transports: ["websocket", "polling"],
+        withCredentials: true,
+      });
       socketRef.current = socket;
       socket.on("connect", () => {
         socket.emit(
@@ -469,6 +493,29 @@ export default function P2PMeet() {
     window.history.replaceState(null, "", window.location.pathname);
   };
 
+  const signOut = () => {
+    leave();
+    logoutMutation.mutate(undefined, {
+      onError: () => setAuthError("La déconnexion n’a pas pu être confirmée."),
+      onSuccess: () => void authSession.refetch(),
+    });
+  };
+
+  const signIn = (event: React.FormEvent) => {
+    event.preventDefault();
+    setAuthError("");
+    loginMutation.mutate(
+      { data: { login: authLogin, password: authPassword } },
+      {
+        onSuccess: () => {
+          setAuthPassword("");
+          void authSession.refetch();
+        },
+        onError: () => setAuthError("Identifiant ou mot de passe incorrect."),
+      },
+    );
+  };
+
   const copyInvite = async () => {
     const invite = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(activeRoomRef.current)}`;
     try {
@@ -512,7 +559,33 @@ export default function P2PMeet() {
                 Une salle temporaire où l’audio et la vidéo circulent directement entre les navigateurs.
               </p>
             </div>
+            {authRequired && !currentAccount ? (
+              <form onSubmit={signIn} className="space-y-5 p-6 sm:p-10">
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-sm leading-6 text-slate-300">
+                  L’accès à NovaLuth Meet est réservé aux comptes autorisés par l’administration.
+                </div>
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-200">Identifiant NovaLuth</span>
+                  <input value={authLogin} onChange={(event) => setAuthLogin(event.target.value)} autoComplete="username" required maxLength={80} className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none focus:border-emerald-400" />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-slate-200">Mot de passe</span>
+                  <input value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} type="password" autoComplete="current-password" required maxLength={200} className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none focus:border-emerald-400" />
+                </label>
+                <button type="submit" disabled={loginMutation.isPending || authSession.isLoading} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 font-semibold text-[#0b0f14] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60">
+                  {loginMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <ShieldCheck className="h-5 w-5" />}
+                  {loginMutation.isPending ? "Connexion…" : "Se connecter"}
+                </button>
+                {(authError || authSession.isError) && <p className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200" role="alert">{authError || "La session NovaLuth est indisponible."}</p>}
+              </form>
+            ) : (
             <form onSubmit={join} className="space-y-5 p-6 sm:p-10">
+              {currentAccount && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-4 py-3 text-sm">
+                  <span className="text-slate-300">Connecté en tant que <strong className="text-white">{currentAccount.displayName}</strong></span>
+                  <button type="button" onClick={signOut} className="text-emerald-300 hover:text-emerald-200">Se déconnecter</button>
+                </div>
+              )}
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-200">Votre prénom</span>
                 <input value={name} onChange={(event) => setName(event.target.value)} maxLength={24} required placeholder="Ex. Alex" className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none transition placeholder:text-slate-600 focus:border-emerald-400" />
@@ -560,6 +633,7 @@ export default function P2PMeet() {
                 <p className="text-slate-500">{iceConfig?.warning ?? "Vérification de la configuration réseau…"}</p>
               </div>
             </form>
+            )}
           </section>
         </div>
       </main>
@@ -589,6 +663,11 @@ export default function P2PMeet() {
           <button onClick={() => setChatOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-2 text-sm transition hover:border-emerald-300 hover:text-emerald-300">
             <MessageSquare className="h-4 w-4" /> Chat
           </button>
+          {authRequired && currentAccount && (
+            <button onClick={signOut} className="hidden rounded-lg border border-slate-600 px-3 py-2 text-sm transition hover:border-emerald-300 hover:text-emerald-300 sm:inline-flex">
+              Déconnexion
+            </button>
+          )}
         </div>
       </header>
 

@@ -13,6 +13,89 @@ export interface MeetConfig {
   maxPeers: number;
   accessCodeRequired: boolean;
   forceRelay: boolean;
+  authRequired: boolean;
+}
+
+export type MeetAccountRole = typeof MeetAccountRole[keyof typeof MeetAccountRole];
+
+
+export const MeetAccountRole = {
+  admin: 'admin',
+  artisan: 'artisan',
+  musicien: 'musicien',
+} as const;
+
+export interface MeetAccount {
+  id: number;
+  login: string;
+  displayName: string;
+  role: MeetAccountRole;
+  /** @nullable */
+  atelierSlug: string | null;
+  active: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+  /** @nullable */
+  lastLoginAt: string | null;
+}
+
+export interface MeetAuthSession {
+  authenticated: boolean;
+  account: MeetAccount | null;
+}
+
+export interface MeetAuthLogin {
+  /**
+     * @minLength 3
+     * @maxLength 80
+     */
+  login: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  password: string;
+}
+
+export type CreateMeetAccountRole = typeof CreateMeetAccountRole[keyof typeof CreateMeetAccountRole];
+
+
+export const CreateMeetAccountRole = {
+  admin: 'admin',
+  artisan: 'artisan',
+  musicien: 'musicien',
+} as const;
+
+export interface CreateMeetAccount {
+  /**
+     * @minLength 3
+     * @maxLength 80
+     */
+  login: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  displayName: string;
+  role: CreateMeetAccountRole;
+  /**
+     * @maxLength 120
+     * @nullable
+     */
+  atelierSlug?: string | null;
+}
+
+export interface UpdateMeetAccount {
+  active: boolean;
+}
+
+export interface MeetAccountList {
+  accounts: MeetAccount[];
+}
+
+export interface MeetAccountCredential {
+  account: MeetAccount;
+  temporaryPassword: string;
 }
 
 export interface MeetIceServer {
