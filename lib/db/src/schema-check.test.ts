@@ -388,8 +388,14 @@ test("wires normal and force pushes through their respective safety guards", asy
     "utf8",
   );
 
-  assert.match(packageJson.scripts.push, /^pnpm run check-schema:before-push && /);
-  assert.match(packageJson.scripts["check-schema:before-push"], /--before-push$/);
+  assert.match(
+    packageJson.scripts.push,
+    /^pnpm run check-schema:before-push && /,
+  );
+  assert.match(
+    packageJson.scripts["check-schema:before-push"],
+    /--before-push$/,
+  );
   assert.equal(
     packageJson.scripts["push-force"],
     "bash ./scripts/push-schema-isolated.sh",
@@ -420,10 +426,9 @@ test("requires review when Drizzle Kit exposes a new command", async () => {
   const fakeDrizzleKit = join(directory, "drizzle-kit");
 
   try {
-    const { stdout: help } = await execFileAsync(
-      installedDrizzleKit,
-      ["--help"],
-    );
+    const { stdout: help } = await execFileAsync(installedDrizzleKit, [
+      "--help",
+    ]);
     await writeFile(
       fakeDrizzleKit,
       `#!/usr/bin/env bash\ncat <<'EOF'\n${help.replace("Flags:", "  apply-next\n\nFlags:")}EOF\n`,
@@ -443,6 +448,77 @@ test("requires review when Drizzle Kit exposes a new command", async () => {
           stderr,
           /Review whether each command can apply data or schema changes/,
         );
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when the Drizzle Kit binary cannot produce help", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "schema-cli-help-failure-"));
+  const repositoryRoot = new URL("../../..", import.meta.url);
+  const fakeDrizzleKit = join(directory, "drizzle-kit");
+
+  try {
+    await writeFile(
+      fakeDrizzleKit,
+      `#!/usr/bin/env bash
+echo "simulated Drizzle Kit failure" >&2
+exit 23
+`,
+      { mode: 0o755 },
+    );
+
+    await assert.rejects(
+      execFileAsync("bash", ["scripts/check-schema-wiring.sh"], {
+        cwd: repositoryRoot,
+        env: { ...process.env, DRIZZLE_KIT_BIN: fakeDrizzleKit },
+      }),
+      (error: unknown) => {
+        assert.ok(error && typeof error === "object" && "stderr" in error);
+        const stderr = String((error as { stderr: unknown }).stderr);
+        assert.match(
+          stderr,
+          /could not read the installed Drizzle Kit command surface/,
+        );
+        assert.match(stderr, /review the CLI before continuing/);
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("requires review when Drizzle Kit command help is malformed", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "schema-cli-malformed-help-"));
+  const repositoryRoot = new URL("../../..", import.meta.url);
+  const fakeDrizzleKit = join(directory, "drizzle-kit");
+
+  try {
+    await writeFile(
+      fakeDrizzleKit,
+      `#!/usr/bin/env bash
+printf 'not Drizzle Kit help\\n'
+`,
+      { mode: 0o755 },
+    );
+
+    await assert.rejects(
+      execFileAsync("bash", ["scripts/check-schema-wiring.sh"], {
+        cwd: repositoryRoot,
+        env: { ...process.env, DRIZZLE_KIT_BIN: fakeDrizzleKit },
+      }),
+      (error: unknown) => {
+        assert.ok(error && typeof error === "object" && "stderr" in error);
+        const stderr = String((error as { stderr: unknown }).stderr);
+        assert.match(
+          stderr,
+          /installed Drizzle Kit command help is empty or structurally unexpected/,
+        );
+        assert.match(stderr, /review it before continuing/);
         return true;
       },
     );
@@ -509,7 +585,7 @@ test("requires review when a Drizzle Kit command exposes a new alias", async () 
       fakeDrizzleKit,
       `#!/usr/bin/env bash
 if [[ "$1" == "generate" && "$2" == "--help" ]]; then
-  "${installedDrizzleKit}" "$@" | sed '/^Global flags:/i\\Aliases:\\n  generate, apply-directly\\n'
+  "${installedDrizzleKit}" "$@" | sed '/^Flags:/i\\Aliases:\\n  generate, apply-directly\\n'
 else
   exec "${installedDrizzleKit}" "$@"
 fi
@@ -558,7 +634,11 @@ test("rejects raw Drizzle destructive command families outside approved entry po
     await writeFile(
       join(directory, "lib/db/node_modules/.bin/drizzle-kit"),
       `#!/usr/bin/env bash
-cat <<'EOF'
+if [[ "$1" == "--help" ]]; then
+  cat <<'EOF'
+Usage:
+  drizzle-kit [command]
+
 Available Commands:
   generate
   migrate
@@ -573,6 +653,17 @@ Available Commands:
 Flags:
   -h, --help
 EOF
+else
+  cat <<EOF
+Usage: drizzle-kit $1 [flags]
+
+Flags:
+  --help
+
+Global flags:
+  -h, --help
+EOF
+fi
 `,
       { mode: 0o755 },
     );

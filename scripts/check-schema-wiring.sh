@@ -61,29 +61,134 @@ approved_local_command_options() {
   esac
 }
 
+validate_drizzle_command_help() {
+  local command="$1"
+  local help="$2"
+
+  if ! awk '
+    BEGIN {
+      found_usage = 0
+      found_flags = 0
+      found_global_flags = 0
+      in_flags = 0
+      in_global_flags = 0
+      flag_count = 0
+      global_flag_count = 0
+      malformed = 0
+    }
+    /^Usage:[[:space:]]*/ {
+      found_usage = 1
+      next
+    }
+    /^Flags:[[:space:]]*$/ {
+      found_flags = 1
+      in_flags = 1
+      in_global_flags = 0
+      next
+    }
+    /^Global flags:[[:space:]]*$/ {
+      if (!found_flags) {
+        malformed = 1
+      }
+      found_global_flags = 1
+      in_flags = 0
+      in_global_flags = 1
+      next
+    }
+    (in_flags || in_global_flags) && /^[[:space:]]*$/ {
+      next
+    }
+    (in_flags || in_global_flags) && /^[[:space:]]+-/ {
+      if ($0 ~ /--[[:alnum:]][[:alnum:]-]*/) {
+        if (in_flags) {
+          flag_count++
+        } else {
+          global_flag_count++
+        }
+      } else {
+        malformed = 1
+      }
+      next
+    }
+    (in_flags || in_global_flags) {
+      malformed = 1
+    }
+    END {
+      if (!found_usage || !found_flags || !found_global_flags ||
+          flag_count == 0 || global_flag_count == 0 || malformed) {
+        exit 1
+      }
+    }
+  ' <<<"$help"; then
+    echo "Schema validation wiring check failed: Drizzle Kit help for '$command' is empty or structurally unexpected; review it before continuing." >&2
+    return 1
+  fi
+}
+
 if [[ ! -x "$drizzle_kit_bin" ]]; then
   echo "Schema validation wiring check failed: could not execute the installed Drizzle Kit CLI at $drizzle_kit_bin." >&2
   exit 1
 fi
 
-mapfile -t installed_drizzle_commands < <(
-  "$drizzle_kit_bin" --help |
-    awk '
-      /^Available Commands:/ { in_commands = 1; next }
-      in_commands && /^Flags:/ { exit }
-      in_commands && /^[[:space:]]+[[:alnum:]][[:alnum:]-]*([[:space:]]|$)/ {
-        print $1
-      }
-    '
-)
-
-if ((${#installed_drizzle_commands[@]} == 0)); then
-  echo "Schema validation wiring check failed: could not read the installed Drizzle Kit command surface." >&2
+if ! installed_drizzle_help="$("$drizzle_kit_bin" --help)"; then
+  echo "Schema validation wiring check failed: could not read the installed Drizzle Kit command surface; review the CLI before continuing." >&2
   exit 1
 fi
 
+if ! installed_drizzle_commands="$(
+  awk '
+    BEGIN {
+      in_commands = 0
+      found_usage = 0
+      found_available_commands = 0
+      found_flags = 0
+      command_count = 0
+      malformed = 0
+    }
+    /^Usage:[[:space:]]*/ {
+      found_usage = 1
+      next
+    }
+    /^Available Commands:[[:space:]]*$/ {
+      found_available_commands = 1
+      in_commands = 1
+      next
+    }
+    in_commands && /^Flags:[[:space:]]*$/ {
+      found_flags = 1
+      in_commands = 0
+      next
+    }
+    in_commands && /^[[:space:]]*$/ {
+      next
+    }
+    in_commands && /^[[:space:]]+[[:alnum:]][[:alnum:]-]*([[:space:]]|$)/ {
+      print $1
+      command_count++
+      next
+    }
+    in_commands {
+      malformed = 1
+    }
+    END {
+      if (!found_usage || !found_available_commands || !found_flags ||
+          command_count == 0 || malformed) {
+        exit 1
+      }
+    }
+  ' <<<"$installed_drizzle_help"
+)"; then
+  echo "Schema validation wiring check failed: the installed Drizzle Kit command help is empty or structurally unexpected; review it before continuing." >&2
+  exit 1
+fi
+
+installed_drizzle_commands_array=()
+if [[ -n "$installed_drizzle_commands" ]]; then
+  readarray -t installed_drizzle_commands_array <<<"$installed_drizzle_commands"
+fi
+
 unknown_drizzle_commands=()
-for command in "${installed_drizzle_commands[@]}"; do
+for command in "${installed_drizzle_commands_array[@]}"; do
   classified=false
   for known_command in "${drizzle_local_commands[@]}" "${drizzle_database_commands[@]}"; do
     if [[ "$command" == "$known_command" ]]; then
@@ -105,27 +210,65 @@ fi
 
 unknown_drizzle_aliases=()
 for command in "${drizzle_local_commands[@]}" "${drizzle_database_commands[@]}"; do
-  mapfile -t installed_aliases < <(
-    "$drizzle_kit_bin" "$command" --help |
-      awk '
-        /^Aliases:/ { in_aliases = 1; next }
-        in_aliases && /^[^[:space:]]/ { exit }
-        in_aliases {
-          line = $0
-          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
-          count = split(line, aliases, /,[[:space:]]*/)
-          for (alias_index = 1; alias_index <= count; alias_index++) {
-            if (aliases[alias_index] ~ /^[[:alnum:]][[:alnum:]-]*$/) {
-              print aliases[alias_index]
-            }
-          }
+  if ! command_help="$("$drizzle_kit_bin" "$command" --help)"; then
+    echo "Schema validation wiring check failed: could not read Drizzle Kit help for '$command'; review the CLI before continuing." >&2
+    exit 1
+  fi
+  validate_drizzle_command_help "$command" "$command_help"
+
+  if ! installed_aliases="$(
+    printf '%s\n' "$command_help" | awk '
+      BEGIN {
+        in_aliases = 0
+        aliases_header = 0
+        alias_count = 0
+        malformed = 0
+      }
+      /^Aliases:[[:space:]]*$/ {
+        aliases_header = 1
+        in_aliases = 1
+        next
+      }
+      in_aliases && /^[^[:space:]]/ {
+        in_aliases = 0
+      }
+      in_aliases && /^[[:space:]]*$/ {
+        next
+      }
+      in_aliases {
+        line = $0
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+        if (line !~ /^[[:alnum:]][[:alnum:]-]*(,[[:space:]]*[[:alnum:]][[:alnum:]-]*)*[[:space:]]*$/) {
+          malformed = 1
+          next
         }
-      ' |
-      sort -u
-  )
+        count = split(line, aliases, /,[[:space:]]*/)
+        for (alias_index = 1; alias_index <= count; alias_index++) {
+          if (aliases[alias_index] in seen) {
+            continue
+          }
+          seen[aliases[alias_index]] = 1
+          print aliases[alias_index]
+          alias_count++
+        }
+      }
+      END {
+        if (malformed || (aliases_header && alias_count == 0)) {
+          exit 1
+        }
+      }
+    '
+  )"; then
+    echo "Schema validation wiring check failed: Drizzle Kit alias help for '$command' is structurally unexpected; review it before continuing." >&2
+    exit 1
+  fi
+  installed_aliases_array=()
+  if [[ -n "$installed_aliases" ]]; then
+    readarray -t installed_aliases_array <<<"$installed_aliases"
+  fi
   mapfile -t approved_aliases < <(approved_command_aliases "$command")
 
-  for alias in "${installed_aliases[@]}"; do
+  for alias in "${installed_aliases_array[@]}"; do
     approved=false
     for known_alias in "${approved_aliases[@]}"; do
       if [[ "$alias" == "$known_alias" ]]; then
@@ -148,15 +291,58 @@ fi
 
 unknown_local_command_options=()
 for command in "${drizzle_local_commands[@]}"; do
-  mapfile -t installed_options < <(
-    "$drizzle_kit_bin" "$command" --help |
-      grep -oE -- '--[[:alnum:]][[:alnum:]-]*' |
-      sed 's/^--//' |
-      sort -u
-  )
+  if ! command_help="$("$drizzle_kit_bin" "$command" --help)"; then
+    echo "Schema validation wiring check failed: could not read Drizzle Kit help for '$command'; review the CLI before continuing." >&2
+    exit 1
+  fi
+  validate_drizzle_command_help "$command" "$command_help"
+
+  if ! installed_options="$(
+    printf '%s\n' "$command_help" | awk '
+      BEGIN {
+        in_flags = 0
+        in_global_flags = 0
+        found_option = 0
+      }
+      /^Flags:[[:space:]]*$/ {
+        in_flags = 1
+        in_global_flags = 0
+        next
+      }
+      /^Global flags:[[:space:]]*$/ {
+        in_flags = 0
+        in_global_flags = 1
+        next
+      }
+      (in_flags || in_global_flags) {
+        line = $0
+        while (match(line, /--[[:alnum:]][[:alnum:]-]*/)) {
+          option = substr(line, RSTART + 2, RLENGTH - 2)
+          if (!(option in seen)) {
+            seen[option] = 1
+            print option
+          }
+          found_option = 1
+          line = substr(line, RSTART + RLENGTH)
+        }
+      }
+      END {
+        if (!found_option) {
+          exit 1
+        }
+      }
+    '
+  )"; then
+    echo "Schema validation wiring check failed: Drizzle Kit options for '$command' could not be parsed; review the CLI before continuing." >&2
+    exit 1
+  fi
+  installed_options_array=()
+  if [[ -n "$installed_options" ]]; then
+    readarray -t installed_options_array <<<"$installed_options"
+  fi
   mapfile -t approved_options < <(approved_local_command_options "$command")
 
-  for option in "${installed_options[@]}"; do
+  for option in "${installed_options_array[@]}"; do
     approved=false
     for known_option in "${approved_options[@]}"; do
       if [[ "$option" == "$known_option" ]]; then
