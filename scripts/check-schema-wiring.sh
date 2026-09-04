@@ -8,7 +8,9 @@ post_merge_file="$repo_root/scripts/post-merge.sh"
 isolated_command="pnpm --filter @workspace/db run check-schema:isolated"
 wiring_command="check-schema:wiring"
 authorized_force_push="lib/db/scripts/push-schema-isolated.sh"
+authorized_reviewed_push_manifest="lib/db/package.json"
 raw_force_push_pattern='drizzle-kit[[:space:]]+push([[:space:]][^[:space:]]+)*[[:space:]]+--force([[:space:]]|=|$)'
+destructive_schema_command_pattern='drizzle-kit[[:space:]]+(push|migrate)([[:space:]]|$)'
 
 if [[ ! -f "$replit_file" ]]; then
   echo "Schema validation wiring check failed: could not find $replit_file." >&2
@@ -52,7 +54,7 @@ if [[ "$post_merge_isolated_lines" != "$isolated_command" ]]; then
   exit 1
 fi
 
-unauthorized_force_pushes=()
+unauthorized_destructive_commands=()
 tracked_files() {
   if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git -C "$repo_root" ls-files -z
@@ -93,15 +95,44 @@ while IFS= read -r -d '' tracked_path; do
     continue
   fi
 
+  is_authorized_destructive_match() {
+    case "$relative_path" in
+      "$authorized_force_push")
+        # This wrapper is the only approved route for a disposable forced push.
+        if [[ "$match" =~ $raw_force_push_pattern ]]; then
+          return 0
+        fi
+        ;;
+      "$authorized_reviewed_push_manifest")
+        # The normal package entry point is safe only while its preflight remains
+        # immediately before the push command. Do not exempt the whole manifest.
+        local line_number="${match%%:*}"
+        local line_content
+        local reviewed_push_prefix='"push": "pnpm run check-schema:before-push && '
+        local reviewed_push_command="drizzle-kit"
+        reviewed_push_command+=" push"
+        line_content="$(sed -n "${line_number}p" "$candidate")"
+        if [[ "$line_content" == *"$reviewed_push_prefix"* &&
+          "$line_content" == *"$reviewed_push_command "* ]]; then
+          return 0
+        fi
+        ;;
+    esac
+
+    return 1
+  }
+
   while IFS= read -r match; do
-    unauthorized_force_pushes+=("$relative_path:$match")
-  done < <(grep -InE "$raw_force_push_pattern" "$candidate" || true)
+    if ! is_authorized_destructive_match; then
+      unauthorized_destructive_commands+=("$relative_path:$match")
+    fi
+  done < <(grep -InE "$destructive_schema_command_pattern" "$candidate" || true)
 done < <(tracked_files)
 
-if ((${#unauthorized_force_pushes[@]} > 0)); then
-  echo "Schema validation wiring check failed: raw 'drizzle-kit push --force' invocations are only allowed in $authorized_force_push." >&2
-  printf 'Unauthorized invocation: %s\n' "${unauthorized_force_pushes[@]}" >&2
-  echo "Route forced schema application through the isolated PostgreSQL wrapper instead." >&2
+if ((${#unauthorized_destructive_commands[@]} > 0)); then
+  echo "Schema validation wiring check failed: destructive Drizzle schema commands must use an approved safety entry point." >&2
+  printf 'Unauthorized invocation: %s\n' "${unauthorized_destructive_commands[@]}" >&2
+  echo "Route schema application through the reviewed package push or the isolated PostgreSQL wrapper instead." >&2
   exit 1
 fi
 
@@ -110,4 +141,4 @@ if ! grep -qE "$raw_force_push_pattern" "$repo_root/$authorized_force_push"; the
   exit 1
 fi
 
-echo "Schema validation wiring passed: workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized raw force push exists."
+echo "Schema validation wiring passed: workflow and post-merge hook use isolated PostgreSQL checks, and no unauthorized destructive schema command exists."

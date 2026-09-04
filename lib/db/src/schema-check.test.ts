@@ -399,10 +399,12 @@ test("wires normal and force pushes through their respective safety guards", asy
   );
 });
 
-test("rejects a new raw Drizzle force push outside the isolated wrapper", async () => {
+test("rejects raw Drizzle destructive command families outside approved entry points", async () => {
   const directory = await mkdtemp(join(tmpdir(), "schema-wiring-"));
   const repositoryRoot = new URL("../../..", import.meta.url);
   const forcePush = ["drizzle-kit", "push", "--force"].join(" ");
+  const plainPush = ["drizzle-kit", "push"].join(" ");
+  const migrate = ["drizzle-kit", "migrate"].join(" ");
 
   try {
     await mkdir(join(directory, "scripts"), { recursive: true });
@@ -431,6 +433,14 @@ test("rejects a new raw Drizzle force push outside the isolated wrapper", async 
       join(directory, "tools/unsafe-schema-push-equals.sh"),
       `${forcePush}=true --config ./lib/db/drizzle.config.ts\n`,
     );
+    await writeFile(
+      join(directory, "tools/unsafe-schema-push-plain.sh"),
+      `${plainPush} --config ./lib/db/drizzle.config.ts\n`,
+    );
+    await writeFile(
+      join(directory, "tools/unsafe-schema-migrate.sh"),
+      `${migrate} --config ./lib/db/drizzle.config.ts\n`,
+    );
 
     await assert.rejects(
       execFileAsync("bash", ["scripts/check-schema-wiring.sh", directory], {
@@ -445,6 +455,14 @@ test("rejects a new raw Drizzle force push outside the isolated wrapper", async 
         assert.match(
           String((error as { stderr: unknown }).stderr),
           /Unauthorized invocation: tools\/unsafe-schema-push-equals\.sh:1:/,
+        );
+        assert.match(
+          String((error as { stderr: unknown }).stderr),
+          /Unauthorized invocation: tools\/unsafe-schema-push-plain\.sh:1:/,
+        );
+        assert.match(
+          String((error as { stderr: unknown }).stderr),
+          /Unauthorized invocation: tools\/unsafe-schema-migrate\.sh:1:/,
         );
         return true;
       },
