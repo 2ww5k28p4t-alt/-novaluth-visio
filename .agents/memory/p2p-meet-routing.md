@@ -14,3 +14,9 @@ For short transport interruptions, do not rely on Socket.IO's transport id alone
 **Why:** A proxied reconnect can create a new Socket.IO session even when the browser reconnects quickly, so socket-id-only rooms produce duplicate peers or lose signaling.
 
 **How to apply:** Treat an explicit client leave as immediate removal, but delay network-disconnect expiry long enough for the client to rejoin and renegotiate WebRTC.
+
+Automated browser checks must use the artifact-router origin rather than the frontend dev-server port.
+
+**Why:** NovaLuth Meet relies on same-origin `/api` HTTP and WebSocket routes; the Vite service does not proxy those routes when opened directly.
+
+**How to apply:** Exercise `/meet` through the routed preview origin, with fake media devices and a per-page network interruption, so the test covers the same HTTP, Socket.IO, and WebRTC boundaries as the app preview.

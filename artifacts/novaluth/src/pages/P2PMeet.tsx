@@ -140,6 +140,7 @@ export default function P2PMeet() {
   const [camOn, setCamOn] = useState(true);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
   const [connectionState, setConnectionState] = useState<
     "ready" | "connecting" | "connected" | "reconnecting" | "offline"
   >("ready");
@@ -155,6 +156,7 @@ export default function P2PMeet() {
   const activeRoomRef = useRef("");
   const hasJoinedRef = useRef(false);
   const participantIdRef = useRef("");
+  const recoveryMessageTimerRef = useRef<number | null>(null);
   if (!participantIdRef.current) participantIdRef.current = getParticipantId();
 
   const showPeerStream = useCallback((peer: RemotePeer) => {
@@ -274,6 +276,9 @@ export default function P2PMeet() {
 
   useEffect(() => {
     return () => {
+      if (recoveryMessageTimerRef.current !== null) {
+        window.clearTimeout(recoveryMessageTimerRef.current);
+      }
       stopStream(localStreamRef.current);
       stopStream(screenStreamRef.current);
       peersRef.current.forEach((peer) => peer.pc.close());
@@ -285,7 +290,7 @@ export default function P2PMeet() {
     if (localVideoRef.current && localStreamRef.current) {
       localVideoRef.current.srcObject = sharing ? screenStreamRef.current : localStreamRef.current;
     }
-  }, [sharing, localStreamReady]);
+  }, [joined, sharing, localStreamReady]);
 
   const join = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -375,6 +380,16 @@ export default function P2PMeet() {
             hasJoinedRef.current = true;
             setJoining(false);
             setConnectionState("connected");
+            if (reconnecting) {
+              setRecoveryMessage("Connexion rétablie — l’appel vidéo a repris.");
+              if (recoveryMessageTimerRef.current !== null) {
+                window.clearTimeout(recoveryMessageTimerRef.current);
+              }
+              recoveryMessageTimerRef.current = window.setTimeout(() => {
+                setRecoveryMessage("");
+                recoveryMessageTimerRef.current = null;
+              }, 6_000);
+            }
             window.history.replaceState(null, "", `?room=${encodeURIComponent(joinedRoom)}`);
             response.peers?.forEach((peer) => createPeer(peer.id, peer.name, true));
           },
@@ -404,6 +419,7 @@ export default function P2PMeet() {
       });
       socket.on("disconnect", (reason) => {
         if (reason !== "io client disconnect" && hasJoinedRef.current) {
+          setRecoveryMessage("");
           setConnectionState("reconnecting");
         } else if (reason !== "io client disconnect") {
           setConnectionState("offline");
@@ -539,6 +555,11 @@ export default function P2PMeet() {
     setSelfId("");
     setChatMessages([]);
     setChatOpen(false);
+    setRecoveryMessage("");
+    if (recoveryMessageTimerRef.current !== null) {
+      window.clearTimeout(recoveryMessageTimerRef.current);
+      recoveryMessageTimerRef.current = null;
+    }
     setConnectionState("ready");
     window.history.replaceState(null, "", window.location.pathname);
   };
@@ -639,11 +660,11 @@ export default function P2PMeet() {
               )}
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-200">Votre prénom</span>
-                <input value={name} onChange={(event) => setName(event.target.value)} maxLength={24} required placeholder="Ex. Alex" className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none transition placeholder:text-slate-600 focus:border-emerald-400" />
+                <input data-testid="meet-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={24} required placeholder="Ex. Alex" className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none transition placeholder:text-slate-600 focus:border-emerald-400" />
               </label>
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-200">Nom de la salle</span>
-                <input value={room} onChange={(event) => setRoom(event.target.value)} maxLength={60} required placeholder="Ex. projet-atelier" className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none transition placeholder:text-slate-600 focus:border-emerald-400" />
+                <input data-testid="meet-room" value={room} onChange={(event) => setRoom(event.target.value)} maxLength={60} required placeholder="Ex. projet-atelier" className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none transition placeholder:text-slate-600 focus:border-emerald-400" />
               </label>
               <label className="block space-y-2">
                 <span className="flex items-center justify-between gap-3 text-sm font-medium text-slate-200">
@@ -673,7 +694,7 @@ export default function P2PMeet() {
                   <input value={code} onChange={(event) => setCode(event.target.value)} type="password" maxLength={64} required className="h-12 w-full rounded-xl border border-slate-600 bg-[#0b0f14] px-4 text-sm outline-none focus:border-emerald-400" />
                 </label>
               )}
-              <button type="submit" disabled={joining || !iceConfig} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 font-semibold text-[#0b0f14] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60">
+              <button data-testid="meet-join" type="submit" disabled={joining || !iceConfig} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 font-semibold text-[#0b0f14] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60">
                 {joining ? <Loader2 className="h-5 w-5 animate-spin" /> : <Users className="h-5 w-5" />}
                 {joining ? "Connexion…" : "Rejoindre la salle"}
               </button>
@@ -698,14 +719,14 @@ export default function P2PMeet() {
           <span className={`h-3 w-3 rounded-full ${connectionState === "connected" ? "bg-emerald-400" : connectionState === "offline" ? "bg-red-400" : "bg-slate-500"}`} />
           <div>
             <p className="font-semibold text-white">{activeRoom}</p>
-            <p className="text-xs text-slate-400">{connectionLabel}</p>
+            <p data-testid="meet-connection-status" className="text-xs text-slate-400">{connectionLabel}</p>
           </div>
           {roomProtected && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs text-emerald-200">
               <LockKeyhole className="h-3.5 w-3.5" /> Salle protégée
             </span>
           )}
-          <span className="rounded-full border border-slate-600 px-2 py-0.5 text-xs text-slate-300">{totalParticipants}</span>
+          <span data-testid="meet-participant-count" className="rounded-full border border-slate-600 px-2 py-0.5 text-xs text-slate-300">{totalParticipants}</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={copyInvite} className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-2 text-sm transition hover:border-emerald-300 hover:text-emerald-300">
@@ -726,7 +747,7 @@ export default function P2PMeet() {
         <div className={`mx-auto grid min-h-[52vh] max-w-7xl gap-3 ${totalParticipants <= 2 ? "lg:grid-cols-2" : "md:grid-cols-2 xl:grid-cols-3"}`}>
           <div className="relative min-h-[260px] overflow-hidden rounded-2xl border border-emerald-400/30 bg-[#172029]">
             <div className="absolute inset-0 flex items-center justify-center text-6xl font-bold text-slate-500">{initials(name)}</div>
-            <video ref={localVideoRef} autoPlay playsInline muted className={`relative z-10 h-full min-h-[260px] w-full object-cover ${camOn || sharing ? "opacity-100" : "opacity-0"}`} />
+            <video data-testid="meet-local-video" ref={localVideoRef} autoPlay playsInline muted className={`relative z-10 h-full min-h-[260px] w-full object-cover ${camOn || sharing ? "opacity-100" : "opacity-0"}`} />
             <div className="absolute bottom-3 left-3 z-20 rounded-lg bg-black/65 px-3 py-1.5 text-sm">{name} (vous)</div>
             <div className="absolute right-3 top-3 z-20 flex gap-2">
               {!micOn && <span className="rounded-full bg-red-400/90 p-2"><MicOff className="h-4 w-4 text-white" /></span>}
@@ -734,9 +755,10 @@ export default function P2PMeet() {
             </div>
           </div>
           {remotePeers.map((peer) => (
-            <div key={peer.id} className="relative min-h-[260px] overflow-hidden rounded-2xl border border-slate-700 bg-[#172029]">
+            <div data-testid="meet-remote-peer" key={peer.id} className="relative min-h-[260px] overflow-hidden rounded-2xl border border-slate-700 bg-[#172029]">
               <div className="absolute inset-0 flex items-center justify-center text-6xl font-bold text-slate-500">{initials(peer.name)}</div>
               <video
+                data-testid="meet-remote-video"
                 ref={(element) => {
                   if (element) {
                     videoRefs.current.set(peer.id, element);
@@ -755,6 +777,11 @@ export default function P2PMeet() {
             </div>
           ))}
         </div>
+        {recoveryMessage && (
+          <p data-testid="meet-recovery-message" role="status" className="mx-auto mt-4 max-w-2xl rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-center text-sm text-emerald-100">
+            {recoveryMessage}
+          </p>
+        )}
         {joinError && <p className="mx-auto mt-4 max-w-2xl rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-center text-sm text-red-200">{joinError}</p>}
       </div>
 
@@ -771,7 +798,7 @@ export default function P2PMeet() {
         <button onClick={() => void toggleShare()} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-2 text-xs transition ${sharing ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-200" : "border-slate-600 bg-[#172029] hover:border-emerald-300"}`}>
           <MonitorUp className="h-5 w-5" /> <span className="hidden sm:inline">{sharing ? "Partage en cours" : "Partager l’écran"}</span>
         </button>
-        <button onClick={leave} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border border-red-400/50 bg-red-400/15 px-2 text-xs text-red-100 transition hover:bg-red-400/25">
+        <button data-testid="meet-leave" onClick={leave} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border border-red-400/50 bg-red-400/15 px-2 text-xs text-red-100 transition hover:bg-red-400/25">
           <PhoneOff className="h-5 w-5" /> <span className="hidden sm:inline">Quitter</span>
         </button>
       </nav>
