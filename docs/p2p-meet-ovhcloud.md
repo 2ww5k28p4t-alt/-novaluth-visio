@@ -15,6 +15,33 @@ Le relais TURN est nécessaire pour les appels entre réseaux mobiles, NAT
 stricts et certains pare-feu d’entreprise. Il ne remplace pas la signalisation
 Socket.IO.
 
+## Voie express — installateur Coturn
+
+Le dépôt contient `scripts/install-coturn-ovh.sh`. Il installe et configure
+uniquement Coturn sur le VPS, sans copier l’application NovaLuth ni ses
+comptes. Les prérequis manuels sont :
+
+1. commander le VPS ;
+2. créer `turn.novaluth.com` vers son IPv4 ;
+3. se connecter en SSH et vérifier que la clé fonctionne ;
+4. lancer le script depuis une copie du dépôt.
+
+Depuis le serveur, avec le script présent dans le dépôt :
+
+```bash
+sudo bash scripts/install-coturn-ovh.sh
+```
+
+Le script vérifie le DNS, demande le secret TURN sans l’afficher, obtient le
+certificat Let's Encrypt, applique le pare-feu, écrit la configuration
+Coturn, active son renouvellement et vérifie les ports d’écoute. Il est
+relançable : une configuration existante n’est pas écrasée si son secret ne
+correspond pas.
+
+Le script n’active pas le port 443. Le relais TLS standard écoute sur 5349.
+N’activer `TURN_TLS_443=true` dans Replit qu’après avoir configuré et vérifié
+un écouteur Coturn réel sur 443.
+
 ## 1. Préparer le serveur
 
 Commander un VPS européen, par exemple un VPS OVHcloud sous Debian 12, avec
