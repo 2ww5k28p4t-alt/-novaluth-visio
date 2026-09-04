@@ -49,8 +49,10 @@ pnpm run test:coturn-installer
 ```
 
 Ce contrôle utilise uniquement des répertoires et commandes simulés. Il vérifie
-la syntaxe, les ports, le refus d’un DNS incorrect et le refus d’écraser un
-secret existant, sans demander de secret réel ni contacter un serveur public.
+la syntaxe, les ports, le refus d’un DNS incorrect, le refus d’écraser un
+secret existant, une installation complète et une seconde exécution
+idempotente avec le même secret. Il ne demande aucun secret réel et ne contacte
+aucun serveur public.
 
 ## 1. Préparer le serveur
 

@@ -34,6 +34,16 @@ assert_not_contains() {
   fi
 }
 
+assert_count() {
+  local file="$1"
+  local expected="$2"
+  local text="$3"
+  local actual
+  actual="$(grep -Fc -- "$text" "$file" || true)"
+  [ "$actual" -eq "$expected" ] ||
+    fail "« $text » apparaît $actual fois dans $file, attendu : $expected"
+}
+
 run_installer() {
   local root="$1"
   local dns_ip="$2"
@@ -55,7 +65,7 @@ run_installer() {
   return "$status"
 }
 
-printf '1/3 Vérification statique de l’installateur\n'
+printf '1/4 Vérification statique de l’installateur\n'
 bash -n "$installer"
 assert_contains "$installer" "set -euo pipefail"
 assert_contains "$installer" "umask 077"
@@ -84,16 +94,43 @@ cat >"$mock_bin/dig" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${MOCK_DNS_IP:?}"
 EOF
-for command in apt-get ufw systemctl certbot journalctl; do
+for command in apt-get ufw systemctl journalctl; do
   cat >"$mock_bin/$command" <<'EOF'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"${MOCK_COMMAND_LOG:?}"
 exit 0
 EOF
 done
+cat >"$mock_bin/certbot" <<'EOF'
+#!/usr/bin/env bash
+printf 'certbot %s\n' "$*" >>"${MOCK_COMMAND_LOG:?}"
+
+if [[ "${1:-}" == "certonly" ]]; then
+  domain=""
+  while (($# > 0)); do
+    if [[ "$1" == "-d" ]]; then
+      shift
+      domain="${1:-}"
+      break
+    fi
+    shift
+  done
+  [[ -n "$domain" ]]
+  cert_dir="${NOVALUTH_COTURN_TEST_ROOT:?}/etc/letsencrypt/live/$domain"
+  mkdir -p "$cert_dir"
+  printf 'simulated certificate\n' >"$cert_dir/fullchain.pem"
+  printf 'simulated private key\n' >"$cert_dir/privkey.pem"
+fi
+EOF
+cat >"$mock_bin/ss" <<'EOF'
+#!/usr/bin/env bash
+printf 'ss %s\n' "$*" >>"${MOCK_COMMAND_LOG:?}"
+printf 'udp UNCONN 0 0 0.0.0.0:3478 0.0.0.0:*\n'
+printf 'tcp LISTEN 0 128 0.0.0.0:5349 0.0.0.0:*\n'
+EOF
 chmod +x "$mock_bin"/*
 
-printf '2/3 Refus d’un DNS incorrect sans accès réseau\n'
+printf '2/4 Refus d’un DNS incorrect sans accès réseau\n'
 dns_root="$tmp_dir/dns-root"
 dns_output="$tmp_dir/dns-output.log"
 if run_installer "$dns_root" "198.51.100.25" "$dns_output"; then
@@ -104,7 +141,7 @@ assert_not_contains "$dns_output" "$secret"
 [ ! -e "$dns_root/etc/turnserver.conf" ] ||
   fail "une configuration a été écrite malgré le refus DNS"
 
-printf '3/3 Refus d’écraser un secret TURN différent\n'
+printf '3/4 Refus d’écraser un secret TURN différent\n'
 config_root="$tmp_dir/config-root"
 config_file="$config_root/etc/turnserver.conf"
 cert_dir="$config_root/etc/letsencrypt/live/turn.test.invalid"
@@ -124,4 +161,55 @@ assert_not_contains "$config_output" "$secret"
 [ ! -e "$config_root/etc/default/coturn" ] ||
   fail "Coturn a été activé malgré le conflit de secret"
 
-printf 'PASS: garde-fous de l’installateur Coturn validés sans serveur ni secret réel.\n'
+printf '4/4 Installation complète et réinstallation idempotente\n'
+success_root="$tmp_dir/success-root"
+first_output="$tmp_dir/success-first.log"
+second_output="$tmp_dir/success-second.log"
+success_config="$success_root/etc/turnserver.conf"
+success_default="$success_root/etc/default/coturn"
+success_renewal="$success_root/etc/cron.d/novaluth-coturn-cert"
+success_cert_dir="$success_root/etc/letsencrypt/live/turn.test.invalid"
+: >"$command_log"
+
+run_installer "$success_root" "203.0.113.10" "$first_output" ||
+  fail "la première installation simulée a échoué"
+assert_not_contains "$first_output" "$secret"
+assert_contains "$success_config" "external-ip=203.0.113.10"
+assert_contains "$success_config" "realm=turn.test.invalid"
+assert_contains "$success_config" "static-auth-secret=$secret"
+assert_contains "$success_config" "cert=$success_cert_dir/fullchain.pem"
+assert_contains "$success_config" "pkey=$success_cert_dir/privkey.pem"
+assert_contains "$success_config" "min-port=49160"
+assert_contains "$success_config" "max-port=49200"
+assert_contains "$success_default" "TURNSERVER_ENABLED=1"
+assert_contains "$success_renewal" 'certbot renew --quiet --deploy-hook "/bin/systemctl reload coturn"'
+[ "$(stat -c '%a' "$success_config")" = "600" ] ||
+  fail "la configuration Coturn n’a pas les permissions 600"
+[ "$(stat -c '%a' "$success_default")" = "600" ] ||
+  fail "le fichier d’activation Coturn n’a pas les permissions 600"
+[ "$(stat -c '%a' "$success_renewal")" = "644" ] ||
+  fail "la tâche de renouvellement n’a pas les permissions 644"
+[ -r "$success_cert_dir/fullchain.pem" ] &&
+  [ -r "$success_cert_dir/privkey.pem" ] ||
+  fail "Certbot simulé n’a pas créé les deux fichiers du certificat"
+
+cp "$success_config" "$tmp_dir/turnserver.conf.before-reinstall"
+run_installer "$success_root" "203.0.113.10" "$second_output" ||
+  fail "la réinstallation simulée avec le même secret a échoué"
+assert_contains "$second_output" "configuration existante conservée"
+assert_contains "$second_output" "certificat existant conservé"
+assert_not_contains "$second_output" "$secret"
+cmp -s "$tmp_dir/turnserver.conf.before-reinstall" "$success_config" ||
+  fail "la réinstallation a modifié la configuration Coturn existante"
+assert_count "$success_config" 1 "static-auth-secret=$secret"
+assert_count "$success_default" 1 "TURNSERVER_ENABLED=1"
+assert_count "$success_renewal" 1 "certbot renew --quiet"
+
+assert_count "$command_log" 1 "certbot certonly"
+assert_count "$command_log" 2 "systemctl enable --now coturn"
+assert_count "$command_log" 2 "systemctl reload coturn"
+assert_count "$command_log" 2 "systemctl is-active --quiet coturn"
+assert_count "$command_log" 2 "ss -lntup"
+assert_not_contains "$command_log" "$secret"
+
+printf 'PASS: installation et réinstallation Coturn validées sans serveur ni secret réel.\n'
