@@ -19,12 +19,20 @@ umask 077
 TURN_DOMAIN="${TURN_DOMAIN:-turn.novaluth.com}"
 PUBLIC_IP="${PUBLIC_IP:-}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
-CONFIG_FILE="/etc/turnserver.conf"
+TEST_ROOT="${NOVALUTH_COTURN_TEST_ROOT:-}"
+ETC_DIR="$TEST_ROOT/etc"
+CONFIG_FILE="$ETC_DIR/turnserver.conf"
+CERT_DIR="$ETC_DIR/letsencrypt/live/$TURN_DOMAIN"
+DEFAULT_FILE="$ETC_DIR/default/coturn"
+RENEWAL_FILE="$ETC_DIR/cron.d/novaluth-coturn-cert"
 
 title() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 info() { printf '   %s\n' "$*"; }
 ok() { printf '   \033[32mok\033[0m  %s\n' "$*"; }
 fail() { printf '\n\033[31mArrêt : %s\033[0m\n\n' "$*" >&2; exit 1; }
+
+[ -z "$TEST_ROOT" ] || [ "${NOVALUTH_COTURN_TEST_MODE:-}" = "1" ] ||
+  fail "NOVALUTH_COTURN_TEST_ROOT est réservé aux tests automatisés"
 
 [ "$(id -u)" -eq 0 ] || fail "lancez le script avec sudo"
 command -v apt-get >/dev/null || fail "Debian ou Ubuntu est requis"
@@ -54,6 +62,7 @@ ok "$TURN_DOMAIN -> $PUBLIC_IP"
 title "2. Pare-feu"
 ufw default deny incoming
 ufw default allow outgoing
+ufw allow 22/tcp comment 'SSH'
 ufw allow 80/tcp comment 'Certificats Let'\''s Encrypt'
 ufw allow 3478/tcp comment 'TURN'
 ufw allow 3478/udp comment 'TURN'
@@ -64,8 +73,8 @@ ufw --force enable
 ok "ports Coturn ouverts"
 
 title "3. Certificat TLS"
-mkdir -p "/etc/letsencrypt/live/$TURN_DOMAIN"
-if [ ! -r "/etc/letsencrypt/live/$TURN_DOMAIN/fullchain.pem" ] || [ ! -r "/etc/letsencrypt/live/$TURN_DOMAIN/privkey.pem" ]; then
+mkdir -p "$CERT_DIR"
+if [ ! -r "$CERT_DIR/fullchain.pem" ] || [ ! -r "$CERT_DIR/privkey.pem" ]; then
   systemctl stop coturn 2>/dev/null || true
   certbot certonly --standalone \
     --non-interactive \
@@ -95,8 +104,8 @@ server-name=$TURN_DOMAIN
 use-auth-secret
 static-auth-secret=$TURN_SECRET
 
-cert=/etc/letsencrypt/live/$TURN_DOMAIN/fullchain.pem
-pkey=/etc/letsencrypt/live/$TURN_DOMAIN/privkey.pem
+cert=$CERT_DIR/fullchain.pem
+pkey=$CERT_DIR/privkey.pem
 
 min-port=49160
 max-port=49200
@@ -130,11 +139,12 @@ EOF
   ok "configuration Coturn créée"
 fi
 
-printf 'TURNSERVER_ENABLED=1\n' > /etc/default/coturn
-cat > /etc/cron.d/novaluth-coturn-cert <<'EOF'
+mkdir -p "$(dirname "$DEFAULT_FILE")" "$(dirname "$RENEWAL_FILE")"
+printf 'TURNSERVER_ENABLED=1\n' > "$DEFAULT_FILE"
+cat > "$RENEWAL_FILE" <<'EOF'
 17 4 * * * root certbot renew --quiet --deploy-hook "/bin/systemctl reload coturn"
 EOF
-chmod 644 /etc/cron.d/novaluth-coturn-cert
+chmod 644 "$RENEWAL_FILE"
 
 title "5. Démarrage et contrôle"
 systemctl enable --now coturn

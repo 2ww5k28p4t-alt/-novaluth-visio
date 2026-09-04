@@ -42,6 +42,16 @@ Le script n’active pas le port 443. Le relais TLS standard écoute sur 5349.
 N’activer `TURN_TLS_443=true` dans Replit qu’après avoir configuré et vérifié
 un écouteur Coturn réel sur 443.
 
+Avant de transférer une nouvelle version du script sur un VPS, lancer :
+
+```bash
+pnpm run test:coturn-installer
+```
+
+Ce contrôle utilise uniquement des répertoires et commandes simulés. Il vérifie
+la syntaxe, les ports, le refus d’un DNS incorrect et le refus d’écraser un
+secret existant, sans demander de secret réel ni contacter un serveur public.
+
 ## 1. Préparer le serveur
 
 Commander un VPS européen, par exemple un VPS OVHcloud sous Debian 12, avec

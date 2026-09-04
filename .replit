@@ -24,6 +24,10 @@ args = "db-schema"
 task = "workflow.run"
 args = "meet-auth"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coturn-installer"
+
 [[workflows.workflow]]
 name = "db-schema"
 author = "agent"
@@ -42,6 +46,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm run test:meet-auth"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "coturn-installer"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm run test:coturn-installer"
 
 [workflows.workflow.metadata]
 isValidation = true
