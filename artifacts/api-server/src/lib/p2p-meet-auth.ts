@@ -3,12 +3,14 @@ import {
   and,
   eq,
   gt,
+  inArray,
   sql,
 } from "drizzle-orm";
 import {
   db,
   novaluthPlatformAccountsTable,
   novaluthPlatformSessionsTable,
+  pool,
   type NovaluthPlatformAccount,
 } from "@workspace/db";
 
@@ -16,6 +18,116 @@ export const MEET_SESSION_COOKIE = "novaluth_meet_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 12;
 const PASSWORD_HASH_PREFIX = "scrypt";
+const ACCOUNT_DISABLED_CHANNEL = "novaluth_meet_account_disabled";
+const accountDisabledListeners = new Set<(accountId: number) => void>();
+const accountDisabledReconciliations = new Set<() => Promise<void>>();
+const accountDisabledErrors = new Set<(error: unknown) => void>();
+let accountDisabledSubscription: Promise<void> | null = null;
+type AccountDisabledClient = {
+  query(query: string): Promise<unknown>;
+  release(destroy?: boolean): void;
+};
+let accountDisabledClient: AccountDisabledClient | null = null;
+let accountDisabledReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function reportAccountDisabledSubscriptionError(error: unknown) {
+  for (const listener of accountDisabledErrors) listener(error);
+}
+
+function scheduleAccountDisabledReconnect(error: unknown) {
+  reportAccountDisabledSubscriptionError(error);
+  if (accountDisabledReconnectTimer || accountDisabledListeners.size === 0) return;
+  accountDisabledReconnectTimer = setTimeout(() => {
+    accountDisabledReconnectTimer = null;
+    void ensureAccountDisabledSubscription().catch(scheduleAccountDisabledReconnect);
+  }, 1_000);
+  accountDisabledReconnectTimer.unref();
+}
+
+function ensureAccountDisabledSubscription() {
+  if (accountDisabledSubscription) return accountDisabledSubscription;
+  accountDisabledSubscription = (async () => {
+    const client = await pool.connect();
+    accountDisabledClient = client;
+    client.on("notification", (message) => {
+      if (message.channel !== ACCOUNT_DISABLED_CHANNEL) return;
+      const accountId = Number(message.payload);
+      if (!Number.isInteger(accountId) || accountId <= 0) return;
+      for (const listener of accountDisabledListeners) listener(accountId);
+    });
+    client.on("error", () => {
+      if (accountDisabledClient !== client) return;
+      accountDisabledSubscription = null;
+      accountDisabledClient = null;
+      client.release(true);
+      scheduleAccountDisabledReconnect(
+        new Error("La connexion PostgreSQL LISTEN des révocations Meet a été perdue."),
+      );
+    });
+    await client.query(`LISTEN ${ACCOUNT_DISABLED_CHANNEL}`);
+    await Promise.all(
+      Array.from(accountDisabledReconciliations, (reconcile) => reconcile()),
+    );
+  })().catch((error) => {
+    if (accountDisabledClient) {
+      accountDisabledClient.release(true);
+      accountDisabledClient = null;
+    }
+    accountDisabledSubscription = null;
+    throw error;
+  });
+  return accountDisabledSubscription;
+}
+
+export async function onMeetAccountDisabled(
+  listener: (accountId: number) => void,
+  reconcile: () => Promise<void>,
+  onError: (error: unknown) => void,
+): Promise<() => Promise<void>> {
+  accountDisabledListeners.add(listener);
+  accountDisabledReconciliations.add(reconcile);
+  accountDisabledErrors.add(onError);
+  try {
+    await ensureAccountDisabledSubscription();
+  } catch (error) {
+    accountDisabledListeners.delete(listener);
+    accountDisabledReconciliations.delete(reconcile);
+    accountDisabledErrors.delete(onError);
+    throw error;
+  }
+  return async () => {
+    accountDisabledListeners.delete(listener);
+    accountDisabledReconciliations.delete(reconcile);
+    accountDisabledErrors.delete(onError);
+    if (accountDisabledListeners.size > 0 || !accountDisabledClient) return;
+    if (accountDisabledReconnectTimer) {
+      clearTimeout(accountDisabledReconnectTimer);
+      accountDisabledReconnectTimer = null;
+    }
+    const client = accountDisabledClient;
+    accountDisabledClient = null;
+    accountDisabledSubscription = null;
+    try {
+      await client.query(`UNLISTEN ${ACCOUNT_DISABLED_CHANNEL}`);
+    } finally {
+      client.release();
+    }
+  };
+}
+
+export async function inactiveMeetAccountIds(accountIds: number[]) {
+  if (accountIds.length === 0) return [];
+  const rows = await db
+    .select({ id: novaluthPlatformAccountsTable.id })
+    .from(novaluthPlatformAccountsTable)
+    .where(
+      and(
+        inArray(novaluthPlatformAccountsTable.id, accountIds),
+        eq(novaluthPlatformAccountsTable.active, false),
+      ),
+    );
+  return rows.map(({ id }) => id);
+}
 
 export type PublicMeetAccount = {
   id: number;
@@ -241,17 +353,22 @@ export async function resetMeetAccountPassword(accountId: number) {
 }
 
 export async function setMeetAccountActive(accountId: number, active: boolean) {
-  const [account] = await db
-    .update(novaluthPlatformAccountsTable)
-    .set({ active })
-    .where(eq(novaluthPlatformAccountsTable.id, accountId))
-    .returning();
-  if (account && !active) {
-    await db
-      .delete(novaluthPlatformSessionsTable)
-      .where(eq(novaluthPlatformSessionsTable.accountId, accountId));
-  }
-  return account ?? null;
+  return db.transaction(async (tx) => {
+    const [account] = await tx
+      .update(novaluthPlatformAccountsTable)
+      .set({ active })
+      .where(eq(novaluthPlatformAccountsTable.id, accountId))
+      .returning();
+    if (account && !active) {
+      await tx
+        .delete(novaluthPlatformSessionsTable)
+        .where(eq(novaluthPlatformSessionsTable.accountId, accountId));
+      await tx.execute(
+        sql`select pg_notify(${ACCOUNT_DISABLED_CHANNEL}, ${String(accountId)})`,
+      );
+    }
+    return account ?? null;
+  });
 }
 
 export async function createMeetSession(accountId: number) {

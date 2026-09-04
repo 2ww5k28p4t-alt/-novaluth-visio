@@ -14,3 +14,4 @@
 - [Meet account persistence](meet-account-persistence.md) — Future Meet accounts must use PostgreSQL and NovaLuth identity, never deployment-local JSON files.
 - [Drizzle orphan cleanup prompts](drizzle-orphan-cleanup-prompts.md) — `drizzle-kit push --force` may still require a TTY when resolving orphaned table names.
 - [Chromium CDP validation exit](chromium-cdp-validation-exit.md) — Standalone CDP checks may need an explicit exit after cleanup to avoid false validation timeouts.
+- [Cross-instance revocation delivery](cross-instance-revocation-delivery.md) — Security revocations need ready-before-traffic subscriptions and reconciliation after reconnect.

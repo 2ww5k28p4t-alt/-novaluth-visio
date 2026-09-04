@@ -20,7 +20,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const server = createServer(app);
-registerP2PMeet(server);
+await registerP2PMeet(server);
 
 server.on("error", (err) => {
   logger.error({ err }, "Error listening on port");

@@ -4,7 +4,9 @@ import { Server as SocketIOServer, type Socket } from "socket.io";
 import { logger } from "./logger";
 import {
   accountForSession,
+  inactiveMeetAccountIds,
   isMeetAuthRequired,
+  onMeetAccountDisabled,
   sessionTokenFromCookie,
 } from "./p2p-meet-auth";
 
@@ -32,6 +34,7 @@ type RoomPayload = {
   roomPassword?: unknown;
   participantId?: unknown;
 };
+type AccountDisabledSubscriber = typeof onMeetAccountDisabled;
 
 function sanitize(value: unknown, maxLength: number) {
   return String(value ?? "")
@@ -113,7 +116,10 @@ function sendAck(ack: unknown, payload: object) {
   if (typeof ack === "function") (ack as (value: object) => void)(payload);
 }
 
-export function registerP2PMeet(server: HttpServer) {
+export async function registerP2PMeet(
+  server: HttpServer,
+  subscribeToAccountDisabled: AccountDisabledSubscriber = onMeetAccountDisabled,
+) {
   const io = new SocketIOServer(server, {
     path: "/api/socket.io",
     serveClient: false,
@@ -128,6 +134,36 @@ export function registerP2PMeet(server: HttpServer) {
   const rooms = new Map<string, RoomState>();
   const joinAttempts = new Map<string, { count: number; firstAt: number }>();
   const pendingPeerRemoval = new Map<string, ReturnType<typeof setTimeout>>();
+  const disconnectAccountSockets = (accountId: number) => {
+    io.in(`meet-account:${accountId}`).disconnectSockets(true);
+    logger.info(
+      { accountId, event: "meet_account_sockets_disconnected" },
+      "P2P Meet disconnected sockets for disabled account",
+    );
+  };
+  const reconcileDisabledAccounts = async () => {
+    const connectedAccountIds = Array.from(
+      io.sockets.sockets.values(),
+      (socket) => Number(socket.data.account?.id),
+    ).filter((accountId) => Number.isInteger(accountId) && accountId > 0);
+    const inactiveAccountIds = await inactiveMeetAccountIds([
+      ...new Set(connectedAccountIds),
+    ]);
+    for (const accountId of inactiveAccountIds) disconnectAccountSockets(accountId);
+  };
+  const removeAccountDisabledListener = await subscribeToAccountDisabled(
+    disconnectAccountSockets,
+    reconcileDisabledAccounts,
+    (error) => {
+      logger.error(
+        { err: error },
+        "P2P Meet account deactivation subscription lost; reconnecting",
+      );
+    },
+  );
+  server.once("close", () => {
+    void removeAccountDisabledListener();
+  });
 
   const recoveryKey = (room: string, peerId: string) => `${room}:${peerId}`;
 
@@ -203,6 +239,10 @@ export function registerP2PMeet(server: HttpServer) {
   };
 
   io.on("connection", (socket: Socket) => {
+    const accountId = Number(socket.data.account?.id);
+    if (Number.isInteger(accountId) && accountId > 0) {
+      void socket.join(`meet-account:${accountId}`);
+    }
     let currentRoom: string | null =
       typeof socket.data.room === "string" ? socket.data.room : null;
     let currentPeerId: string | null =
@@ -350,7 +390,10 @@ export function registerP2PMeet(server: HttpServer) {
       const roomState = rooms.get(currentRoom);
       const peer = roomState?.peers.get(currentPeerId);
       if (!peer || peer.socketId !== socket.id) return;
-      if (reason === "client namespace disconnect") {
+      if (
+        reason === "client namespace disconnect"
+        || reason === "server namespace disconnect"
+      ) {
         roomState?.peers.delete(currentPeerId);
         if (roomState?.peers.size === 0) rooms.delete(currentRoom);
         socket.to(currentRoom).emit("peer-left", { id: currentPeerId });

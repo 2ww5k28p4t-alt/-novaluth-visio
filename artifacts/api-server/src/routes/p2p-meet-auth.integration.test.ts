@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   db,
   novaluthPlatformAccountsTable,
@@ -12,15 +12,19 @@ import {
 } from "@workspace/db";
 import app from "../app";
 import { registerP2PMeet } from "../lib/p2p-meet";
+import { onMeetAccountDisabled } from "../lib/p2p-meet-auth";
 
 type JsonBody = Record<string, unknown>;
 
 let server: Server;
 let origin = "";
 let closeSocketServer: (() => Promise<void>) | null = null;
+let reconcileDisabledAccounts: (() => Promise<void>) | null = null;
 
 const suffix = randomUUID().slice(0, 12);
 const login = `meet-${suffix}`;
+const observerLogin = `meet-observer-${suffix}`;
+const reconciliationLogin = `meet-reconcile-${suffix}`;
 const adminToken = `admin-${suffix}`;
 const originalEnvironment = {
   authRequired: process.env.NOVALUTH_MEET_AUTH_REQUIRED,
@@ -51,7 +55,7 @@ function sessionCookie(response: Response) {
   return cookie;
 }
 
-async function socketIoConnectPacket(cookie?: string) {
+async function openSocketIoSession(cookie?: string) {
   const query = new URLSearchParams({
     EIO: "4",
     transport: "polling",
@@ -80,7 +84,32 @@ async function socketIoConnectPacket(cookie?: string) {
   query.set("t", randomUUID());
   const polled = await fetch(`${origin}/api/socket.io/?${query}`, { headers });
   assert.equal(polled.status, 200);
-  return polled.text();
+  const connectPacket = await polled.text();
+  return {
+    connectPacket,
+    async emit(event: string, payload: object) {
+      query.set("t", randomUUID());
+      const response = await fetch(`${origin}/api/socket.io/?${query}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+          ...(headers ?? {}),
+        },
+        body: `42${JSON.stringify([event, payload])}`,
+      });
+      assert.equal(response.status, 200);
+    },
+    async poll() {
+      query.set("t", randomUUID());
+      const response = await fetch(`${origin}/api/socket.io/?${query}`, { headers });
+      const body = await response.text();
+      return { status: response.status, body };
+    },
+  };
+}
+
+async function socketIoConnectPacket(cookie?: string) {
+  return (await openSocketIoSession(cookie)).connectPacket;
 }
 
 before(async () => {
@@ -88,7 +117,29 @@ before(async () => {
   process.env.NOVALUTH_ADMIN_TOKEN = adminToken;
 
   server = createServer(app);
-  const io = registerP2PMeet(server);
+  let allowSubscription!: () => void;
+  const subscriptionGate = new Promise<void>((resolve) => {
+    allowSubscription = resolve;
+  });
+  let registrationSettled = false;
+  const registration = registerP2PMeet(
+    server,
+    async (listener, reconcile, onError) => {
+      reconcileDisabledAccounts = reconcile;
+      await subscriptionGate;
+      return onMeetAccountDisabled(listener, reconcile, onError);
+    },
+  ).finally(() => {
+    registrationSettled = true;
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(
+    registrationSettled,
+    false,
+    "Meet ne doit pas devenir prêt avant son abonnement aux révocations",
+  );
+  allowSubscription();
+  const io = await registration;
   closeSocketServer = () =>
     new Promise<void>((resolve) => {
       io.close(() => resolve());
@@ -98,12 +149,17 @@ before(async () => {
 });
 
 after(async () => {
-  const [account] = await db
+  const accounts = await db
     .select({ id: novaluthPlatformAccountsTable.id })
     .from(novaluthPlatformAccountsTable)
-    .where(eq(novaluthPlatformAccountsTable.login, login))
-    .limit(1);
-  if (account) {
+    .where(
+      inArray(novaluthPlatformAccountsTable.login, [
+        login,
+        observerLogin,
+        reconciliationLogin,
+      ]),
+    );
+  for (const account of accounts) {
     await db
       .delete(novaluthPlatformSessionsTable)
       .where(eq(novaluthPlatformSessionsTable.accountId, account.id));
@@ -215,6 +271,45 @@ test("Meet protège durablement les comptes, ICE et Socket.IO", async () => {
   assert.equal(resetLogin.response.status, 200);
   const activeCookie = sessionCookie(resetLogin.response);
 
+  const observerCreated = await api("/admin/meet/accounts", {
+    method: "POST",
+    headers: { "X-Admin-Token": adminToken },
+    body: JSON.stringify({
+      login: observerLogin,
+      displayName: "Observateur Meet test",
+      role: "musicien",
+    }),
+  });
+  assert.equal(observerCreated.response.status, 201);
+  const observerLoginResponse = await api("/meet/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      login: observerLogin,
+      password: String(observerCreated.body?.temporaryPassword),
+    }),
+  });
+  assert.equal(observerLoginResponse.response.status, 200);
+  const observerCookie = sessionCookie(observerLoginResponse.response);
+  const observerSocket = await openSocketIoSession(observerCookie);
+  const activeSocket = await openSocketIoSession(activeCookie);
+  assert.match(observerSocket.connectPacket, /^40/);
+  assert.match(activeSocket.connectPacket, /^40/);
+  await observerSocket.emit("join", {
+    room: `disabled-${suffix}`,
+    name: "Observateur",
+    participantId: "observer",
+  });
+  await activeSocket.emit("join", {
+    room: `disabled-${suffix}`,
+    name: "Compte désactivé",
+    participantId: "disabled-account",
+  });
+  const joinedEvent = await observerSocket.poll();
+  assert.equal(joinedEvent.status, 200);
+  assert.match(joinedEvent.body, /peer-joined/);
+  const activeDisconnect = activeSocket.poll();
+  const observerDeparture = observerSocket.poll();
+
   const disabled = await api(`/admin/meet/accounts/${accountId}`, {
     method: "PATCH",
     headers: { "X-Admin-Token": adminToken },
@@ -222,6 +317,44 @@ test("Meet protège durablement les comptes, ICE et Socket.IO", async () => {
   });
   assert.equal(disabled.response.status, 200);
   assert.equal(disabled.body?.active, false);
+  const disconnected = await activeDisconnect;
+  assert.match(disconnected.body, /(?:^|\x1e)(?:1|41)/);
+  const departure = await observerDeparture;
+  assert.equal(departure.status, 200);
+  assert.match(departure.body, /peer-left/);
+  assert.match(departure.body, /disabled-account/);
+
+  const reconciliationCreated = await api("/admin/meet/accounts", {
+    method: "POST",
+    headers: { "X-Admin-Token": adminToken },
+    body: JSON.stringify({
+      login: reconciliationLogin,
+      displayName: "Réconciliation Meet test",
+      role: "musicien",
+    }),
+  });
+  assert.equal(reconciliationCreated.response.status, 201);
+  const reconciliationAccount = reconciliationCreated.body?.account as JsonBody;
+  const reconciliationAccountId = Number(reconciliationAccount.id);
+  const reconciliationLoginResponse = await api("/meet/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      login: reconciliationLogin,
+      password: String(reconciliationCreated.body?.temporaryPassword),
+    }),
+  });
+  assert.equal(reconciliationLoginResponse.response.status, 200);
+  const reconciliationCookie = sessionCookie(reconciliationLoginResponse.response);
+  const reconciliationSocket = await openSocketIoSession(reconciliationCookie);
+  assert.match(reconciliationSocket.connectPacket, /^40/);
+  await db
+    .update(novaluthPlatformAccountsTable)
+    .set({ active: false })
+    .where(eq(novaluthPlatformAccountsTable.id, reconciliationAccountId));
+  const reconciledDisconnect = reconciliationSocket.poll();
+  assert.ok(reconcileDisabledAccounts);
+  await reconcileDisabledAccounts();
+  assert.match((await reconciledDisconnect).body, /(?:^|\x1e)(?:1|41)/);
 
   const disabledSession = await api("/meet/auth/session", {
     headers: { cookie: activeCookie },
