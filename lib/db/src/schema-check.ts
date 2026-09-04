@@ -1,4 +1,5 @@
 import pg from "pg";
+import { readFile } from "node:fs/promises";
 import { getTableConfig, PgTable, type AnyPgTable } from "drizzle-orm/pg-core";
 import * as sourceSchema from "./schema";
 
@@ -48,6 +49,12 @@ export const expectedSn13Constraints = [
 ] as const;
 
 export const expectedNonSn13Constraints = [
+  {
+    tableName: "novaluth_platform_accounts",
+    name: "novaluth_platform_accounts_role_check",
+    definition:
+      "CHECK ((role = ANY (ARRAY['admin'::text, 'artisan'::text, 'musicien'::text])))",
+  },
   {
     tableName: "novaluth_access_requests",
     name: "novaluth_access_requests_lifecycle_check",
@@ -156,6 +163,8 @@ export type OrphanedTableReview = {
     reason: string;
   }>;
 };
+
+const orphanReviewFileEnvironmentVariable = "SCHEMA_ORPHAN_REVIEW_FILE";
 
 function assertDevelopmentEnvironment() {
   if (process.env.NODE_ENV === "production") {
@@ -522,6 +531,45 @@ export function assertOrphanedTableCleanupReviewed(
   }
 }
 
+export async function loadOrphanedTableReview(
+  reviewFile = process.env[orphanReviewFileEnvironmentVariable],
+): Promise<OrphanedTableReview | undefined> {
+  if (!reviewFile) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(reviewFile, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Impossible de lire le relevé de revue ${reviewFile} : ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof (parsed as Record<string, unknown>).reviewedAt !== "string" ||
+    typeof (parsed as Record<string, unknown>).reviewer !== "string" ||
+    !Array.isArray((parsed as Record<string, unknown>).decisions) ||
+    !(parsed as Record<string, unknown[]>).decisions.every(
+      (decision) =>
+        Boolean(decision) &&
+        typeof decision === "object" &&
+        typeof (decision as Record<string, unknown>).tableName === "string" &&
+        typeof (decision as Record<string, unknown>).action === "string" &&
+        typeof (decision as Record<string, unknown>).reason === "string",
+    )
+  ) {
+    throw new Error(
+      `Le relevé de revue ${reviewFile} est incomplet ou invalide.`,
+    );
+  }
+
+  return parsed as OrphanedTableReview;
+}
+
 function hasDrift(drift: Sn13SchemaDrift) {
   return (
     drift.missingTables.length > 0 ||
@@ -561,17 +609,49 @@ export async function assertSn13SchemaSynchronized(
   );
 }
 
-async function main() {
-  try {
-    if (process.argv.includes("--orphans")) {
-      const report = await findOrphanedTables();
-      console.log(formatOrphanedTablesReport(report));
-      if (report.reviewRequired) process.exitCode = 1;
-      return;
+export async function runSchemaCheck(
+  args = process.argv.slice(2),
+  queryOverride?: Sn13SchemaQuery,
+) {
+  if (args.includes("--before-push")) {
+    const report = await findOrphanedTables(queryOverride);
+    const formattedReport = formatOrphanedTablesReport(report);
+
+    if (report.reviewRequired) {
+      const review = await loadOrphanedTableReview();
+      try {
+        assertOrphanedTableCleanupReviewed(report, review);
+      } catch (error) {
+        throw new Error(
+          [
+            formattedReport,
+            error instanceof Error ? error.message : String(error),
+            `Renseignez ${orphanReviewFileEnvironmentVariable} avec le chemin d'un relevé JSON complet avant de relancer le push.`,
+          ].join("\n"),
+        );
+      }
     }
 
-    await assertSn13SchemaSynchronized();
-    console.log("Schéma SN13 synchronisé avec la base de développement.");
+    return report.reviewRequired
+      ? `${formattedReport}\nRevue des tables orphelines validée. Le push peut présenter les changements.`
+      : formattedReport;
+  }
+
+  if (args.includes("--orphans")) {
+    const report = await findOrphanedTables(queryOverride);
+    if (report.reviewRequired) {
+      throw new Error(formatOrphanedTablesReport(report));
+    }
+    return formatOrphanedTablesReport(report);
+  }
+
+  await assertSn13SchemaSynchronized(queryOverride);
+  return "Schéma SN13 synchronisé avec la base de développement.";
+}
+
+async function main() {
+  try {
+    console.log(await runSchemaCheck());
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;

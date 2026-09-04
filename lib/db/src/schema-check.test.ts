@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, test } from "node:test";
 
 import {
@@ -19,6 +22,7 @@ import {
   findOrphanedTables,
   formatOrphanedTablesReport,
   normalizeDefinition,
+  runSchemaCheck,
   type OrphanedTablesReport,
   type Sn13SchemaQuery,
 } from "./schema-check";
@@ -26,6 +30,7 @@ import * as sourceSchema from "./schema";
 
 const originalNodeEnv = process.env.NODE_ENV;
 const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalOrphanReviewFile = process.env.SCHEMA_ORPHAN_REVIEW_FILE;
 
 afterEach(() => {
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
@@ -33,6 +38,10 @@ afterEach(() => {
 
   if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalDatabaseUrl;
+
+  if (originalOrphanReviewFile === undefined)
+    delete process.env.SCHEMA_ORPHAN_REVIEW_FILE;
+  else process.env.SCHEMA_ORPHAN_REVIEW_FILE = originalOrphanReviewFile;
 });
 
 function runWithDevelopmentEnvironment<T>(callback: () => Promise<T>) {
@@ -270,9 +279,9 @@ test("identifies an outdated non-SN13 CHECK constraint by name", async () => {
 });
 
 test("keeps non-SN13 constraint expectations separate from SN13 constraints", () => {
-  assert.equal(expectedNonSn13Constraints.length, 9);
+  assert.equal(expectedNonSn13Constraints.length, 10);
   assert.equal(expectedSn13Constraints.length, 5);
-  assert.equal(expectedNamedCheckConstraints.length, 14);
+  assert.equal(expectedNamedCheckConstraints.length, 15);
 });
 
 test("finds development tables missing from the current Drizzle source schema with row counts", async () => {
@@ -364,4 +373,82 @@ test("does not require a cleanup review when no orphaned tables exist", () => {
       reviewRequired: false,
     }),
   );
+});
+
+test("wires the normal push through orphan review while keeping isolated force push direct", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { scripts: Record<string, string> };
+
+  assert.match(packageJson.scripts.push, /^pnpm run check-schema:before-push && /);
+  assert.match(packageJson.scripts["check-schema:before-push"], /--before-push$/);
+  assert.doesNotMatch(packageJson.scripts["push-force"], /before-push|orphans/);
+});
+
+test("blocks the pre-push entry point when orphan review is missing or incomplete", async () => {
+  const query: Sn13SchemaQuery = async () => ({
+    rows: [{ table_name: "legacy_table", row_count: "3" }],
+  });
+
+  await runWithDevelopmentEnvironment(async () => {
+    delete process.env.SCHEMA_ORPHAN_REVIEW_FILE;
+    await assert.rejects(
+      runSchemaCheck(["--before-push"], query),
+      /SCHEMA_ORPHAN_REVIEW_FILE/,
+    );
+
+    const directory = await mkdtemp(join(tmpdir(), "schema-review-"));
+    const reviewFile = join(directory, "review.json");
+    try {
+      await writeFile(
+        reviewFile,
+        JSON.stringify({
+          reviewedAt: "2026-09-04T10:00:00.000Z",
+          reviewer: "schema-owner",
+          decisions: [],
+        }),
+      );
+      process.env.SCHEMA_ORPHAN_REVIEW_FILE = reviewFile;
+      await assert.rejects(
+        runSchemaCheck(["--before-push"], query),
+        /ne couvre pas toutes les tables/,
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+test("allows the pre-push entry point after every orphan has a reviewed decision", async () => {
+  const query: Sn13SchemaQuery = async () => ({
+    rows: [{ table_name: "legacy_table", row_count: "3" }],
+  });
+  const directory = await mkdtemp(join(tmpdir(), "schema-review-"));
+  const reviewFile = join(directory, "review.json");
+
+  try {
+    await writeFile(
+      reviewFile,
+      JSON.stringify({
+        reviewedAt: "2026-09-04T10:00:00.000Z",
+        reviewer: "schema-owner",
+        decisions: [
+          {
+            tableName: "legacy_table",
+            action: "drop",
+            reason: "Retention review completed.",
+          },
+        ],
+      }),
+    );
+    process.env.SCHEMA_ORPHAN_REVIEW_FILE = reviewFile;
+
+    const output = await runWithDevelopmentEnvironment(() =>
+      runSchemaCheck(["--before-push"], query),
+    );
+    assert.match(output, /Revue des tables orphelines validée/);
+    assert.match(output, /Le push peut présenter les changements/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
