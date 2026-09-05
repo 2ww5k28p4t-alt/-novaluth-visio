@@ -34,7 +34,8 @@ sudo bash scripts/install-coturn-ovh.sh
 
 Le script vérifie le DNS, demande le secret TURN sans l’afficher, obtient le
 certificat Let's Encrypt, applique le pare-feu, écrit la configuration
-Coturn, active son renouvellement et vérifie les ports d’écoute. Il est
+Coturn, ouvre configuration et certificat au compte de service de Coturn,
+active son renouvellement et vérifie les ports d’écoute. Il est
 relançable uniquement si la configuration existante correspond exactement aux
 paramètres demandés : secret TURN, `external-ip`, `realm`, `server-name` et
 les chemins `cert`/`pkey`. Une divergence (par exemple après un changement
@@ -222,11 +223,82 @@ log-file=syslog
 simple-log
 ```
 
-Protéger le fichier :
+Protéger le fichier, en laissant l’accès en lecture au seul groupe de Coturn :
 
 ```bash
-sudo chmod 600 /etc/turnserver.conf
+sudo chgrp turnserver /etc/turnserver.conf
+sudo chmod 640 /etc/turnserver.conf
 sudo systemctl enable coturn
+```
+
+`chmod 600` empêcherait le compte `turnserver` de lire sa propre
+configuration. Voir la section « Compte de service et permissions ».
+
+## 4 bis. Compte de service et permissions
+
+Sur Debian et Ubuntu, l’unité systemd `coturn.service` déclare
+`User=turnserver`. Coturn ne tourne donc jamais en `root`, et tout fichier
+qu’il doit lire doit être accessible à ce compte. C’est la source de panne la
+plus coûteuse de cette installation, parce qu’elle est silencieuse :
+
+- si `/etc/turnserver.conf` est en `600 root:root`, Coturn ne peut pas l’ouvrir
+  et démarre avec ses réglages d’usine. Le service apparaît `active`, le port
+  3478 répond, mais il n’y a ni secret d’authentification, ni certificat, ni
+  écouteur TLS sur 5349 ;
+- si `/etc/letsencrypt/live` ou `/etc/letsencrypt/archive` n’est pas
+  traversable par `turnserver`, Coturn lit sa configuration mais abandonne
+  l’écouteur chiffré, et 5349 reste fermé.
+
+Dans les deux cas, `systemctl is-active coturn` renvoie `active` et rien
+n’indique l’erreur en dehors du journal. Le symptôme observable est l’absence
+du port 5349, et, quand la configuration elle-même n’est pas lue, une écoute
+sur chaque adresse d’interface plutôt que sur `0.0.0.0` :
+
+```bash
+sudo ss -lntup | grep -E ':(3478|5349)'
+```
+
+Une installation correcte affiche `0.0.0.0:3478` et `0.0.0.0:5349`. Une
+énumération d’adresses d’interface signifie que `listening-ip=0.0.0.0` n’a pas
+été lu, donc que la configuration est inaccessible au service.
+
+Permissions attendues :
+
+| Chemin | Mode | Propriétaire |
+| --- | --- | --- |
+| `/etc/turnserver.conf` | `640` | `root:turnserver` |
+| `/etc/default/coturn` | `600` | `root:root` |
+| `/etc/letsencrypt` | `755` | `root:root` |
+| `/etc/letsencrypt/live` | `755` | `root:root` |
+| `/etc/letsencrypt/archive` | `755` | `root:root` |
+| `/etc/letsencrypt/live/turn.novaluth.com` | `750` | `root:turnserver` |
+| `/etc/letsencrypt/archive/turn.novaluth.com` | `750` | `root:turnserver` |
+| `.../archive/turn.novaluth.com/privkey*.pem` | `640` | `root:turnserver` |
+
+La clé privée reste donc illisible pour tout compte autre que `root` et
+`turnserver`.
+
+L’installateur écrit `/usr/local/bin/novaluth-turn-cert-permissions.sh`, qui
+applique exactement ce tableau puis redémarre Coturn. Chaque renouvellement
+de certificat remettant la clé privée en accès exclusif `root`, ce script est
+aussi enregistré comme crochet de déploiement de Certbot dans
+`/etc/cron.d/novaluth-coturn-cert`. Sans lui, le relais chiffré tomberait en
+panne au premier renouvellement, environ soixante jours après l’installation,
+sans aucun message d’erreur.
+
+Pour réparer une installation antérieure, relancer l’installateur avec le même
+secret suffit : il réapplique les permissions sans réécrire la configuration.
+
+## 4 ter. Rechargement du service
+
+L’unité `coturn.service` de Debian ne déclare aucune commande de
+rechargement. `systemctl reload coturn` échoue avec
+`Job type reload is not applicable for unit coturn.service`, et
+`systemctl enable --now coturn` démarre le service avant l’écriture de la
+configuration. Toute prise en compte d’un changement passe donc par :
+
+```bash
+sudo systemctl restart coturn
 ```
 
 ## 5. Certificat TLS du relais
@@ -238,10 +310,14 @@ chemins `cert` et `pkey` dans la configuration Coturn.
 Avant de démarrer, vérifier :
 
 ```bash
-sudo test -r /etc/letsencrypt/live/turn.novaluth.com/fullchain.pem
-sudo test -r /etc/letsencrypt/live/turn.novaluth.com/privkey.pem
+sudo -u turnserver test -r /etc/letsencrypt/live/turn.novaluth.com/fullchain.pem
+sudo -u turnserver test -r /etc/letsencrypt/live/turn.novaluth.com/privkey.pem
 sudo grep -E '^(external-ip|static-auth-secret|tls-listening-port)' /etc/turnserver.conf
 ```
+
+Les deux premières commandes vérifient délibérément la lecture sous le compte
+de service, et non sous `root` : c’est la seule vérification qui détecte le
+défaut de permissions avant qu’il ne se traduise par un port 5349 absent.
 
 Redémarrer Coturn :
 

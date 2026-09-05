@@ -83,6 +83,12 @@ assert_contains "$installer" "listening-port=3478"
 assert_contains "$installer" "tls-listening-port=5349"
 assert_contains "$installer" "min-port=49160"
 assert_contains "$installer" "max-port=49200"
+assert_contains "$installer" "secure_file_for_coturn"
+assert_contains "$installer" "detect_coturn_identity"
+assert_contains "$installer" "chmod 640"
+assert_not_contains "$installer" "systemctl reload coturn"
+assert_not_contains "$installer" "enable --now coturn"
+assert_contains "$installer" "ufw allow 80/tcp comment 'ACME HTTP-01'"
 assert_not_contains "$installer" "docker"
 assert_not_contains "$installer" "users.json"
 assert_not_contains "$installer" "server.js"
@@ -92,19 +98,45 @@ assert_not_contains "$installer" "pnpm install"
 mkdir -p "$mock_bin"
 cat >"$mock_bin/id" <<'EOF'
 #!/usr/bin/env bash
-printf '0\n'
+case "${1:-}" in
+  -u) printf '0\n' ;;
+  -gn) printf '%s\n' "${2:-root}" ;;
+  *) exit 1 ;;
+esac
 EOF
 cat >"$mock_bin/dig" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${MOCK_DNS_IP:?}"
 EOF
-for command in apt-get ufw systemctl journalctl; do
+for command in apt-get journalctl; do
   cat >"$mock_bin/$command" <<'EOF'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"${MOCK_COMMAND_LOG:?}"
 exit 0
 EOF
 done
+# ufw rejette toute apostrophe dans un commentaire de règle : la simulation
+# reproduit ce refus pour que le test échoue si le défaut réapparaît.
+cat >"$mock_bin/ufw" <<'EOF'
+#!/usr/bin/env bash
+printf 'ufw %s\n' "$*" >>"${MOCK_COMMAND_LOG:?}"
+if [[ "$*" == *"'"* ]]; then
+  printf 'ERROR: Invalid syntax\n' >&2
+  exit 1
+fi
+exit 0
+EOF
+# systemd refuse « reload » sur l'unité coturn de Debian, qui ne déclare
+# aucune commande de rechargement.
+cat >"$mock_bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+printf 'systemctl %s\n' "$*" >>"${MOCK_COMMAND_LOG:?}"
+if [[ "${1:-}" == "reload" ]]; then
+  printf 'Failed to reload coturn.service: Job type reload is not applicable for unit coturn.service.\n' >&2
+  exit 1
+fi
+exit 0
+EOF
 cat >"$mock_bin/certbot" <<'EOF'
 #!/usr/bin/env bash
 printf 'certbot %s\n' "$*" >>"${MOCK_COMMAND_LOG:?}"
@@ -185,9 +217,21 @@ assert_contains "$success_config" "pkey=$success_cert_dir/privkey.pem"
 assert_contains "$success_config" "min-port=49160"
 assert_contains "$success_config" "max-port=49200"
 assert_contains "$success_default" "TURNSERVER_ENABLED=1"
-assert_contains "$success_renewal" 'certbot renew --quiet --deploy-hook "/bin/systemctl reload coturn"'
-[ "$(stat -c '%a' "$success_config")" = "600" ] ||
-  fail "la configuration Coturn n’a pas les permissions 600"
+success_hook="$success_root/usr/local/bin/novaluth-turn-cert-permissions.sh"
+assert_contains "$success_renewal" "certbot renew --quiet --deploy-hook \"$success_hook\""
+assert_not_contains "$success_renewal" "systemctl reload"
+[ -x "$success_hook" ] ||
+  fail "le crochet de permissions du certificat n’a pas été installé"
+sh -n "$success_hook" ||
+  fail "le crochet de permissions du certificat est syntaxiquement invalide"
+assert_contains "$success_hook" "GROUP='turnserver'"
+assert_contains "$success_hook" "chmod 0640"
+assert_contains "$success_hook" "systemctl restart coturn"
+assert_not_contains "$success_hook" "$secret"
+[ "$(stat -c '%a' "$success_hook")" = "700" ] ||
+  fail "le crochet de permissions n’a pas les permissions 700"
+[ "$(stat -c '%a' "$success_config")" = "640" ] ||
+  fail "la configuration Coturn n’a pas les permissions 640 attendues par le compte turnserver"
 [ "$(stat -c '%a' "$success_default")" = "600" ] ||
   fail "le fichier d’activation Coturn n’a pas les permissions 600"
 [ "$(stat -c '%a' "$success_renewal")" = "644" ] ||
@@ -252,8 +296,10 @@ assert_count "$success_default" 1 "TURNSERVER_ENABLED=1"
 assert_count "$success_renewal" 1 "certbot renew --quiet"
 
 assert_count "$command_log" 1 "certbot certonly"
-assert_count "$command_log" 2 "systemctl enable --now coturn"
-assert_count "$command_log" 2 "systemctl reload coturn"
+assert_count "$command_log" 3 "systemctl enable coturn"
+assert_count "$command_log" 3 "systemctl restart coturn"
+assert_not_contains "$command_log" "systemctl reload"
+assert_contains "$command_log" "ufw allow 80/tcp comment ACME HTTP-01"
 assert_count "$command_log" 3 "systemctl is-active --quiet coturn"
 assert_count "$command_log" 3 "ss -lntup"
 assert_not_contains "$command_log" "$secret"

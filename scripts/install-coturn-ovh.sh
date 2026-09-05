@@ -24,9 +24,12 @@ TURN_MIGRATION_CONFIRM="${TURN_MIGRATION_CONFIRM:-}"
 TEST_ROOT="${NOVALUTH_COTURN_TEST_ROOT:-}"
 ETC_DIR="$TEST_ROOT/etc"
 CONFIG_FILE="$ETC_DIR/turnserver.conf"
-CERT_DIR="$ETC_DIR/letsencrypt/live/$TURN_DOMAIN"
+CERT_LIVE_DIR="$ETC_DIR/letsencrypt/live"
+CERT_ARCHIVE_DIR="$ETC_DIR/letsencrypt/archive"
+CERT_DIR="$CERT_LIVE_DIR/$TURN_DOMAIN"
 DEFAULT_FILE="$ETC_DIR/default/coturn"
 RENEWAL_FILE="$ETC_DIR/cron.d/novaluth-coturn-cert"
+HOOK_FILE="$TEST_ROOT/usr/local/bin/novaluth-turn-cert-permissions.sh"
 MIGRATION_MODE=0
 CONFIG_MISMATCHES=()
 
@@ -40,6 +43,30 @@ fail() { printf '\n\033[31mArrêt : %s\033[0m\n\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || fail "lancez le script avec sudo"
 command -v apt-get >/dev/null || fail "Debian ou Ubuntu est requis"
+
+# Sur Debian et Ubuntu, l'unité systemd de Coturn tourne sous un compte sans
+# privilèges (« turnserver »). Tout fichier lu par le service doit donc être
+# accessible à ce compte, sinon Coturn démarre en silence avec ses réglages
+# d'usine : aucun certificat, aucun secret, aucun écouteur TLS sur 5349.
+detect_coturn_identity() {
+  local unit_user=""
+  if [ -z "$TEST_ROOT" ] && command -v systemctl >/dev/null; then
+    unit_user="$(systemctl show -p User --value coturn 2>/dev/null || true)"
+  fi
+  [ -n "$unit_user" ] || unit_user="turnserver"
+  COTURN_USER="$unit_user"
+  COTURN_GROUP="$(id -gn "$COTURN_USER" 2>/dev/null || printf '%s' "$COTURN_USER")"
+}
+detect_coturn_identity
+
+# Rend un fichier lisible par root et par le seul groupe de Coturn.
+secure_file_for_coturn() {
+  local target="$1"
+  chmod 640 "$target"
+  if getent group "$COTURN_GROUP" >/dev/null 2>&1; then
+    chgrp "$COTURN_GROUP" "$target"
+  fi
+}
 
 if [ -z "$PUBLIC_IP" ]; then
   PUBLIC_IP="$(curl -4 -fsS --max-time 10 https://ifconfig.me || true)"
@@ -94,7 +121,9 @@ title "2. Pare-feu"
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp comment 'SSH'
-ufw allow 80/tcp comment 'Certificats Let'\''s Encrypt'
+# ufw refuse toute apostrophe dans un commentaire de règle : son analyseur
+# lève une erreur de syntaxe et le script s'arrêterait ici.
+ufw allow 80/tcp comment 'ACME HTTP-01'
 ufw allow 3478/tcp comment 'TURN'
 ufw allow 3478/udp comment 'TURN'
 ufw allow 5349/tcp comment 'TURN TLS'
@@ -116,6 +145,63 @@ if [ ! -r "$CERT_DIR/fullchain.pem" ] || [ ! -r "$CERT_DIR/privkey.pem" ]; then
   ok "certificat Let's Encrypt obtenu"
 else
   ok "certificat existant conservé"
+fi
+
+# Certbot crée la clé privée en accès réservé à root, et chaque renouvellement
+# remet ces permissions. Ce script d'accompagnement redonne l'accès au groupe
+# de Coturn ; il sert à la fois maintenant et comme crochet de renouvellement.
+mkdir -p "$(dirname "$HOOK_FILE")"
+cat > "$HOOK_FILE" <<EOF
+#!/bin/sh
+#
+# Rend le certificat de $TURN_DOMAIN lisible par Coturn, puis redémarre le
+# service. Appelé par certbot après chaque renouvellement.
+#
+set -eu
+
+DOMAIN='$TURN_DOMAIN'
+GROUP='$COTURN_GROUP'
+ROOT='$ETC_DIR/letsencrypt'
+LIVE='$CERT_LIVE_DIR'
+ARCHIVE='$CERT_ARCHIVE_DIR'
+
+[ -d "\$LIVE/\$DOMAIN" ] || exit 0
+
+# 0755 est le mode natif de Certbot pour ces trois répertoires ; seul le
+# contenu sensible reste protégé, la clé privée restant en 0640 root:\$GROUP.
+for directory in "\$ROOT" "\$LIVE" "\$ARCHIVE"; do
+  [ -d "\$directory" ] || continue
+  chmod 0755 "\$directory"
+done
+
+for directory in "\$LIVE/\$DOMAIN" "\$ARCHIVE/\$DOMAIN"; do
+  [ -d "\$directory" ] || continue
+  chgrp "\$GROUP" "\$directory"
+  chmod 0750 "\$directory"
+done
+
+if [ -d "\$ARCHIVE/\$DOMAIN" ]; then
+  find "\$ARCHIVE/\$DOMAIN" -type f -name 'privkey*.pem' \\
+    -exec chgrp "\$GROUP" {} + -exec chmod 0640 {} +
+fi
+
+for file in "\$LIVE/\$DOMAIN"/*.pem; do
+  [ -e "\$file" ] || continue
+  if [ ! -L "\$file" ]; then
+    chgrp "\$GROUP" "\$file"
+    chmod 0640 "\$file"
+  fi
+done
+
+[ "\${NOVALUTH_SKIP_RESTART:-0}" = "1" ] || systemctl restart coturn
+EOF
+chmod 700 "$HOOK_FILE"
+
+if [ -z "$TEST_ROOT" ]; then
+  NOVALUTH_SKIP_RESTART=1 sh "$HOOK_FILE"
+  ok "certificat lisible par le compte $COTURN_USER"
+else
+  ok "crochet de permissions installé : $HOOK_FILE"
 fi
 
 title "4. Configuration Coturn"
@@ -163,7 +249,9 @@ max-bps=1000000
 log-file=syslog
 simple-log
 EOF
-  chmod 600 "$destination"
+  # 600 empêcherait le compte turnserver de lire sa propre configuration :
+  # Coturn repasserait alors silencieusement sur ses réglages d'usine.
+  secure_file_for_coturn "$destination"
 }
 
 validate_candidate_config() {
@@ -204,21 +292,23 @@ else
   ok "configuration Coturn créée"
 fi
 
+# Répare aussi les installations précédentes, dont la configuration était
+# écrite en 600 et donc illisible pour Coturn.
+secure_file_for_coturn "$CONFIG_FILE"
+
 mkdir -p "$(dirname "$DEFAULT_FILE")" "$(dirname "$RENEWAL_FILE")"
 printf 'TURNSERVER_ENABLED=1\n' > "$DEFAULT_FILE"
-cat > "$RENEWAL_FILE" <<'EOF'
-17 4 * * * root certbot renew --quiet --deploy-hook "/bin/systemctl reload coturn"
+cat > "$RENEWAL_FILE" <<EOF
+17 4 * * * root certbot renew --quiet --deploy-hook "$HOOK_FILE"
 EOF
 chmod 644 "$RENEWAL_FILE"
 
 title "5. Démarrage et contrôle"
-if [ "$MIGRATION_MODE" -eq 1 ]; then
-  systemctl enable coturn
-  systemctl restart coturn
-else
-  systemctl enable --now coturn
-  systemctl reload coturn
-fi
+# systemctl reload est inutilisable ici : l'unité coturn de Debian ne déclare
+# aucune commande de rechargement, et « enable --now » aurait déjà démarré le
+# service avec l'ancienne configuration.
+systemctl enable coturn
+systemctl restart coturn
 systemctl is-active --quiet coturn || {
   journalctl -u coturn -n 60 --no-pager
   fail "Coturn ne démarre pas"
@@ -237,6 +327,9 @@ Relais TURN : $TURN_DOMAIN
 Application : conserver TURN_HOST=$TURN_DOMAIN dans les Secrets Replit
 Authentification : conserver TURN_STATIC_AUTH_SECRET avec le secret saisi ici
 Port TLS 443 : non annoncé ; Coturn ne l'écoute pas dans cette installation
+Compte de service : $COTURN_USER ; configuration et certificat lisibles par le
+  groupe $COTURN_GROUP uniquement
+Renouvellement : $HOOK_FILE réapplique les permissions puis redémarre Coturn
 
 Test applicatif après redémarrage de l'API NovaLuth :
   curl -s https://novaluth.com/api/meet/ice | jq .
