@@ -1,6 +1,11 @@
 import pg from "pg";
 import { readFile } from "node:fs/promises";
-import { getTableConfig, PgTable, type AnyPgTable } from "drizzle-orm/pg-core";
+import {
+  getTableConfig,
+  PgDialect,
+  PgTable,
+  type AnyPgTable,
+} from "drizzle-orm/pg-core";
 import * as sourceSchema from "./schema";
 
 const { Pool } = pg;
@@ -47,6 +52,19 @@ export const expectedSn13Constraints = [
       "CHECK ((status = ANY (ARRAY['succes'::text, 'vide'::text, 'incomplet'::text, 'erreur'::text])))",
   },
 ] as const;
+
+const schemaDialect = new PgDialect();
+export const expectedProspectionConstraints = Object.values(sourceSchema)
+  .filter((value) => value instanceof PgTable)
+  .map((table) => getTableConfig(table as AnyPgTable))
+  .filter(({ name }) => name.startsWith("prospection_"))
+  .flatMap(({ name: tableName, checks }) =>
+    checks.map(({ name, value }) => ({
+      tableName,
+      name,
+      definition: schemaDialect.sqlToQuery(value).sql,
+    })),
+  );
 
 export const expectedNonSn13Constraints = [
   {
@@ -107,6 +125,7 @@ export const expectedNonSn13Constraints = [
     name: "novaluth_email_outbox_attempts_check",
     definition: "CHECK ((attempts >= 0))",
   },
+  ...expectedProspectionConstraints,
 ] as const;
 
 export const expectedNamedCheckConstraints = [
@@ -239,14 +258,33 @@ function stripRedundantGroupingParentheses(value: string) {
   while (changed) {
     changed = false;
     const openings: number[] = [];
+    let quote: "'" | '"' | undefined;
 
     for (let index = 0; index < normalized.length; index += 1) {
-      if (normalized[index] === "(") {
+      const character = normalized[index];
+
+      if (quote) {
+        if (character === quote) {
+          if (normalized[index + 1] === quote) {
+            index += 1;
+          } else {
+            quote = undefined;
+          }
+        }
+        continue;
+      }
+
+      if (character === "'" || character === '"') {
+        quote = character;
+        continue;
+      }
+
+      if (character === "(") {
         openings.push(index);
         continue;
       }
 
-      if (normalized[index] !== ")" || openings.length === 0) continue;
+      if (character !== ")" || openings.length === 0) continue;
 
       const openingIndex = openings.pop()!;
       const inner = normalized.slice(openingIndex + 1, index);
