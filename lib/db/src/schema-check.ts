@@ -20,6 +20,13 @@ export const expectedSn13Tables = [
   "novaluth_sn13_alert_state",
   "novaluth_sn13_purge_incidents",
 ] as const;
+export const expectedProspectionTriggers = [
+  {
+    tableName: "prospection_journal",
+    name: "prospection_journal_immutable",
+    functionName: "prospection_journal_reject_mutation",
+  },
+] as const;
 
 export const expectedSn13Constraints = [
   {
@@ -159,6 +166,7 @@ export type Sn13SchemaDrift = {
     expected: string;
     actual: string;
   }>;
+  missingTriggers: Array<{ tableName: string; name: string }>;
 };
 
 export type OrphanedTable = {
@@ -422,10 +430,34 @@ export async function findSn13SchemaDrift(
       }
     }
 
+    const missingTriggers: Sn13SchemaDrift["missingTriggers"] = [];
+    // Query overrides model CHECK drift in unit tests; the installed trigger
+    // itself is checked against real PostgreSQL during schema preflight.
+    if (!queryOverride) {
+      const triggerResult = await query(
+        `select c.relname as table_name, t.tgname as trigger_name,
+                p.proname as function_name
+           from pg_trigger t
+           join pg_class c on c.oid = t.tgrelid
+           join pg_namespace n on n.oid = c.relnamespace
+           join pg_proc p on p.oid = t.tgfoid
+          where n.nspname = $1 and not t.tgisinternal
+            and c.relname = any($2::text[])`,
+        ["public", [...new Set(expectedProspectionTriggers.map(({ tableName }) => tableName))]],
+      );
+      for (const expected of expectedProspectionTriggers) {
+        if (!triggerResult.rows.some((row) =>
+          row.table_name === expected.tableName &&
+          row.trigger_name === expected.name &&
+          row.function_name === expected.functionName,
+        )) missingTriggers.push({ tableName: expected.tableName, name: expected.name });
+      }
+    }
     return {
       missingTables,
       missingConstraints,
       mismatchedConstraints,
+      missingTriggers,
     };
   } finally {
     await checkPool?.end();
@@ -612,7 +644,8 @@ function hasDrift(drift: Sn13SchemaDrift) {
   return (
     drift.missingTables.length > 0 ||
     drift.missingConstraints.length > 0 ||
-    drift.mismatchedConstraints.length > 0
+    drift.mismatchedConstraints.length > 0 ||
+    drift.missingTriggers.length > 0
   );
 }
 
@@ -630,6 +663,9 @@ export async function assertSn13SchemaSynchronized(
       ? `Contraintes absentes : ${drift.missingConstraints
           .map(({ tableName, name }) => `${tableName}.${name}`)
           .join(", ")}.`
+      : "",
+    drift.missingTriggers.length > 0
+      ? `Déclencheurs absents : ${drift.missingTriggers.map(({ tableName, name }) => `${tableName}.${name}`).join(", ")}.`
       : "",
     ...drift.mismatchedConstraints.map(
       ({ tableName, name, expected, actual }) =>

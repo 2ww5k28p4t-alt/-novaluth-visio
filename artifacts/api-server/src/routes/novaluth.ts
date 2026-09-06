@@ -82,7 +82,6 @@ import {
   novaluthProjectsTable,
   novaluthProtectedOrdersTable,
   prospectionDossiers,
-  prospectionJournal,
   prospectionProposals,
   type NovaluthAccessRequest,
   type NovaluthProject,
@@ -133,8 +132,10 @@ import {
   type Sn13PurgeMaintenanceResult,
 } from "../gateway/provider-registry";
 import {
+  correctProspectionDossier,
   transitionProspectionDossier,
   validateAndQueueProspectionProposal,
+  withdrawProspectionProposal,
 } from "../lib/novaluth-prospection";
 import {
   cancelProtectedOrderByAtelier,
@@ -1150,67 +1151,25 @@ router.patch("/admin/prospection/dossiers/:dossierId", async (req, res, _next): 
     }
     const { dossierId } = CorrectProspectionDossierParams.parse(req.params);
     const input = CorrectProspectionDossierBody.parse(req.body);
-    const updated = await db.transaction(async (tx) => {
-      const [dossier] = await tx.select().from(prospectionDossiers).where(eq(prospectionDossiers.id, dossierId));
-      if (!dossier) return "not_found" as const;
-      const [activeProposal] = await tx.select().from(prospectionProposals).where(and(eq(prospectionProposals.dossierId, dossierId), isNull(prospectionProposals.withdrawnAt)));
-      const correctedEmail = input.contact_email === undefined ? dossier.contactEmail : input.contact_email?.trim() || null;
-      const correctedHook = input.hook === undefined ? dossier.hook : input.hook?.trim() || null;
-      const correctedOrigin = input.hook_origin === undefined ? dossier.hookOrigin : input.hook_origin;
-      if (
-        activeProposal
-        && (correctedEmail !== dossier.contactEmail
-          || correctedHook !== dossier.hook
-          || correctedOrigin !== dossier.hookOrigin)
-      ) {
-        return "active_requires_withdrawal" as const;
-      }
-      const [saved] = await tx
-        .update(prospectionDossiers)
-        .set({
-          contactEmail: correctedEmail,
-          contactFirstName: input.contact_first_name === undefined ? dossier.contactFirstName : input.contact_first_name?.trim() || null,
-          hook: correctedHook,
-          hookOrigin: correctedOrigin,
-          revision: dossier.revision + 1,
-          lastReason: "record_corrected",
-        })
-        .where(and(eq(prospectionDossiers.id, dossierId), eq(prospectionDossiers.revision, input.revision)))
-        .returning();
-      if (!saved) return "conflict" as const;
-      if (input.subject !== undefined || input.body !== undefined) {
-        if (activeProposal) {
-          await tx.update(prospectionProposals).set({
-            subject: input.subject?.trim() ?? activeProposal.subject,
-            body: input.body?.trim() ?? activeProposal.body,
-            validatedByAccountId: account.id,
-            validatedAt: new Date(),
-            deliveryAllowed: false,
-          }).where(eq(prospectionProposals.id, activeProposal.id));
-        }
-      }
-      await tx.insert(prospectionJournal).values({
-        dossierId,
-        slug: dossier.slug,
-        event: "state_changed",
-        stateBefore: dossier.state,
-        stateAfter: dossier.state,
-        reason: "record_corrected",
-      });
-      return "ok" as const;
+    const updated = await correctProspectionDossier({
+      adminAccountId: account.id, dossierId, revision: input.revision,
+      contactEmail: input.contact_email, contactFirstName: input.contact_first_name,
+      hook: input.hook, hookOrigin: input.hook_origin,
+      subject: input.subject ?? undefined, body: input.body ?? undefined,
     });
-    if (updated === "not_found") {
+    if (!updated.ok && updated.reason === "not_found") {
       res.status(404).json({ error: "Dossier introuvable." });
       return;
     }
-    if (updated === "conflict") {
+    if (!updated.ok && updated.reason === "conflict") {
       res.status(409).json({ error: "Le dossier a changé. Rechargez-le." });
       return;
     }
-    if (updated === "active_requires_withdrawal") {
-      res.status(409).json({ error: "Retirez la proposition avant de modifier son destinataire ou son accroche." });
+    if (!updated.ok && (updated.reason === "invalid" || updated.reason === "opposed")) {
+      res.status(400).json({ error: "La correction est incompatible avec le dossier." });
       return;
     }
+    if (!updated.ok) { res.status(401).json({ error: "Compte administrateur authentifié requis." }); return; }
     const detail = await getProspectionDetail(dossierId);
     res.json(CorrectProspectionDossierResponse.parse(detail));
   } catch {
@@ -1258,31 +1217,23 @@ router.post("/admin/prospection/dossiers/:dossierId/validate", async (req, res, 
 
 router.post("/admin/prospection/dossiers/:dossierId/withdraw", async (req, res, _next): Promise<void> => {
   try {
-    if (!(await requireProspectionAdmin(req))) {
+    const account = await requireProspectionAdmin(req);
+    if (!account) {
       res.status(401).json({ error: "Compte administrateur authentifié requis." });
       return;
     }
     const { dossierId } = WithdrawProspectionProposalParams.parse(req.params);
     const input = WithdrawProspectionProposalBody.parse(req.body);
-    const outcome = await db.transaction(async (tx) => {
-      const [dossier] = await tx.select().from(prospectionDossiers).where(eq(prospectionDossiers.id, dossierId));
-      if (!dossier) return "not_found" as const;
-      const [proposal] = await tx.select({ id: prospectionProposals.id }).from(prospectionProposals).where(and(eq(prospectionProposals.dossierId, dossierId), isNull(prospectionProposals.withdrawnAt)));
-      if (!proposal) return "not_found" as const;
-      const [saved] = await tx.update(prospectionDossiers).set({ state: "draft_ready", revision: dossier.revision + 1, lastReason: "removed_from_queue", proposedAt: null }).where(and(eq(prospectionDossiers.id, dossierId), eq(prospectionDossiers.revision, input.revision), eq(prospectionDossiers.state, "proposed"))).returning();
-      if (!saved) return "conflict" as const;
-      await tx.update(prospectionProposals).set({ withdrawnAt: new Date(), deliveryAllowed: false }).where(eq(prospectionProposals.id, proposal.id));
-      await tx.insert(prospectionJournal).values({ dossierId, slug: dossier.slug, event: "dequeued", stateBefore: "proposed", stateAfter: "draft_ready", reason: "removed_from_queue" });
-      return "ok" as const;
-    });
-    if (outcome === "not_found") {
+    const outcome = await withdrawProspectionProposal({ adminAccountId: account.id, dossierId, revision: input.revision });
+    if (!outcome.ok && outcome.reason === "not_found") {
       res.status(404).json({ error: "Proposition active introuvable." });
       return;
     }
-    if (outcome === "conflict") {
+    if (!outcome.ok && outcome.reason === "conflict") {
       res.status(409).json({ error: "Le dossier a changé. Rechargez-le." });
       return;
     }
+    if (!outcome.ok) { res.status(401).json({ error: "Compte administrateur authentifié requis." }); return; }
     res.json(WithdrawProspectionProposalResponse.parse(await getProspectionDetail(dossierId)));
   } catch {
     res.status(500).json({ error: "La proposition n’a pas pu être retirée." });

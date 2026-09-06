@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   db,
   novaluthPlatformAccountsTable,
@@ -47,7 +47,10 @@ before(async () => {
 
 after(async () => {
   if (dossierId) {
-    await db.delete(prospectionJournal).where(eq(prospectionJournal.dossierId, dossierId));
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('novaluth.prospection_journal_test_cleanup', 'enabled', true)`);
+      await tx.delete(prospectionJournal).where(eq(prospectionJournal.dossierId, dossierId));
+    });
     await db.delete(prospectionProposals).where(eq(prospectionProposals.dossierId, dossierId));
     await db.delete(prospectionDossiers).where(eq(prospectionDossiers.id, dossierId));
   }

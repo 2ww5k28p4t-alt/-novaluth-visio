@@ -13,4 +13,5 @@ if [[ "${NODE_ENV:-}" != "test" ||
   exit 1
 fi
 
-exec drizzle-kit push --force --config ./drizzle.config.ts
+drizzle-kit push --force --config ./drizzle.config.ts
+exec pnpm run install:prospection-journal-guard
