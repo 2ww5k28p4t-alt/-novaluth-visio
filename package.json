@@ -10,6 +10,7 @@
     "test:coturn-installer": "bash scripts/test-install-coturn-ovh.sh",
     "test:meet-auth": "pnpm --filter @workspace/db run check-schema:isolated -- pnpm --filter @workspace/scripts exec tsx --test ../artifacts/api-server/src/routes/p2p-meet-auth.integration.test.ts",
     "test:meet-recovery": "pnpm --filter @workspace/scripts run test:meet-recovery",
+    "test:prospection": "pnpm --filter @workspace/db run check-schema:isolated -- pnpm --filter @workspace/scripts exec tsx --test ../artifacts/api-server/src/lib/novaluth-prospection.integration.test.ts ../artifacts/api-server/src/routes/novaluth-prospection.integration.test.ts",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },

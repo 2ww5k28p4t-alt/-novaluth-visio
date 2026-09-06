@@ -1503,6 +1503,268 @@ export const GetAdminSummaryResponse = zod.object({
 
 
 /**
+ * @summary List prospecting files for human review
+ */
+export const ListProspectionDossiersResponse = zod.object({
+  "dossiers": zod.array(zod.object({
+  "id": zod.string(),
+  "workshop_name": zod.string(),
+  "slug": zod.string(),
+  "state": zod.string(),
+  "revision": zod.number(),
+  "opened_at": zod.string(),
+  "has_active_proposal": zod.boolean()
+}))
+})
+
+
+/**
+ * @summary Get a prospecting file and its active proposal
+ */
+export const getProspectionDossierPathDossierIdMin = 36;
+export const getProspectionDossierPathDossierIdMax = 36;
+
+
+
+export const GetProspectionDossierParams = zod.object({
+  "dossierId": zod.coerce.string().min(getProspectionDossierPathDossierIdMin).max(getProspectionDossierPathDossierIdMax)
+})
+
+export const GetProspectionDossierResponse = zod.object({
+  "id": zod.string(),
+  "workshop_name": zod.string(),
+  "slug": zod.string(),
+  "website_url": zod.string().nullable(),
+  "contact_email": zod.string().nullable(),
+  "contact_first_name": zod.string().nullable(),
+  "state": zod.string(),
+  "hook": zod.string().nullable(),
+  "hook_origin": zod.string().nullable(),
+  "verified_signals": zod.array(zod.string()),
+  "revision": zod.number(),
+  "opened_at": zod.string(),
+  "proposal": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['first_contact', 'follow_up']),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "validated_at": zod.string(),
+  "withdrawn_at": zod.string().nullable(),
+  "delivery_allowed": zod.boolean()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Correct reviewable prospecting fields
+ */
+export const correctProspectionDossierPathDossierIdMin = 36;
+export const correctProspectionDossierPathDossierIdMax = 36;
+
+
+
+export const CorrectProspectionDossierParams = zod.object({
+  "dossierId": zod.coerce.string().min(correctProspectionDossierPathDossierIdMin).max(correctProspectionDossierPathDossierIdMax)
+})
+
+export const correctProspectionDossierBodyRevisionMin = 0;
+
+export const correctProspectionDossierBodyContactEmailMax = 320;
+
+export const correctProspectionDossierBodyContactFirstNameMax = 100;
+
+export const correctProspectionDossierBodyHookMax = 2000;
+
+export const correctProspectionDossierBodySubjectMin = 10;
+export const correctProspectionDossierBodySubjectMax = 200;
+
+export const correctProspectionDossierBodyBodyMin = 200;
+export const correctProspectionDossierBodyBodyMax = 8000;
+
+
+
+export const CorrectProspectionDossierBody = zod.object({
+  "revision": zod.number().min(correctProspectionDossierBodyRevisionMin),
+  "contact_email": zod.string().max(correctProspectionDossierBodyContactEmailMax).nullish(),
+  "contact_first_name": zod.string().max(correctProspectionDossierBodyContactFirstNameMax).nullish(),
+  "hook": zod.string().max(correctProspectionDossierBodyHookMax).nullish(),
+  "hook_origin": zod.union([zod.literal('signals'),zod.literal('human'),zod.literal('ai'),zod.literal(null)]).nullish(),
+  "subject": zod.string().min(correctProspectionDossierBodySubjectMin).max(correctProspectionDossierBodySubjectMax).nullish(),
+  "body": zod.string().min(correctProspectionDossierBodyBodyMin).max(correctProspectionDossierBodyBodyMax).nullish()
+})
+
+export const CorrectProspectionDossierResponse = zod.object({
+  "id": zod.string(),
+  "workshop_name": zod.string(),
+  "slug": zod.string(),
+  "website_url": zod.string().nullable(),
+  "contact_email": zod.string().nullable(),
+  "contact_first_name": zod.string().nullable(),
+  "state": zod.string(),
+  "hook": zod.string().nullable(),
+  "hook_origin": zod.string().nullable(),
+  "verified_signals": zod.array(zod.string()),
+  "revision": zod.number(),
+  "opened_at": zod.string(),
+  "proposal": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['first_contact', 'follow_up']),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "validated_at": zod.string(),
+  "withdrawn_at": zod.string().nullable(),
+  "delivery_allowed": zod.boolean()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Human-validate a proposal without allowing delivery
+ */
+export const validateProspectionProposalPathDossierIdMin = 36;
+export const validateProspectionProposalPathDossierIdMax = 36;
+
+
+
+export const ValidateProspectionProposalParams = zod.object({
+  "dossierId": zod.coerce.string().min(validateProspectionProposalPathDossierIdMin).max(validateProspectionProposalPathDossierIdMax)
+})
+
+export const validateProspectionProposalBodyRevisionMin = 0;
+
+export const validateProspectionProposalBodySubjectMin = 10;
+export const validateProspectionProposalBodySubjectMax = 200;
+
+export const validateProspectionProposalBodyBodyMin = 200;
+export const validateProspectionProposalBodyBodyMax = 8000;
+
+
+
+export const ValidateProspectionProposalBody = zod.object({
+  "revision": zod.number().min(validateProspectionProposalBodyRevisionMin),
+  "subject": zod.string().min(validateProspectionProposalBodySubjectMin).max(validateProspectionProposalBodySubjectMax),
+  "body": zod.string().min(validateProspectionProposalBodyBodyMin).max(validateProspectionProposalBodyBodyMax)
+})
+
+export const ValidateProspectionProposalResponse = zod.object({
+  "id": zod.string(),
+  "workshop_name": zod.string(),
+  "slug": zod.string(),
+  "website_url": zod.string().nullable(),
+  "contact_email": zod.string().nullable(),
+  "contact_first_name": zod.string().nullable(),
+  "state": zod.string(),
+  "hook": zod.string().nullable(),
+  "hook_origin": zod.string().nullable(),
+  "verified_signals": zod.array(zod.string()),
+  "revision": zod.number(),
+  "opened_at": zod.string(),
+  "proposal": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['first_contact', 'follow_up']),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "validated_at": zod.string(),
+  "withdrawn_at": zod.string().nullable(),
+  "delivery_allowed": zod.boolean()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Withdraw an active proposal
+ */
+export const withdrawProspectionProposalPathDossierIdMin = 36;
+export const withdrawProspectionProposalPathDossierIdMax = 36;
+
+
+
+export const WithdrawProspectionProposalParams = zod.object({
+  "dossierId": zod.coerce.string().min(withdrawProspectionProposalPathDossierIdMin).max(withdrawProspectionProposalPathDossierIdMax)
+})
+
+export const withdrawProspectionProposalBodyRevisionMin = 0;
+
+
+
+export const WithdrawProspectionProposalBody = zod.object({
+  "revision": zod.number().min(withdrawProspectionProposalBodyRevisionMin),
+  "confirmed": zod.literal(true)
+})
+
+export const WithdrawProspectionProposalResponse = zod.object({
+  "id": zod.string(),
+  "workshop_name": zod.string(),
+  "slug": zod.string(),
+  "website_url": zod.string().nullable(),
+  "contact_email": zod.string().nullable(),
+  "contact_first_name": zod.string().nullable(),
+  "state": zod.string(),
+  "hook": zod.string().nullable(),
+  "hook_origin": zod.string().nullable(),
+  "verified_signals": zod.array(zod.string()),
+  "revision": zod.number(),
+  "opened_at": zod.string(),
+  "proposal": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['first_contact', 'follow_up']),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "validated_at": zod.string(),
+  "withdrawn_at": zod.string().nullable(),
+  "delivery_allowed": zod.boolean()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Manually record a prospecting outcome
+ */
+export const markProspectionDossierPathDossierIdMin = 36;
+export const markProspectionDossierPathDossierIdMax = 36;
+
+
+
+export const MarkProspectionDossierParams = zod.object({
+  "dossierId": zod.coerce.string().min(markProspectionDossierPathDossierIdMin).max(markProspectionDossierPathDossierIdMax)
+})
+
+export const markProspectionDossierBodyRevisionMin = 0;
+
+
+
+export const MarkProspectionDossierBody = zod.object({
+  "revision": zod.number().min(markProspectionDossierBodyRevisionMin),
+  "confirmed": zod.literal(true),
+  "state": zod.enum(['sent', 'replied', 'enrolled', 'declined', 'no_reply', 'abandoned'])
+})
+
+export const MarkProspectionDossierResponse = zod.object({
+  "id": zod.string(),
+  "workshop_name": zod.string(),
+  "slug": zod.string(),
+  "website_url": zod.string().nullable(),
+  "contact_email": zod.string().nullable(),
+  "contact_first_name": zod.string().nullable(),
+  "state": zod.string(),
+  "hook": zod.string().nullable(),
+  "hook_origin": zod.string().nullable(),
+  "verified_signals": zod.array(zod.string()),
+  "revision": zod.number(),
+  "opened_at": zod.string(),
+  "proposal": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['first_contact', 'follow_up']),
+  "subject": zod.string(),
+  "body": zod.string(),
+  "validated_at": zod.string(),
+  "withdrawn_at": zod.string().nullable(),
+  "delivery_allowed": zod.boolean()
+}),zod.null()])
+})
+
+
+/**
  * @summary List NovaLuth Meet accounts
  */
 export const ListMeetAccountsResponse = zod.object({

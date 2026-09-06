@@ -52,6 +52,13 @@ La convention HMAC version 1 est :
 5. appliquer HMAC-SHA-256 avec un secret dédié ;
 6. produire l’hexadécimal minuscule.
 
+Le service charge la clé dédiée de chaque version depuis
+`NOVALUTH_PROSPECTION_HMAC_SECRET_V{version}`. Pour préserver le fonctionnement
+des environnements existants, la version 1 peut dériver une sous-clé dédiée du
+secret de passerelle avec le contexte `novaluth-prospection-hmac-v1`. Cette
+dérivation est séparée des signatures de passerelle et doit rester stable tant
+que des empreintes de version 1 existent.
+
 Une rotation doit conserver les secrets historiques nécessaires à la
 comparaison des oppositions de chaque version. Aucun secret ne doit être stocké
 en base ou dans un journal.
@@ -110,6 +117,24 @@ Les identifiants des validateurs proviennent de l’authentification serveur et 
 sont jamais acceptés depuis le corps d’une requête. La clé étrangère prouve
 l’existence du compte ; le service vérifie son rôle et son état actif.
 
+## Relecture administrateur
+
+Les routes `/admin/prospection/dossiers` permettent à un compte NovaLuth actif
+ayant le rôle `admin` de lister et consulter les dossiers, corriger les champs
+relus, valider ou retirer une proposition et enregistrer manuellement une
+transition. Le jeton administrateur historique ne suffit pas pour ces routes :
+l’identité du validateur provient exclusivement de la session serveur.
+
+Les corrections utilisent la révision du dossier pour refuser une écriture
+faite depuis un écran périmé. La validation et le retrait sont transactionnels
+avec le journal. Les actions de retrait et de marquage exigent une confirmation
+explicite du client, en plus de la vérification serveur de la transition.
+
+Ces routes ne font aucun appel à l’outbox. Elles écrivent toujours
+`delivery_allowed = false`, et les erreurs sont retournées sous une forme
+générique afin que le courriel et le contenu des propositions ne soient jamais
+inclus dans les journaux techniques.
+
 ## Délais
 
 - première relance envisageable après huit jours ;
@@ -134,5 +159,4 @@ schéma de développement.
 - interaction Telegram ;
 - relances automatiques ;
 - envoi automatique ou semi-automatique ;
-- route API et interface d’administration ;
 - permissions ou triggers append-only.

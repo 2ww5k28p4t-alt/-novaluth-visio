@@ -660,6 +660,146 @@ export interface AdminSummary {
   commandes: ProtectedOrderAdminSummary;
 }
 
+export type ProspectionProposalKind = typeof ProspectionProposalKind[keyof typeof ProspectionProposalKind];
+
+
+export const ProspectionProposalKind = {
+  first_contact: 'first_contact',
+  follow_up: 'follow_up',
+} as const;
+
+export interface ProspectionProposal {
+  id: string;
+  kind: ProspectionProposalKind;
+  subject: string;
+  body: string;
+  validated_at: string;
+  /** @nullable */
+  withdrawn_at: string | null;
+  delivery_allowed: boolean;
+}
+
+export interface ProspectionDossierSummary {
+  id: string;
+  workshop_name: string;
+  slug: string;
+  state: string;
+  revision: number;
+  opened_at: string;
+  has_active_proposal: boolean;
+}
+
+export interface ProspectionDossierList {
+  dossiers: ProspectionDossierSummary[];
+}
+
+export interface ProspectionDossierDetail {
+  id: string;
+  workshop_name: string;
+  slug: string;
+  /** @nullable */
+  website_url: string | null;
+  /** @nullable */
+  contact_email: string | null;
+  /** @nullable */
+  contact_first_name: string | null;
+  state: string;
+  /** @nullable */
+  hook: string | null;
+  /** @nullable */
+  hook_origin: string | null;
+  verified_signals: string[];
+  revision: number;
+  opened_at: string;
+  proposal: ProspectionProposal | null;
+}
+
+/**
+ * @nullable
+ */
+export type ProspectionCorrectionHookOrigin = typeof ProspectionCorrectionHookOrigin[keyof typeof ProspectionCorrectionHookOrigin] | null;
+
+
+export const ProspectionCorrectionHookOrigin = {
+  signals: 'signals',
+  human: 'human',
+  ai: 'ai',
+} as const;
+
+export interface ProspectionCorrection {
+  /** @minimum 0 */
+  revision: number;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  contact_email?: string | null;
+  /**
+     * @maxLength 100
+     * @nullable
+     */
+  contact_first_name?: string | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  hook?: string | null;
+  /** @nullable */
+  hook_origin?: ProspectionCorrectionHookOrigin;
+  /**
+     * @minLength 10
+     * @maxLength 200
+     * @nullable
+     */
+  subject?: string | null;
+  /**
+     * @minLength 200
+     * @maxLength 8000
+     * @nullable
+     */
+  body?: string | null;
+}
+
+export interface ProspectionValidation {
+  /** @minimum 0 */
+  revision: number;
+  /**
+     * @minLength 10
+     * @maxLength 200
+     */
+  subject: string;
+  /**
+     * @minLength 200
+     * @maxLength 8000
+     */
+  body: string;
+}
+
+export interface ProspectionConfirmation {
+  /** @minimum 0 */
+  revision: number;
+  confirmed: true;
+}
+
+export type ProspectionManualMarkState = typeof ProspectionManualMarkState[keyof typeof ProspectionManualMarkState];
+
+
+export const ProspectionManualMarkState = {
+  sent: 'sent',
+  replied: 'replied',
+  enrolled: 'enrolled',
+  declined: 'declined',
+  no_reply: 'no_reply',
+  abandoned: 'abandoned',
+} as const;
+
+export interface ProspectionManualMark {
+  /** @minimum 0 */
+  revision: number;
+  confirmed: true;
+  state: ProspectionManualMarkState;
+}
+
 export type Sn13PurgeIncidentStatut = typeof Sn13PurgeIncidentStatut[keyof typeof Sn13PurgeIncidentStatut];
 
 
