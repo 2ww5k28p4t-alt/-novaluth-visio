@@ -18,7 +18,7 @@ export const MEET_SESSION_COOKIE = "novaluth_meet_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 12;
 const PASSWORD_HASH_PREFIX = "scrypt";
-const ACCOUNT_DISABLED_CHANNEL = "novaluth_meet_account_disabled";
+const ACCOUNT_REVOKED_CHANNEL = "novaluth_meet_account_revoked";
 const accountDisabledListeners = new Set<(accountId: number) => void>();
 const accountDisabledReconciliations = new Set<() => Promise<void>>();
 const accountDisabledErrors = new Set<(error: unknown) => void>();
@@ -50,7 +50,7 @@ function ensureAccountDisabledSubscription() {
     const client = await pool.connect();
     accountDisabledClient = client;
     client.on("notification", (message) => {
-      if (message.channel !== ACCOUNT_DISABLED_CHANNEL) return;
+       if (message.channel !== ACCOUNT_REVOKED_CHANNEL) return;
       const accountId = Number(message.payload);
       if (!Number.isInteger(accountId) || accountId <= 0) return;
       for (const listener of accountDisabledListeners) listener(accountId);
@@ -64,7 +64,7 @@ function ensureAccountDisabledSubscription() {
         new Error("La connexion PostgreSQL LISTEN des révocations Meet a été perdue."),
       );
     });
-    await client.query(`LISTEN ${ACCOUNT_DISABLED_CHANNEL}`);
+     await client.query(`LISTEN ${ACCOUNT_REVOKED_CHANNEL}`);
     await Promise.all(
       Array.from(accountDisabledReconciliations, (reconcile) => reconcile()),
     );
@@ -108,7 +108,7 @@ export async function onMeetAccountDisabled(
     accountDisabledClient = null;
     accountDisabledSubscription = null;
     try {
-      await client.query(`UNLISTEN ${ACCOUNT_DISABLED_CHANNEL}`);
+       await client.query(`UNLISTEN ${ACCOUNT_REVOKED_CHANNEL}`);
     } finally {
       client.release();
     }
@@ -334,22 +334,27 @@ export async function createMeetAccount(input: {
 
 export async function resetMeetAccountPassword(accountId: number) {
   const temporaryPassword = newTemporaryPassword();
-  const [account] = await db
-    .update(novaluthPlatformAccountsTable)
-    .set({
-      passwordHash: hashPassword(temporaryPassword),
-      mustChangePassword: true,
-      failedAttempts: 0,
-      lockedUntil: null,
-    })
-    .where(eq(novaluthPlatformAccountsTable.id, accountId))
-    .returning();
-  if (account) {
-    await db
+  return db.transaction(async (tx) => {
+    const [account] = await tx
+      .update(novaluthPlatformAccountsTable)
+      .set({
+        passwordHash: hashPassword(temporaryPassword),
+        mustChangePassword: true,
+        failedAttempts: 0,
+        lockedUntil: null,
+      })
+      .where(eq(novaluthPlatformAccountsTable.id, accountId))
+      .returning();
+    if (!account) return null;
+
+    await tx
       .delete(novaluthPlatformSessionsTable)
       .where(eq(novaluthPlatformSessionsTable.accountId, accountId));
-  }
-  return account ? { account, temporaryPassword } : null;
+    await tx.execute(
+      sql`select pg_notify(${ACCOUNT_REVOKED_CHANNEL}, ${String(accountId)})`,
+    );
+    return { account, temporaryPassword };
+  });
 }
 
 export async function setMeetAccountActive(accountId: number, active: boolean) {
@@ -364,7 +369,7 @@ export async function setMeetAccountActive(accountId: number, active: boolean) {
         .delete(novaluthPlatformSessionsTable)
         .where(eq(novaluthPlatformSessionsTable.accountId, accountId));
       await tx.execute(
-        sql`select pg_notify(${ACCOUNT_DISABLED_CHANNEL}, ${String(accountId)})`,
+        sql`select pg_notify(${ACCOUNT_REVOKED_CHANNEL}, ${String(accountId)})`,
       );
     }
     return account ?? null;

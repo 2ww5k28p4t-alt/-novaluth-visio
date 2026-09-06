@@ -112,6 +112,40 @@ async function socketIoConnectPacket(cookie?: string) {
   return (await openSocketIoSession(cookie)).connectPacket;
 }
 
+async function pollUntilContains(
+  socket: Awaited<ReturnType<typeof openSocketIoSession>>,
+  expected: string[],
+  maxPolls = 4,
+) {
+  let body = "";
+  for (let poll = 0; poll < maxPolls; poll += 1) {
+    const response = await socket.poll();
+    assert.equal(response.status, 200);
+    body += response.body;
+    if (expected.every((value) => body.includes(value))) return body;
+  }
+  throw new Error(
+    `Événements Socket.IO absents après ${maxPolls} réponses : ${expected.join(", ")}`,
+  );
+}
+
+async function pollUntilMatches(
+  socket: Awaited<ReturnType<typeof openSocketIoSession>>,
+  expected: RegExp,
+  maxPolls = 4,
+) {
+  let body = "";
+  for (let poll = 0; poll < maxPolls; poll += 1) {
+    const response = await socket.poll();
+    assert.equal(response.status, 200);
+    body += response.body;
+    if (expected.test(body)) return body;
+  }
+  throw new Error(
+    `Paquet Socket.IO absent après ${maxPolls} réponses : ${String(expected)}`,
+  );
+}
+
 before(async () => {
   process.env.NOVALUTH_MEET_AUTH_REQUIRED = "true";
   process.env.NOVALUTH_ADMIN_TOKEN = adminToken;
@@ -245,32 +279,6 @@ test("Meet protège durablement les comptes, ICE et Socket.IO", async () => {
   assert.equal(loggedInAgain.response.status, 200);
   const preResetCookie = sessionCookie(loggedInAgain.response);
 
-  const reset = await api(`/admin/meet/accounts/${accountId}/reset-password`, {
-    method: "POST",
-    headers: { "X-Admin-Token": adminToken },
-  });
-  assert.equal(reset.response.status, 200);
-  const resetPassword = String(reset.body?.temporaryPassword);
-  assert.ok(resetPassword.length >= 12);
-  assert.notEqual(resetPassword, firstPassword);
-
-  const resetRevokedSession = await api("/meet/auth/session", {
-    headers: { cookie: preResetCookie },
-  });
-  assert.equal(resetRevokedSession.body?.authenticated, false);
-  const oldPasswordRejected = await api("/meet/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ login, password: firstPassword }),
-  });
-  assert.equal(oldPasswordRejected.response.status, 401);
-
-  const resetLogin = await api("/meet/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ login, password: resetPassword }),
-  });
-  assert.equal(resetLogin.response.status, 200);
-  const activeCookie = sessionCookie(resetLogin.response);
-
   const observerCreated = await api("/admin/meet/accounts", {
     method: "POST",
     headers: { "X-Admin-Token": adminToken },
@@ -291,8 +299,80 @@ test("Meet protège durablement les comptes, ICE et Socket.IO", async () => {
   assert.equal(observerLoginResponse.response.status, 200);
   const observerCookie = sessionCookie(observerLoginResponse.response);
   const observerSocket = await openSocketIoSession(observerCookie);
-  const activeSocket = await openSocketIoSession(activeCookie);
+  const resetSocket = await openSocketIoSession(preResetCookie);
+  const resetSecondarySocket = await openSocketIoSession(preResetCookie);
   assert.match(observerSocket.connectPacket, /^40/);
+  assert.match(resetSocket.connectPacket, /^40/);
+  assert.match(resetSecondarySocket.connectPacket, /^40/);
+  await observerSocket.emit("join", {
+    room: `reset-${suffix}`,
+    name: "Observateur",
+    participantId: "reset-observer",
+  });
+  await resetSocket.emit("join", {
+    room: `reset-${suffix}`,
+    name: "Compte réinitialisé",
+    participantId: "reset-account",
+  });
+  await resetSecondarySocket.emit("join", {
+    room: `reset-${suffix}`,
+    name: "Compte réinitialisé secondaire",
+    participantId: "reset-account-secondary",
+  });
+  const resetJoined = await pollUntilContains(observerSocket, [
+    "peer-joined",
+    "reset-account",
+    "reset-account-secondary",
+  ]);
+  assert.match(resetJoined, /peer-joined/);
+  await pollUntilContains(resetSocket, [
+    "peer-joined",
+    "reset-account-secondary",
+  ]);
+  const resetDisconnect = pollUntilMatches(
+    resetSocket,
+    /(?:^|\x1e)(?:1|41)/,
+  );
+  const resetSecondaryDisconnect = pollUntilMatches(
+    resetSecondarySocket,
+    /(?:^|\x1e)(?:1|41)/,
+  );
+  const resetDepartures = pollUntilContains(observerSocket, [
+    "peer-left",
+    "reset-account",
+    "reset-account-secondary",
+  ]);
+
+  const reset = await api(`/admin/meet/accounts/${accountId}/reset-password`, {
+    method: "POST",
+    headers: { "X-Admin-Token": adminToken },
+  });
+  assert.equal(reset.response.status, 200);
+  const resetPassword = String(reset.body?.temporaryPassword);
+  assert.ok(resetPassword.length >= 12);
+  assert.notEqual(resetPassword, firstPassword);
+  assert.match(await resetDisconnect, /(?:^|\x1e)(?:1|41)/);
+  assert.match(await resetSecondaryDisconnect, /(?:^|\x1e)(?:1|41)/);
+  assert.match(await resetDepartures, /peer-left/);
+
+  const resetRevokedSession = await api("/meet/auth/session", {
+    headers: { cookie: preResetCookie },
+  });
+  assert.equal(resetRevokedSession.body?.authenticated, false);
+  const oldPasswordRejected = await api("/meet/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ login, password: firstPassword }),
+  });
+  assert.equal(oldPasswordRejected.response.status, 401);
+
+  const resetLogin = await api("/meet/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ login, password: resetPassword }),
+  });
+  assert.equal(resetLogin.response.status, 200);
+  const activeCookie = sessionCookie(resetLogin.response);
+
+  const activeSocket = await openSocketIoSession(activeCookie);
   assert.match(activeSocket.connectPacket, /^40/);
   await observerSocket.emit("join", {
     room: `disabled-${suffix}`,

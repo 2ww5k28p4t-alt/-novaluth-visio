@@ -51,15 +51,12 @@ run_installer() {
   local public_ip="${4:-203.0.113.10}"
   local turn_domain="${5:-turn.test.invalid}"
   local migration_confirm="${6:-}"
-  local active_sequence="${7:-}"
   set +e
   printf '%s\n' "$secret" |
     env \
       PATH="$mock_bin:$PATH" \
       MOCK_COMMAND_LOG="$command_log" \
       MOCK_DNS_IP="$dns_ip" \
-      MOCK_SYSTEMCTL_ACTIVE_SEQUENCE="$active_sequence" \
-      MOCK_SYSTEMCTL_STATE_FILE="$root/systemctl-active.count" \
       NOVALUTH_COTURN_TEST_MODE=1 \
       NOVALUTH_COTURN_TEST_ROOT="$root" \
       TURN_DOMAIN="$turn_domain" \
@@ -72,7 +69,7 @@ run_installer() {
   return "$status"
 }
 
-printf '1/8 Vérification statique de l’installateur\n'
+printf '1/6 Vérification statique de l’installateur\n'
 bash -n "$installer"
 assert_contains "$installer" "set -euo pipefail"
 assert_contains "$installer" "umask 077"
@@ -115,24 +112,6 @@ for command in apt-get journalctl; do
   cat >"$mock_bin/$command" <<'EOF'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"${MOCK_COMMAND_LOG:?}"
-
-if [ "$(basename "$0")" = "systemctl" ] && [ "${1:-}" = "is-active" ]; then
-  state_file="${MOCK_SYSTEMCTL_STATE_FILE:?}"
-  invocation=0
-  if [ -f "$state_file" ]; then
-    read -r invocation <"$state_file"
-  fi
-  invocation=$((invocation + 1))
-  printf '%s\n' "$invocation" >"$state_file"
-
-  sequence="${MOCK_SYSTEMCTL_ACTIVE_SEQUENCE:-1}"
-  IFS=',' read -r -a statuses <<<"$sequence"
-  index=$((invocation - 1))
-  [ "$index" -lt "${#statuses[@]}" ] || index=$((${#statuses[@]} - 1))
-  [ "${statuses[$index]:-1}" = "1" ] && exit 0
-  exit 1
-fi
-
 exit 0
 EOF
 done
@@ -152,24 +131,10 @@ EOF
 cat >"$mock_bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "$*" >>"${MOCK_COMMAND_LOG:?}"
-
-if [ "${1:-}" = "is-active" ]; then
-  state_file="${MOCK_SYSTEMCTL_STATE_FILE:?}"
-  invocation=0
-  if [ -f "$state_file" ]; then
-    read -r invocation <"$state_file"
-  fi
-  invocation=$((invocation + 1))
-  printf '%s\n' "$invocation" >"$state_file"
-
-  sequence="${MOCK_SYSTEMCTL_ACTIVE_SEQUENCE:-1}"
-  IFS=',' read -r -a statuses <<<"$sequence"
-  index=$((invocation - 1))
-  [ "$index" -lt "${#statuses[@]}" ] || index=$((${#statuses[@]} - 1))
-  [ "${statuses[$index]:-1}" = "1" ] && exit 0
+if [[ "${1:-}" == "reload" ]]; then
+  printf 'Failed to reload coturn.service: Job type reload is not applicable for unit coturn.service.\n' >&2
   exit 1
 fi
-
 exit 0
 EOF
 cat >"$mock_bin/certbot" <<'EOF'
@@ -201,7 +166,7 @@ printf 'tcp LISTEN 0 128 0.0.0.0:5349 0.0.0.0:*\n'
 EOF
 chmod +x "$mock_bin"/*
 
-printf '2/8 Refus d’un DNS incorrect sans accès réseau\n'
+printf '2/6 Refus d’un DNS incorrect sans accès réseau\n'
 dns_root="$tmp_dir/dns-root"
 dns_output="$tmp_dir/dns-output.log"
 if run_installer "$dns_root" "198.51.100.25" "$dns_output"; then
@@ -212,7 +177,7 @@ assert_not_contains "$dns_output" "$secret"
 [ ! -e "$dns_root/etc/turnserver.conf" ] ||
   fail "une configuration a été écrite malgré le refus DNS"
 
-printf '3/8 Refus d’écraser un secret TURN différent\n'
+printf '3/6 Refus d’écraser un secret TURN différent\n'
 config_root="$tmp_dir/config-root"
 config_file="$config_root/etc/turnserver.conf"
 cert_dir="$config_root/etc/letsencrypt/live/turn.test.invalid"
@@ -232,7 +197,7 @@ assert_not_contains "$config_output" "$secret"
 [ ! -e "$config_root/etc/default/coturn" ] ||
   fail "Coturn a été activé malgré le conflit de secret"
 
-printf '4/8 Installation complète et refus des paramètres obsolètes\n'
+printf '4/6 Installation complète et refus des paramètres obsolètes\n'
 success_root="$tmp_dir/success-root"
 first_output="$tmp_dir/success-first.log"
 success_config="$success_root/etc/turnserver.conf"
@@ -297,48 +262,7 @@ cmp -s "$tmp_dir/turnserver.conf.before-stale-domain" "$success_config" ||
 [ ! -e "$success_root/etc/letsencrypt/live/turn-new.test.invalid" ] ||
   fail "le changement de domaine a créé des fichiers avant le refus"
 
-printf '5/8 Retour arrière réussi après échec de démarrage\n'
-rollback_success_root="$tmp_dir/rollback-success-root"
-mkdir -p "$rollback_success_root/etc"
-cp -a "$success_root/etc/." "$rollback_success_root/etc/"
-rollback_success_before="$tmp_dir/turnserver.conf.before-rollback-success"
-cp "$rollback_success_root/etc/turnserver.conf" "$rollback_success_before"
-rollback_success_output="$tmp_dir/rollback-success-output.log"
-if run_installer "$rollback_success_root" "198.51.100.25" "$rollback_success_output" \
-  "198.51.100.25" "turn.test.invalid" "MIGRATE_TURN_CONFIGURATION" "0,1"; then
-  fail "la migration avec retour arrière réussi aurait dû signaler l’échec de la migration"
-fi
-assert_contains "$rollback_success_output" "n'est pas actif après la migration"
-assert_contains "$rollback_success_output" "configuration précédente restaurée atomiquement"
-assert_contains "$rollback_success_output" "retour arrière réussi"
-assert_not_contains "$rollback_success_output" "$secret"
-cmp -s "$rollback_success_before" "$rollback_success_root/etc/turnserver.conf" ||
-  fail "le retour arrière réussi n’a pas restauré la configuration précédente"
-rollback_success_backup="$(find "$rollback_success_root/etc" -maxdepth 1 -name 'turnserver.conf.backup.*' -print -quit)"
-[ -n "$rollback_success_backup" ] || fail "le retour arrière réussi a supprimé la sauvegarde"
-cmp -s "$rollback_success_before" "$rollback_success_backup" ||
-  fail "la sauvegarde conservée après retour arrière est incorrecte"
-
-printf '6/8 Retour arrière échoué après un second démarrage\n'
-rollback_failure_root="$tmp_dir/rollback-failure-root"
-mkdir -p "$rollback_failure_root/etc"
-cp -a "$success_root/etc/." "$rollback_failure_root/etc/"
-rollback_failure_before="$tmp_dir/turnserver.conf.before-rollback-failure"
-cp "$rollback_failure_root/etc/turnserver.conf" "$rollback_failure_before"
-rollback_failure_output="$tmp_dir/rollback-failure-output.log"
-if run_installer "$rollback_failure_root" "198.51.100.25" "$rollback_failure_output" \
-  "198.51.100.25" "turn.test.invalid" "MIGRATE_TURN_CONFIGURATION" "0,0"; then
-  fail "la migration avec retour arrière échoué aurait dû échouer"
-fi
-assert_contains "$rollback_failure_output" "configuration précédente restaurée atomiquement"
-assert_contains "$rollback_failure_output" "retour arrière échoué"
-assert_not_contains "$rollback_failure_output" "$secret"
-cmp -s "$rollback_failure_before" "$rollback_failure_root/etc/turnserver.conf" ||
-  fail "le retour arrière échoué n’a pas restauré la configuration précédente"
-[ "$(cat "$rollback_failure_root/systemctl-active.count")" = "2" ] ||
-  fail "le retour arrière échoué n’a pas tenté exactement deux contrôles d’activité"
-
-printf '7/8 Migration confirmée avec sauvegarde et redémarrage\n'
+printf '5/6 Migration confirmée avec sauvegarde et redémarrage\n'
 migration_before="$tmp_dir/turnserver.conf.before-migration"
 cp "$success_config" "$migration_before"
 migration_output="$tmp_dir/migration-output.log"
@@ -356,9 +280,8 @@ cmp -s "$migration_before" "$migration_backup" ||
 [ "$(stat -c '%a' "$migration_backup")" = "600" ] ||
   fail "la sauvegarde Coturn n’a pas les permissions 600"
 assert_contains "$command_log" "systemctl restart coturn"
-assert_count "$command_log" 6 "systemctl restart coturn"
 
-printf '8/8 Réinstallation idempotente avec des paramètres identiques\n'
+printf '6/6 Réinstallation idempotente avec des paramètres identiques\n'
 second_output="$tmp_dir/success-second.log"
 cp "$success_config" "$tmp_dir/turnserver.conf.before-reinstall"
 run_installer "$success_root" "198.51.100.25" "$second_output" "198.51.100.25" ||
@@ -373,11 +296,11 @@ assert_count "$success_default" 1 "TURNSERVER_ENABLED=1"
 assert_count "$success_renewal" 1 "certbot renew --quiet"
 
 assert_count "$command_log" 1 "certbot certonly"
-assert_count "$command_log" 5 "systemctl enable coturn"
-assert_count "$command_log" 7 "systemctl restart coturn"
+assert_count "$command_log" 3 "systemctl enable coturn"
+assert_count "$command_log" 3 "systemctl restart coturn"
 assert_not_contains "$command_log" "systemctl reload"
 assert_contains "$command_log" "ufw allow 80/tcp comment ACME HTTP-01"
-assert_count "$command_log" 7 "systemctl is-active --quiet coturn"
+assert_count "$command_log" 3 "systemctl is-active --quiet coturn"
 assert_count "$command_log" 3 "ss -lntup"
 assert_not_contains "$command_log" "$secret"
 

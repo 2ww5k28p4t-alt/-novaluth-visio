@@ -4,7 +4,6 @@ import { Server as SocketIOServer, type Socket } from "socket.io";
 import { logger } from "./logger";
 import {
   accountForSession,
-  inactiveMeetAccountIds,
   isMeetAuthRequired,
   onMeetAccountDisabled,
   sessionTokenFromCookie,
@@ -138,22 +137,38 @@ export async function registerP2PMeet(
     io.in(`meet-account:${accountId}`).disconnectSockets(true);
     logger.info(
       { accountId, event: "meet_account_sockets_disconnected" },
-      "P2P Meet disconnected sockets for disabled account",
+        "P2P Meet disconnected sockets for revoked account",
     );
   };
-  const reconcileDisabledAccounts = async () => {
-    const connectedAccountIds = Array.from(
-      io.sockets.sockets.values(),
-      (socket) => Number(socket.data.account?.id),
-    ).filter((accountId) => Number.isInteger(accountId) && accountId > 0);
-    const inactiveAccountIds = await inactiveMeetAccountIds([
-      ...new Set(connectedAccountIds),
-    ]);
-    for (const accountId of inactiveAccountIds) disconnectAccountSockets(accountId);
+  const reconcileRevokedSessions = async () => {
+    if (!isMeetAuthRequired()) return;
+    await Promise.all(
+      Array.from(io.sockets.sockets.values(), async (socket) => {
+        const accountId = Number(socket.data.account?.id);
+        const sessionToken =
+          typeof socket.data.sessionToken === "string"
+            ? socket.data.sessionToken
+            : null;
+        const account = await accountForSession(sessionToken);
+        if (
+          account &&
+          Number.isInteger(accountId) &&
+          accountId > 0 &&
+          account.id === accountId
+        ) {
+          return;
+        }
+        socket.disconnect(true);
+        logger.info(
+          { accountId, event: "meet_revoked_session_reconciled" },
+          "P2P Meet disconnected socket with revoked session",
+        );
+      }),
+    );
   };
   const removeAccountDisabledListener = await subscribeToAccountDisabled(
     disconnectAccountSockets,
-    reconcileDisabledAccounts,
+    reconcileRevokedSessions,
     (error) => {
       logger.error(
         { err: error },
@@ -200,9 +215,10 @@ export async function registerP2PMeet(
       return;
     }
     try {
-      const account = await accountForSession(
-        sessionTokenFromCookie(socket.handshake.headers.cookie),
+      const sessionToken = sessionTokenFromCookie(
+        socket.handshake.headers.cookie,
       );
+      const account = await accountForSession(sessionToken);
       if (!account) {
         next(new Error("Une session NovaLuth est requise pour Meet."));
         return;
@@ -213,6 +229,7 @@ export async function registerP2PMeet(
         displayName: account.displayName,
         role: account.role,
       };
+      socket.data.sessionToken = sessionToken;
       next();
     } catch (error) {
       logger.error({ err: error }, "P2P Meet session verification failed");

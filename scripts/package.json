@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
-    "test:meet-recovery": "tsx ./src/meet-recovery.e2e.ts",
+    "test:meet-room-isolation": "tsx ./src/meet-room-isolation.test.ts",
+    "test:meet-recovery": "pnpm run test:meet-room-isolation && tsx ./src/meet-recovery.e2e.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

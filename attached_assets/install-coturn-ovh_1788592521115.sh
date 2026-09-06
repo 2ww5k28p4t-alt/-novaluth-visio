@@ -32,8 +32,6 @@ RENEWAL_FILE="$ETC_DIR/cron.d/novaluth-coturn-cert"
 HOOK_FILE="$TEST_ROOT/usr/local/bin/novaluth-turn-cert-permissions.sh"
 MIGRATION_MODE=0
 CONFIG_MISMATCHES=()
-CONFIG_CANDIDATE=""
-CONFIG_ROLLBACK_CANDIDATE=""
 
 title() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 info() { printf '   %s\n' "$*"; }
@@ -277,7 +275,7 @@ EOF
 
 if [ "$MIGRATION_MODE" -eq 1 ]; then
   CONFIG_CANDIDATE="$(mktemp "${CONFIG_FILE}.candidate.XXXXXX")"
-  trap 'rm -f "${CONFIG_CANDIDATE:-}" "${CONFIG_ROLLBACK_CANDIDATE:-}"' EXIT
+  trap 'rm -f "${CONFIG_CANDIDATE:-}"' EXIT
   write_config "$CONFIG_CANDIDATE"
   validate_candidate_config "$CONFIG_CANDIDATE"
   CONFIG_BACKUP="${CONFIG_FILE}.backup.$(date -u +%Y%m%dT%H%M%SZ)"
@@ -310,43 +308,11 @@ title "5. Démarrage et contrôle"
 # aucune commande de rechargement, et « enable --now » aurait déjà démarré le
 # service avec l'ancienne configuration.
 systemctl enable coturn
-if [ "$MIGRATION_MODE" -eq 1 ]; then
-  if ! systemctl restart coturn; then
-    info "la commande de redémarrage après migration a échoué ; vérification de l'état du service"
-  fi
-
-  if ! systemctl is-active --quiet coturn; then
-    journalctl -u coturn -n 60 --no-pager
-    info "Coturn n'est pas actif après la migration ; restauration de la configuration précédente"
-    CONFIG_ROLLBACK_CANDIDATE="$(mktemp "${CONFIG_FILE}.rollback.XXXXXX")"
-    cp -p "$CONFIG_BACKUP" "$CONFIG_ROLLBACK_CANDIDATE"
-    chmod 600 "$CONFIG_ROLLBACK_CANDIDATE"
-    mv -f "$CONFIG_ROLLBACK_CANDIDATE" "$CONFIG_FILE"
-    CONFIG_ROLLBACK_CANDIDATE=""
-    secure_file_for_coturn "$CONFIG_FILE"
-    ok "configuration précédente restaurée atomiquement ; sauvegarde conservée : $CONFIG_BACKUP"
-
-    info "tentative unique de redémarrage avec la configuration précédente"
-    if ! systemctl restart coturn; then
-      info "la commande de redémarrage du retour arrière a échoué"
-    fi
-    if systemctl is-active --quiet coturn; then
-      ok "retour arrière réussi : Coturn est actif avec la configuration précédente"
-      fail "migration échouée ; le relais précédent a été rétabli"
-    fi
-
-    journalctl -u coturn -n 60 --no-pager
-    fail "migration échouée ; retour arrière échoué et Coturn reste inactif"
-  fi
-else
-  if ! systemctl restart coturn; then
-    info "la commande de redémarrage a échoué ; vérification de l'état du service"
-  fi
-  systemctl is-active --quiet coturn || {
-    journalctl -u coturn -n 60 --no-pager
-    fail "Coturn ne démarre pas"
-  }
-fi
+systemctl restart coturn
+systemctl is-active --quiet coturn || {
+  journalctl -u coturn -n 60 --no-pager
+  fail "Coturn ne démarre pas"
+}
 ok "Coturn est actif"
 
 if command -v ss >/dev/null; then

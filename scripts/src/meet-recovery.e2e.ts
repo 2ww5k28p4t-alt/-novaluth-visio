@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createMeetTestRoom } from "./meet-test-room.js";
 
 type CdpReply = {
   id?: number;
@@ -58,14 +58,6 @@ class CdpClient {
 
 const delay = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-
-const roomProcessEntropy = `${process.pid.toString(36)}-${randomUUID().replaceAll("-", "")}`;
-let roomSequence = 0;
-
-function createMeetTestRoom() {
-  roomSequence += 1;
-  return `reprise-${roomProcessEntropy}-${roomSequence.toString(36)}`;
-}
 
 function assertMeetTestRoomUniqueness() {
   const rooms = [createMeetTestRoom(), createMeetTestRoom()];
