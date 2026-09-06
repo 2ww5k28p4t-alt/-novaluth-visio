@@ -16,3 +16,4 @@
 - [Chromium CDP validation exit](chromium-cdp-validation-exit.md) — Standalone CDP checks may need an explicit exit after cleanup to avoid false validation timeouts.
 - [Cross-instance revocation delivery](cross-instance-revocation-delivery.md) — Security revocations need ready-before-traffic subscriptions and reconciliation after reconnect.
 - [Fail-closed CLI help parsing](fail-closed-cli-help-parsing.md) — Capture external CLI help status before parsing; process substitutions can hide producer failures.
+- [Prospection lot boundaries](prospection-lot-boundaries.md) — Concurrency and draft-send safety belong inside the transactional prospection service, not separate features.
