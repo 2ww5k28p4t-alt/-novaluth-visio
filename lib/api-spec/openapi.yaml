@@ -705,6 +705,36 @@ paths:
                 $ref: "#/components/schemas/ProspectionDossierList"
         "401":
           description: Authenticated administrator account required
+    post:
+      operationId: openProspectionDossier
+      tags: [admin]
+      summary: Open an idempotent prospecting file from an existing directory profile
+      security:
+        - meetSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProspectionDossierOpen"
+      responses:
+        "200":
+          description: Existing prospecting file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProspectionDossierDetail"
+        "201":
+          description: Prospecting file created without reading its website
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProspectionDossierDetail"
+        "400": { $ref: "#/components/responses/ProspectionValidationFailed" }
+        "403": { $ref: "#/components/responses/ProspectionAdminRequired" }
+        "404": { $ref: "#/components/responses/ProspectionNotFound" }
+        "409": { $ref: "#/components/responses/ProspectionConflict" }
+        "423": { $ref: "#/components/responses/ProspectionLocked" }
   /admin/prospection/dossiers/{dossierId}:
     get:
       operationId: getProspectionDossier
@@ -773,6 +803,60 @@ paths:
         "401": { description: Authenticated administrator account required }
         "404": { description: Prospecting file not found }
         "409": { description: File changed or already has an active proposal }
+  /admin/prospection/dossiers/{dossierId}/prepare:
+    post:
+      operationId: prepareProspectionDossier
+      tags: [admin]
+      summary: Read the public website and prepare a prospecting file
+      security:
+        - meetSession: []
+      parameters:
+        - $ref: "#/components/parameters/ProspectionDossierId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProspectionPreparation"
+      responses:
+        "200":
+          description: Preparation outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProspectionPreparationResult"
+        "400": { $ref: "#/components/responses/ProspectionValidationFailed" }
+        "403": { $ref: "#/components/responses/ProspectionAdminRequired" }
+        "404": { $ref: "#/components/responses/ProspectionNotFound" }
+        "409": { $ref: "#/components/responses/ProspectionConflict" }
+        "423": { $ref: "#/components/responses/ProspectionLocked" }
+  /admin/prospection/dossiers/{dossierId}/hook:
+    post:
+      operationId: validateProspectionHook
+      tags: [admin]
+      summary: Record the human-reviewed personal hook
+      security:
+        - meetSession: []
+      parameters:
+        - $ref: "#/components/parameters/ProspectionDossierId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProspectionHookValidation"
+      responses:
+        "200":
+          description: File ready for proposal drafting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProspectionDossierDetail"
+        "400": { $ref: "#/components/responses/ProspectionValidationFailed" }
+        "403": { $ref: "#/components/responses/ProspectionAdminRequired" }
+        "404": { $ref: "#/components/responses/ProspectionNotFound" }
+        "409": { $ref: "#/components/responses/ProspectionConflict" }
+        "423": { $ref: "#/components/responses/ProspectionLocked" }
   /admin/prospection/dossiers/{dossierId}/withdraw:
     post:
       operationId: withdrawProspectionProposal
@@ -824,6 +908,28 @@ paths:
         "401": { description: Authenticated administrator account required }
         "404": { description: Prospecting file not found }
         "409": { description: File changed since it was displayed }
+  /admin/prospection/oppositions:
+    post:
+      operationId: recordProspectionOpposition
+      tags: [admin]
+      summary: Record a definitive opposition for an email address
+      security:
+        - meetSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProspectionOppositionInput"
+      responses:
+        "201":
+          description: Opposition recorded and matching files closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProspectionOppositionResult"
+        "400": { $ref: "#/components/responses/ProspectionValidationFailed" }
+        "403": { $ref: "#/components/responses/ProspectionAdminRequired" }
   /admin/meet/accounts:
     get:
       operationId: listMeetAccounts
@@ -1013,6 +1119,22 @@ components:
       in: path
       required: true
       schema: { type: number }
+  responses:
+    ProspectionValidationFailed:
+      description: Invalid prospecting request
+      content: { application/json: { schema: { $ref: "#/components/schemas/ProspectionError" } } }
+    ProspectionAdminRequired:
+      description: Active administrator account required
+      content: { application/json: { schema: { $ref: "#/components/schemas/ProspectionError" } } }
+    ProspectionNotFound:
+      description: Prospecting resource not found
+      content: { application/json: { schema: { $ref: "#/components/schemas/ProspectionError" } } }
+    ProspectionConflict:
+      description: Refused transition, stale revision, or active opposition
+      content: { application/json: { schema: { $ref: "#/components/schemas/ProspectionError" } } }
+    ProspectionLocked:
+      description: Advisory lock held by another operator
+      content: { application/json: { schema: { $ref: "#/components/schemas/ProspectionError" } } }
   securitySchemes:
     adminToken:
       type: apiKey
@@ -1653,6 +1775,58 @@ components:
         state:
           type: string
           enum: [sent, replied, enrolled, declined, no_reply, abandoned]
+    ProspectionDossierOpen:
+      type: object
+      required: [slug]
+      properties:
+        slug: { type: string, minLength: 1, maxLength: 120, pattern: "^[a-z0-9]([a-z0-9-]{0,118}[a-z0-9])?$" }
+    ProspectionPreparation:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: number, minimum: 0 }
+    ProspectionPreparationResult:
+      type: object
+      required: [state, signals]
+      properties:
+        state: { type: string }
+        signals:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
+        reason: { type: ["string", "null"] }
+        retryable: { type: ["boolean", "null"] }
+        refusalMessage: { type: ["string", "null"], maxLength: 300 }
+    ProspectionHookValidation:
+      type: object
+      required: [revision, hook]
+      properties:
+        revision: { type: number, minimum: 0 }
+        hook: { type: string, minLength: 40, maxLength: 2000 }
+    ProspectionOppositionInput:
+      type: object
+      required: [email, origin]
+      properties:
+        email: { type: string, minLength: 6, maxLength: 320 }
+        origin: { type: string, enum: [email_reply, admin_entry, telegram_callback, unsubscribe_request] }
+    ProspectionOppositionResult:
+      type: object
+      required: [recorded, closedDossiers, withdrawnProposals]
+      properties:
+        recorded: { type: boolean }
+        closedDossiers: { type: number, minimum: 0, multipleOf: 1, description: Nonnegative whole count; number is used for compatible Zod generation. }
+        withdrawnProposals: { type: number, minimum: 0, multipleOf: 1, description: Nonnegative whole count; number is used for compatible Zod generation. }
+    ProspectionError:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          enum: [validation_failed, transition_refused, opposition_active, admin_required, dossier_locked, not_found]
+        message: { type: string, maxLength: 300 }
+        issues:
+          type: array
+          items: { type: object, additionalProperties: true }
     Sn13CallState:
       type: object
       required: [statut, requete_id, corps_erreur, appele_le, nombre, recents]

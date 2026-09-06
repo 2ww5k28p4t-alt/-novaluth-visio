@@ -17,6 +17,7 @@ import {
   correctProspectionDossier,
   prospectionEmailHmac,
   recordProspectionOpposition,
+  recordProspectionOppositionForEmail,
   transitionProspectionDossier,
   validateAndQueueProspectionProposal,
   verifyProspectionDossier,
@@ -28,6 +29,7 @@ const email = `Contact.${suffix}@Example.test`;
 let accountId = 0;
 const dossierIds: string[] = [];
 const extraAccountIds: number[] = [];
+const additionalSlugs: string[] = [];
 
 before(async () => {
   process.env.NOVALUTH_PROSPECTION_HMAC_SECRET_V1 = `prospection-${suffix}`;
@@ -66,7 +68,7 @@ after(async () => {
   if (extraAccountIds.length) {
     await db.delete(novaluthPlatformAccountsTable).where(inArray(novaluthPlatformAccountsTable.id, extraAccountIds));
   }
-  await db.delete(novaluthProfilesTable).where(inArray(novaluthProfilesTable.slug, slugs));
+  await db.delete(novaluthProfilesTable).where(inArray(novaluthProfilesTable.slug, [...slugs, ...additionalSlugs]));
   await pool.end();
 });
 
@@ -82,11 +84,15 @@ test("une seule ouverture gagne pour un atelier", async () => {
     openProspectionDossier(request),
     openProspectionDossier(request),
   ]);
-  assert.equal(results.filter((result) => result.ok).length, 1);
-  assert.equal(results.filter((result) => !result.ok && result.reason === "conflict").length, 1);
-  const winner = results.find((result) => result.ok);
-  assert.ok(winner?.ok);
-  dossierIds.push(winner.value.id);
+  assert.equal(results.filter((result) => result.ok).length, 2);
+  const outcomes = results.filter((result) => result.ok);
+  assert.equal(outcomes.filter((result) => result.value.created).length, 1);
+  assert.equal(outcomes.filter((result) => !result.value.created).length, 1);
+  assert.equal(new Set(outcomes.map((result) => result.value.id)).size, 1);
+  dossierIds.push(outcomes[0].value.id);
+  const journal = await db.select().from(prospectionJournal)
+    .where(eq(prospectionJournal.dossierId, outcomes[0].value.id));
+  assert.equal(journal.filter((entry) => entry.event === "dossier_opened").length, 1);
 });
 
 test("la vérification lit par la frontière injectée et les validations concurrentes échouent proprement", async () => {
@@ -163,6 +169,7 @@ test("une opposition est atomique, durable et bloque une nouvelle ouverture", as
 test("deux transitions concurrentes du même dossier donnent un succès et un conflit", async () => {
   const opened = await openProspectionDossier({
     adminAccountId: accountId, slug: slugs[2], workshopName: "Atelier transition",
+    websiteUrl: "https://example.test",
   });
   assert.ok(opened.ok);
   dossierIds.push(opened.value.id);
@@ -176,6 +183,93 @@ test("deux transitions concurrentes du même dossier donnent un succès et un co
   ]);
   assert.equal(results.filter((result) => result.ok).length, 1);
   assert.equal(results.filter((result) => !result.ok && result.reason === "conflict").length, 1);
+});
+
+test("une ouverture sans site naît directement dans l’état no_website", async () => {
+  const opened = await openProspectionDossier({
+    adminAccountId: accountId, slug: slugs[1], workshopName: "Atelier sans site",
+  });
+  assert.ok(opened.ok);
+  dossierIds.push(opened.value.id);
+  const [stored] = await db.select().from(prospectionDossiers)
+    .where(eq(prospectionDossiers.id, opened.value.id));
+  assert.equal(stored.state, "no_website");
+  assert.equal(stored.lastReason, "no_website");
+});
+
+test("une opposition concurrente empêche toute ouverture tardive du même contact", async () => {
+  const slug = `race-${suffix}`;
+  const raceEmail = `race-${suffix}@example.test`;
+  additionalSlugs.push(slug);
+  await db.insert(novaluthProfilesTable).values({
+    slug, name: "Atelier course opposition", entityType: "luthier", status: "candidate",
+    data: { slug, nom: "Atelier course opposition", email: raceEmail, site_web: "https://example.test" },
+  });
+  const client = await pool.connect();
+  try {
+    await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [`prospection:email:${raceEmail}`]);
+    const opening = await openProspectionDossier({ adminAccountId: accountId, slug });
+    assert.deepEqual(opening, { ok: false, reason: "locked" });
+  } finally {
+    await client.query("select pg_advisory_unlock(hashtextextended($1, 0))", [`prospection:email:${raceEmail}`]);
+    client.release();
+  }
+  const opposed = await recordProspectionOppositionForEmail({
+    adminAccountId: accountId, email: raceEmail, origin: "admin_entry",
+  });
+  assert.ok(opposed.ok);
+  const openings = await db.select().from(prospectionDossiers)
+    .where(eq(prospectionDossiers.contactEmail, raceEmail));
+  assert.ok(openings.every((dossier) => dossier.state === "opposed"));
+  const opposition = await db.select().from(prospectionOppositions)
+    .where(eq(prospectionOppositions.emailHmac, prospectionEmailHmac(raceEmail)));
+  assert.equal(opposition.length, 1);
+});
+
+test("une opposition clôt tous les dossiers et retire toutes les propositions du contact", async () => {
+  const sharedEmail = `shared-${suffix}@example.test`;
+  const sharedSlugs = [`shared-a-${suffix}`, `shared-b-${suffix}`];
+  additionalSlugs.push(...sharedSlugs);
+  await db.insert(novaluthProfilesTable).values(sharedSlugs.map((slug) => ({
+    slug, name: `Atelier ${slug}`, entityType: "luthier", status: "candidate",
+    data: { slug, nom: `Atelier ${slug}`, email: sharedEmail, site_web: "https://example.test" },
+  })));
+  const opened = [
+    await openProspectionDossier({ adminAccountId: accountId, slug: sharedSlugs[0] }),
+    await openProspectionDossier({ adminAccountId: accountId, slug: sharedSlugs[1] }),
+  ];
+  const ids = opened.map((result) => {
+    assert.ok(result.ok);
+    dossierIds.push(result.value.id);
+    return result.value.id;
+  });
+  assert.equal(ids.length, 2);
+  const now = new Date();
+  for (const id of ids) {
+    await db.update(prospectionDossiers).set({
+      state: "proposed", hook: "Accroche de test suffisamment longue pour satisfaire les contraintes métier.",
+      hookOrigin: "human", verifiedAt: now, hookValidatedAt: now,
+      hookValidatedByAccountId: accountId, proposedAt: now,
+    }).where(eq(prospectionDossiers.id, id));
+    await db.insert(prospectionProposals).values({
+      dossierId: id, subject: "Proposition NovaLuth de découverte",
+      body: "Bonjour, ".padEnd(220, "x"), recipientHmac: prospectionEmailHmac(sharedEmail),
+      recipientHmacVersion: 1, validatedByAccountId: accountId, validatedAt: now, deliveryAllowed: false,
+    });
+  }
+  const outcome = await recordProspectionOppositionForEmail({
+    adminAccountId: accountId, email: sharedEmail, origin: "admin_entry",
+  });
+  assert.deepEqual(outcome, { ok: true, value: { closedDossiers: 2, withdrawnProposals: 2 } });
+  const dossiers = await db.select().from(prospectionDossiers).where(inArray(prospectionDossiers.id, ids));
+  assert.ok(dossiers.every((dossier) => dossier.state === "opposed"));
+  const proposals = await db.select().from(prospectionProposals).where(inArray(prospectionProposals.dossierId, ids));
+  assert.ok(proposals.every((proposal) => proposal.withdrawnAt && !proposal.deliveryAllowed));
+  const [opposition] = await db.select().from(prospectionOppositions)
+    .where(eq(prospectionOppositions.emailHmac, prospectionEmailHmac(sharedEmail)));
+  assert.equal("email" in opposition, false);
+  const journal = await db.select().from(prospectionJournal).where(inArray(prospectionJournal.dossierId, ids));
+  assert.ok(journal.every((entry) => !("email" in entry)));
 });
 
 test("une lecture temporairement indisponible ne modifie pas le dossier", async () => {
@@ -196,7 +290,7 @@ test("une lecture temporairement indisponible ne modifie pas le dossier", async 
 });
 
 test("un instantané de page obsolète ne peut pas enregistrer sa cohérence", async () => {
-  const [before] = await db.select().from(prospectionDossiers).where(eq(prospectionDossiers.id, dossierIds[2]));
+  const [before] = await db.select().from(prospectionDossiers).where(eq(prospectionDossiers.id, dossierIds[5]));
   const outcome = await verifyProspectionDossier(
     { adminAccountId: accountId, dossierId: before.id, revision: before.revision },
     async () => {

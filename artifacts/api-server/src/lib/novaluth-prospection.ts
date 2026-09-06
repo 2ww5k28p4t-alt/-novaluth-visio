@@ -3,6 +3,7 @@ import {
   db,
   isProspectionTransitionAllowed,
   novaluthPlatformAccountsTable,
+  novaluthProfilesTable,
   prospectionDossiers,
   prospectionJournal,
   prospectionOppositions,
@@ -12,12 +13,13 @@ import {
   type ProspectionOppositionOrigin,
   type ProspectionState,
 } from "@workspace/db";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { readPublicPage } from "../gateway/page-harvester";
 import { PageReadRefused } from "../gateway/page-harvester";
 
 export type ProspectionFailure =
   | "conflict"
+  | "locked"
   | "invalid"
   | "not_found"
   | "opposed"
@@ -30,6 +32,12 @@ export type ProspectionResult<T> =
   | { ok: false; reason: ProspectionFailure };
 
 type PageReader = typeof readPublicPage;
+let pageReaderOverride: PageReader | undefined;
+
+/** Test-only boundary injection; production always uses the compliant reader. */
+export function setProspectionPageReaderForTest(reader?: PageReader): void {
+  pageReaderOverride = reader;
+}
 
 function normalizeEmail(email: string): string {
   const normalized = email.trim().toLowerCase();
@@ -91,6 +99,26 @@ async function lockWorkshop(
     sql`select pg_try_advisory_xact_lock(hashtextextended(${slug}, 0)) as acquired`,
   );
   return result.rows[0]?.acquired === true;
+}
+
+async function waitForWorkshopLock(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  slug: string,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${slug}, 0))`,
+  );
+}
+
+function emailLockKey(email: string): string {
+  return `prospection:email:${normalizeEmail(email)}`;
+}
+
+async function lockProspectionEmail(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  email: string,
+): Promise<boolean> {
+  return lockWorkshop(tx, emailLockKey(email));
 }
 
 /**
@@ -157,46 +185,59 @@ async function hasOpposition(
 export async function openProspectionDossier(input: {
   adminAccountId: number;
   slug: string;
-  workshopName: string;
+  workshopName?: string;
   websiteUrl?: string | null;
   contactEmail?: string | null;
   contactFirstName?: string | null;
-}): Promise<ProspectionResult<{ id: string; revision: number }>> {
+}): Promise<ProspectionResult<{ id: string; revision: number; created: boolean }>> {
   return db.transaction(async (tx) => {
-    if (!(await lockWorkshop(tx, input.slug))) {
-      return { ok: false, reason: "conflict" };
-    }
+    await waitForWorkshopLock(tx, input.slug);
     if (!(await requireAdmin(tx, input.adminAccountId))) {
       return { ok: false, reason: "unauthorized" };
     }
-    const email = input.contactEmail
-      ? normalizeEmail(input.contactEmail)
+    const [profile] = await tx.select().from(novaluthProfilesTable)
+      .where(eq(novaluthProfilesTable.slug, input.slug));
+    if (!profile) return { ok: false, reason: "not_found" };
+    const data = profile.data as Record<string, unknown>;
+    const websiteUrl = input.websiteUrl ?? (typeof data.site_web === "string" ? data.site_web : null);
+    const contactEmail = input.contactEmail ?? (typeof data.email === "string" ? data.email : null);
+    const contactFirstName = input.contactFirstName ?? (typeof data.prenom_contact === "string" ? data.prenom_contact : null);
+    const email = contactEmail
+      ? normalizeEmail(contactEmail)
       : null;
+    // Slug is always acquired before email. Opposition only takes the email
+    // lock, so it cannot form an advisory-lock cycle with opening.
+    if (email && !(await lockProspectionEmail(tx, email))) {
+      return { ok: false, reason: "locked" };
+    }
     if (await hasOpposition(tx, email)) {
       return { ok: false, reason: "opposed" };
     }
     const [existing] = await tx
-      .select({ id: prospectionDossiers.id })
+      .select({ id: prospectionDossiers.id, revision: prospectionDossiers.revision })
       .from(prospectionDossiers)
       .where(eq(prospectionDossiers.slug, input.slug));
-    if (existing) return { ok: false, reason: "conflict" };
+    if (existing) return { ok: true, value: { ...existing, created: false } };
     const [dossier] = await tx
       .insert(prospectionDossiers)
       .values({
         slug: input.slug,
-        workshopName: input.workshopName.trim(),
-        websiteUrl: input.websiteUrl?.trim() || null,
+        workshopName: (input.workshopName ?? profile.name).trim(),
+        websiteUrl: websiteUrl?.trim() || null,
         contactEmail: email,
-        contactFirstName: input.contactFirstName?.trim() || null,
+        contactFirstName: contactFirstName?.trim() || null,
+        ...(!websiteUrl?.trim()
+          ? { state: "no_website", lastReason: "no_website" }
+          : {}),
       })
       .returning({ id: prospectionDossiers.id, revision: prospectionDossiers.revision });
     await tx.insert(prospectionJournal).values({
       dossierId: dossier.id,
       slug: input.slug,
       event: "dossier_opened",
-      stateAfter: "opened",
+      stateAfter: websiteUrl?.trim() ? "opened" : "no_website",
     });
-    return { ok: true, value: dossier };
+    return { ok: true, value: { ...dossier, created: true } };
   });
 }
 
@@ -210,7 +251,7 @@ export async function verifyProspectionDossier(
     dossierId: string;
     revision: number;
   },
-  pageReader: PageReader = readPublicPage,
+  pageReader: PageReader = pageReaderOverride ?? readPublicPage,
 ): Promise<ProspectionResult<{ revision: number; state: ProspectionState }>> {
   const [candidate] = await db
     .select({
@@ -251,7 +292,7 @@ export async function verifyProspectionDossier(
 
   return db.transaction(async (tx) => {
     if (!(await lockDossier(tx, input.dossierId))) {
-      return { ok: false, reason: "conflict" };
+      return { ok: false, reason: "locked" };
     }
     const [dossier] = await tx
       .select()
@@ -314,20 +355,20 @@ export async function validateProspectionHook(input: {
   dossierId: string;
   revision: number;
   hook: string;
-  hookOrigin: ProspectionHookOrigin;
+  hookOrigin?: ProspectionHookOrigin;
 }): Promise<ProspectionResult<{ revision: number; state: ProspectionState }>> {
   return db.transaction(async (tx) => {
-    if (!(await lockDossier(tx, input.dossierId))) return { ok: false, reason: "conflict" };
+    if (!(await lockDossier(tx, input.dossierId))) return { ok: false, reason: "locked" };
     const [dossier] = await tx.select().from(prospectionDossiers).where(eq(prospectionDossiers.id, input.dossierId));
     if (!dossier) return { ok: false, reason: "not_found" };
     if (!(await requireAdmin(tx, input.adminAccountId))) return { ok: false, reason: "unauthorized" };
     if (await hasOpposition(tx, dossier.contactEmail)) return { ok: false, reason: "opposed" };
-    if (dossier.state !== "verified") return { ok: false, reason: "invalid" };
+    if (dossier.state !== "verified" || !dossier.hookOrigin) return { ok: false, reason: "invalid" };
     const now = new Date();
     const [saved] = await tx.update(prospectionDossiers).set({
       state: "draft_ready",
       hook: input.hook.trim(),
-      hookOrigin: input.hookOrigin,
+      hookOrigin: dossier.hookOrigin,
       hookValidatedAt: now,
       hookValidatedByAccountId: input.adminAccountId,
       revision: dossier.revision + 1,
@@ -585,6 +626,9 @@ export async function recordProspectionOpposition(input: {
     if (!dossier.contactEmail || !isProspectionTransitionAllowed(dossier.state as ProspectionState, "opposed")) {
       return { ok: false, reason: "invalid" };
     }
+    if (!(await lockProspectionEmail(tx, dossier.contactEmail))) {
+      return { ok: false, reason: "locked" };
+    }
     const now = new Date();
     const [saved] = await tx.update(prospectionDossiers).set({
       state: "opposed",
@@ -618,6 +662,53 @@ export async function recordProspectionOpposition(input: {
       reason: "opposition_active",
     });
     return { ok: true, value: { revision: saved.revision, state: "opposed" } };
+  });
+}
+
+export async function recordProspectionOppositionForEmail(input: {
+  adminAccountId: number;
+  email: string;
+  origin: ProspectionOppositionOrigin;
+}): Promise<ProspectionResult<{ closedDossiers: number; withdrawnProposals: number }>> {
+  const email = normalizeEmail(input.email);
+  return db.transaction(async (tx) => {
+    if (!(await lockProspectionEmail(tx, email))) {
+      return { ok: false, reason: "locked" };
+    }
+    if (!(await requireAdmin(tx, input.adminAccountId))) {
+      return { ok: false, reason: "unauthorized" };
+    }
+    const now = new Date();
+    await tx.insert(prospectionOppositions).values(
+      activeHmacVersions().map((hmacVersion) => ({
+        emailHmac: prospectionEmailHmac(email, hmacVersion),
+        hmacVersion,
+        origin: input.origin,
+      })),
+    ).onConflictDoNothing();
+    // contact_email is indexed only through the bounded dossiers table in this
+    // administrative transaction; the opposition table receives HMACs only.
+    const dossiers = await tx.select().from(prospectionDossiers)
+      .where(eq(prospectionDossiers.contactEmail, email));
+    const closable = dossiers.filter((dossier) => dossier.state !== "opposed");
+    if (!closable.length) {
+      return { ok: true, value: { closedDossiers: 0, withdrawnProposals: 0 } };
+    }
+    const ids = closable.map((dossier) => dossier.id);
+    await tx.update(prospectionDossiers).set({
+      state: "opposed", lastReason: "opposition_active", closedAt: now,
+      revision: sql`${prospectionDossiers.revision} + 1`,
+    }).where(inArray(prospectionDossiers.id, ids));
+    const withdrawn = await tx.update(prospectionProposals)
+      .set({ withdrawnAt: now, deliveryAllowed: false })
+      .where(and(inArray(prospectionProposals.dossierId, ids), isNull(prospectionProposals.withdrawnAt)))
+      .returning({ id: prospectionProposals.id });
+    await tx.insert(prospectionJournal).values(closable.map((dossier) => ({
+      dossierId: dossier.id, slug: dossier.slug, event: "opposition_recorded",
+      stateBefore: dossier.state as ProspectionState, stateAfter: "opposed",
+      reason: "opposition_active",
+    })));
+    return { ok: true, value: { closedDossiers: ids.length, withdrawnProposals: withdrawn.length } };
   });
 }
 

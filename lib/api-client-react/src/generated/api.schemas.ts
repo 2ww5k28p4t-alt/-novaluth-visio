@@ -800,6 +800,102 @@ export interface ProspectionManualMark {
   state: ProspectionManualMarkState;
 }
 
+export interface ProspectionDossierOpen {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     * @pattern ^[a-z0-9]([a-z0-9-]{0,118}[a-z0-9])?$
+     */
+  slug: string;
+}
+
+export interface ProspectionPreparation {
+  /** @minimum 0 */
+  revision: number;
+}
+
+export interface ProspectionPreparationResult {
+  state: string;
+  /**
+     * @maxItems 20
+     * @items.maxLength 200
+     */
+  signals: string[];
+  /** @nullable */
+  reason?: string | null;
+  /** @nullable */
+  retryable?: boolean | null;
+  /**
+     * @maxLength 300
+     * @nullable
+     */
+  refusalMessage?: string | null;
+}
+
+export interface ProspectionHookValidation {
+  /** @minimum 0 */
+  revision: number;
+  /**
+     * @minLength 40
+     * @maxLength 2000
+     */
+  hook: string;
+}
+
+export type ProspectionOppositionInputOrigin = typeof ProspectionOppositionInputOrigin[keyof typeof ProspectionOppositionInputOrigin];
+
+
+export const ProspectionOppositionInputOrigin = {
+  email_reply: 'email_reply',
+  admin_entry: 'admin_entry',
+  telegram_callback: 'telegram_callback',
+  unsubscribe_request: 'unsubscribe_request',
+} as const;
+
+export interface ProspectionOppositionInput {
+  /**
+     * @minLength 6
+     * @maxLength 320
+     */
+  email: string;
+  origin: ProspectionOppositionInputOrigin;
+}
+
+export interface ProspectionOppositionResult {
+  recorded: boolean;
+  /**
+     * Nonnegative whole count; number is used for compatible Zod generation.
+     * @minimum 0
+     */
+  closedDossiers: number;
+  /**
+     * Nonnegative whole count; number is used for compatible Zod generation.
+     * @minimum 0
+     */
+  withdrawnProposals: number;
+}
+
+export type ProspectionErrorError = typeof ProspectionErrorError[keyof typeof ProspectionErrorError];
+
+
+export const ProspectionErrorError = {
+  validation_failed: 'validation_failed',
+  transition_refused: 'transition_refused',
+  opposition_active: 'opposition_active',
+  admin_required: 'admin_required',
+  dossier_locked: 'dossier_locked',
+  not_found: 'not_found',
+} as const;
+
+export type ProspectionErrorIssuesItem = { [key: string]: unknown };
+
+export interface ProspectionError {
+  error: ProspectionErrorError;
+  /** @maxLength 300 */
+  message: string;
+  issues?: ProspectionErrorIssuesItem[];
+}
+
 export type Sn13PurgeIncidentStatut = typeof Sn13PurgeIncidentStatut[keyof typeof Sn13PurgeIncidentStatut];
 
 
@@ -1141,6 +1237,31 @@ export interface AccessMaintenanceResult {
   execute_le: string;
   commandes: ProtectedOrderMaintenanceResult;
 }
+
+/**
+ * Invalid prospecting request
+ */
+export type ProspectionValidationFailedResponse = ProspectionError;
+
+/**
+ * Active administrator account required
+ */
+export type ProspectionAdminRequiredResponse = ProspectionError;
+
+/**
+ * Prospecting resource not found
+ */
+export type ProspectionNotFoundResponse = ProspectionError;
+
+/**
+ * Refused transition, stale revision, or active opposition
+ */
+export type ProspectionConflictResponse = ProspectionError;
+
+/**
+ * Advisory lock held by another operator
+ */
+export type ProspectionLockedResponse = ProspectionError;
 
 export type ListFichesParams = {
 pays?: string;

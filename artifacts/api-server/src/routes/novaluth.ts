@@ -72,6 +72,16 @@ import {
   WithdrawProspectionProposalBody,
   WithdrawProspectionProposalParams,
   WithdrawProspectionProposalResponse,
+  OpenProspectionDossierBody,
+  OpenProspectionDossierResponse,
+  PrepareProspectionDossierBody,
+  PrepareProspectionDossierParams,
+  PrepareProspectionDossierResponse,
+  ValidateProspectionHookBody,
+  ValidateProspectionHookParams,
+  ValidateProspectionHookResponse,
+  RecordProspectionOppositionBody,
+  RecordProspectionOppositionResponse,
 } from "@workspace/api-zod";
 import {
   db,
@@ -136,6 +146,10 @@ import {
   transitionProspectionDossier,
   validateAndQueueProspectionProposal,
   withdrawProspectionProposal,
+  openProspectionDossier,
+  verifyProspectionDossier,
+  validateProspectionHook,
+  recordProspectionOppositionForEmail,
 } from "../lib/novaluth-prospection";
 import {
   cancelProtectedOrderByAtelier,
@@ -470,6 +484,13 @@ function dossierForDisplay(
     opened_at: dossier.openedAt.toISOString(),
     proposal: proposalForDisplay(proposal),
   };
+}
+
+function prospectionError(
+  reason: "validation_failed" | "transition_refused" | "opposition_active" | "admin_required" | "dossier_locked" | "not_found",
+  message: string,
+) {
+  return { error: reason, message };
 }
 
 async function getProspectionDetail(dossierId: string) {
@@ -1086,6 +1107,36 @@ router.post("/briefs", async (req, res, next) => {
   }
 });
 
+router.post("/admin/prospection/dossiers", async (req, res): Promise<void> => {
+  const account = await requireProspectionAdmin(req);
+  if (!account) {
+    res.status(403).json(prospectionError("admin_required", "Compte administrateur actif requis."));
+    return;
+  }
+  const parsed = OpenProspectionDossierBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(prospectionError("validation_failed", "Demande d’ouverture invalide."));
+    return;
+  }
+  try {
+    await seedProfiles();
+    const outcome = await openProspectionDossier({ adminAccountId: account.id, slug: parsed.data.slug });
+    if (!outcome.ok) {
+      const status = outcome.reason === "not_found" ? 404 : outcome.reason === "locked" ? 423 : outcome.reason === "opposed" ? 409 : 403;
+      res.status(status).json(prospectionError(
+        outcome.reason === "not_found" ? "not_found" : outcome.reason === "locked" ? "dossier_locked" :
+          outcome.reason === "opposed" ? "opposition_active" : "admin_required",
+        "L’ouverture du dossier est refusée.",
+      ));
+      return;
+    }
+    const detail = await getProspectionDetail(outcome.value.id);
+    res.status(outcome.value.created ? 201 : 200).json(OpenProspectionDossierResponse.parse(detail));
+  } catch {
+    res.status(500).json({ error: "Le dossier n’a pas pu être ouvert." });
+  }
+});
+
 router.get("/admin/prospection/dossiers", async (req, res, _next): Promise<void> => {
   try {
     if (!(await requireProspectionAdmin(req))) {
@@ -1174,6 +1225,96 @@ router.patch("/admin/prospection/dossiers/:dossierId", async (req, res, _next): 
     res.json(CorrectProspectionDossierResponse.parse(detail));
   } catch {
     res.status(500).json({ error: "Les corrections n’ont pas pu être enregistrées." });
+  }
+});
+
+router.post("/admin/prospection/dossiers/:dossierId/prepare", async (req, res): Promise<void> => {
+  const account = await requireProspectionAdmin(req);
+  if (!account) {
+    res.status(403).json(prospectionError("admin_required", "Compte administrateur actif requis."));
+    return;
+  }
+  const params = PrepareProspectionDossierParams.safeParse(req.params);
+  const body = PrepareProspectionDossierBody.safeParse(req.body);
+  if (!params.success || !body.success) {
+    res.status(400).json(prospectionError("validation_failed", "Demande de préparation invalide."));
+    return;
+  }
+  try {
+    const [current] = await db.select().from(prospectionDossiers)
+      .where(eq(prospectionDossiers.id, params.data.dossierId));
+    if (current?.state === "no_website") {
+      res.json(PrepareProspectionDossierResponse.parse({
+        state: "no_website", signals: [], reason: "no_website",
+        retryable: false, refusalMessage: null,
+      }));
+      return;
+    }
+    const outcome = await verifyProspectionDossier({
+      adminAccountId: account.id, dossierId: params.data.dossierId, revision: body.data.revision,
+    });
+    if (!outcome.ok) {
+      if (outcome.reason === "read_unavailable") {
+        res.json(PrepareProspectionDossierResponse.parse({
+          state: "opened", signals: [], reason: "gateway_unavailable", retryable: true,
+          refusalMessage: "La lecture de la page est temporairement indisponible.",
+        }));
+        return;
+      }
+      const status = outcome.reason === "not_found" ? 404 : outcome.reason === "locked" ? 423 :
+        outcome.reason === "unauthorized" ? 403 : 409;
+      res.status(status).json(prospectionError(
+        outcome.reason === "not_found" ? "not_found" : outcome.reason === "locked" ? "dossier_locked" :
+          outcome.reason === "opposed" ? "opposition_active" : "transition_refused",
+        "La préparation est refusée.",
+      ));
+      return;
+    }
+    const [dossier] = await db.select().from(prospectionDossiers)
+      .where(eq(prospectionDossiers.id, params.data.dossierId));
+    res.json(PrepareProspectionDossierResponse.parse({
+      state: outcome.value.state, signals: dossier?.verifiedSignals ?? [],
+      reason: dossier?.lastReason ?? null,
+      retryable: dossier?.lastReason === "read_refused" ? false : null,
+      refusalMessage: dossier?.lastReason === "read_refused"
+        ? "La lecture de cette page publique est refusée par la passerelle."
+        : null,
+    }));
+  } catch {
+    res.status(500).json({ error: "La préparation est indisponible." });
+  }
+});
+
+router.post("/admin/prospection/dossiers/:dossierId/hook", async (req, res): Promise<void> => {
+  const account = await requireProspectionAdmin(req);
+  if (!account) {
+    res.status(403).json(prospectionError("admin_required", "Compte administrateur actif requis."));
+    return;
+  }
+  const params = ValidateProspectionHookParams.safeParse(req.params);
+  const body = ValidateProspectionHookBody.safeParse(req.body);
+  if (!params.success || !body.success || body.data.hook.includes("[À compléter")) {
+    res.status(400).json(prospectionError("validation_failed", "L’accroche doit être complète et relue."));
+    return;
+  }
+  try {
+    const outcome = await validateProspectionHook({
+      adminAccountId: account.id, dossierId: params.data.dossierId,
+      revision: body.data.revision, hook: body.data.hook,
+    });
+    if (!outcome.ok) {
+      const status = outcome.reason === "not_found" ? 404 : outcome.reason === "locked" ? 423 :
+        outcome.reason === "unauthorized" ? 403 : outcome.reason === "invalid" ? 409 : 409;
+      res.status(status).json(prospectionError(
+        outcome.reason === "not_found" ? "not_found" : outcome.reason === "locked" ? "dossier_locked" :
+          outcome.reason === "opposed" ? "opposition_active" : "transition_refused",
+        "L’accroche est refusée.",
+      ));
+      return;
+    }
+    res.json(ValidateProspectionHookResponse.parse(await getProspectionDetail(params.data.dossierId)));
+  } catch {
+    res.status(500).json({ error: "L’accroche n’a pas pu être enregistrée." });
   }
 });
 
@@ -1275,6 +1416,37 @@ router.post("/admin/prospection/dossiers/:dossierId/mark", async (req, res, _nex
     res.json(MarkProspectionDossierResponse.parse(await getProspectionDetail(dossierId)));
   } catch {
     res.status(500).json({ error: "Le marquage manuel n’a pas pu être enregistré." });
+  }
+});
+
+router.post("/admin/prospection/oppositions", async (req, res): Promise<void> => {
+  const account = await requireProspectionAdmin(req);
+  if (!account) {
+    res.status(403).json(prospectionError("admin_required", "Compte administrateur actif requis."));
+    return;
+  }
+  const body = RecordProspectionOppositionBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json(prospectionError("validation_failed", "Opposition invalide."));
+    return;
+  }
+  try {
+    const outcome = await recordProspectionOppositionForEmail({
+      adminAccountId: account.id, email: body.data.email, origin: body.data.origin,
+    });
+    if (!outcome.ok) {
+      const status = outcome.reason === "locked" ? 423 : outcome.reason === "unauthorized" ? 403 : 400;
+      res.status(status).json(prospectionError(
+        outcome.reason === "locked" ? "dossier_locked" : "admin_required",
+        "L’opposition est refusée.",
+      ));
+      return;
+    }
+    res.status(201).json(RecordProspectionOppositionResponse.parse({
+      recorded: true, ...outcome.value,
+    }));
+  } catch {
+    res.status(400).json(prospectionError("validation_failed", "Opposition invalide."));
   }
 });
 

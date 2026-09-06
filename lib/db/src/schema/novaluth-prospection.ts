@@ -247,6 +247,7 @@ export const prospectionDossiers = pgTable(
   },
   (table) => [
     uniqueIndex("prospection_dossiers_slug_key").on(table.slug),
+    index("prospection_dossiers_contact_email_idx").on(table.contactEmail),
     index("prospection_dossiers_state_idx").on(table.state),
     index("prospection_dossiers_sent_at_idx").on(table.sentAt),
     check(
