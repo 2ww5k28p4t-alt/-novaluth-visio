@@ -20,3 +20,14 @@ already define the lot boundary.
 
 **How to apply:** Keep proposal review inside lot 1B, but do not add or plan a
 sender until a later lot explicitly changes both safeguards.
+
+Treat the prospection journal as a PostgreSQL-enforced immutable audit boundary,
+and make every business mutation depend atomically on its journal event.
+
+**Why:** The creator explicitly confirmed that append-only convention is
+insufficient and that a mutation reported as successful must never survive if
+its journal insertion fails.
+
+**How to apply:** Reject journal updates and deletions at the database layer,
+and keep each state change plus its event in one transaction so either both
+commit or both roll back.
