@@ -19,6 +19,7 @@ import {
   assertOrphanedTableCleanupReviewed,
   expectedNamedCheckConstraints,
   expectedNonSn13Constraints,
+  expectedProspectionConstraints,
   expectedSourceTables,
   expectedSn13Constraints,
   expectedSn13Tables,
@@ -283,9 +284,15 @@ test("identifies an outdated non-SN13 CHECK constraint by name", async () => {
 });
 
 test("keeps non-SN13 constraint expectations separate from SN13 constraints", () => {
-  assert.equal(expectedNonSn13Constraints.length, 10);
+  assert.equal(
+    expectedNonSn13Constraints.length,
+    10 + expectedProspectionConstraints.length,
+  );
   assert.equal(expectedSn13Constraints.length, 5);
-  assert.equal(expectedNamedCheckConstraints.length, 15);
+  assert.equal(
+    expectedNamedCheckConstraints.length,
+    15 + expectedProspectionConstraints.length,
+  );
 });
 
 test("finds development tables missing from the current Drizzle source schema with row counts", async () => {

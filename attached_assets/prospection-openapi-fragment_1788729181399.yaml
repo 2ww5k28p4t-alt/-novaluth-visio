@@ -1,0 +1,494 @@
+// Fragment OpenAPI — les quatre opérations HTTP manquantes du lot 1B
+// ===================================================================
+//
+// À fusionner dans lib/api-spec/openapi.yaml, puis régénérer avec Orval.
+//
+// Les six routes existantes ne sont pas reprises ici : liste, détail,
+// correction, validation de proposition, retrait et marquage sont déjà
+// couvertes. Seules manquent les quatre opérations qui existent dans le service
+// sans route dédiée.
+//
+// ⚠️ TROIS POINTS D'ADAPTATION
+//
+// 1. AUTHENTIFICATION — j'utilise ci-dessous un schéma nommé « novaluthSession ».
+//    Remplacez-le par le nom réel de votre schéma de sécurité de session, tel
+//    qu'il est déjà déclaré pour les six routes existantes. Ne créez pas un
+//    second schéma.
+//
+// 2. ENTIERS ET GÉNÉRATION DE CODE — conformément à votre note de mémoire
+//    openapi-integer-codegen, tout identifiant de compte est déclaré
+//    « type: integer, format: int32 ». Vérifiez la sortie d'Orval : c'est
+//    précisément là que le piège se produit.
+//
+// 3. COMPOSANTS — les schémas sont écrits en ligne pour rester lisibles. Si
+//    votre contrat les factorise sous components/schemas, extrayez-les en
+//    suivant votre convention de nommage plutôt que la mienne.
+//
+// CORRESPONDANCE DES ERREURS, telle qu'implémentée dans le service
+//
+//   TransitionRefused  → 409  transition_refused
+//   OppositionActive   → 409  opposition_active
+//   AdminRequired      → 403  admin_required
+//   DossierLocked      → 423  dossier_locked
+//   validation Zod     → 400  validation_failed
+//
+// Le 423 mérite d'être conservé tel quel : il distingue « votre demande est
+// invalide » de « un autre opérateur travaille en ce moment sur ce dossier ».
+// C'est ce que verra un opérateur dans l'administration, et c'est utile.
+
+paths:
+  /admin/prospection/dossiers:
+    post:
+      tags: [Prospection]
+      operationId: openProspectionDossier
+      summary: Ouvre un dossier de prospection depuis une fiche de l'annuaire
+      description: >
+        Crée le dossier s'il n'existe pas, et le renvoie tel quel s'il existe
+        déjà — l'opération est idempotente. Le dossier naît dans l'état
+        « opened », ou « no_website » si la fiche ne porte aucune adresse de
+        site. Aucune page n'est lue à ce stade.
+      security:
+        - novaluthSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug]
+              properties:
+                slug:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                  pattern: '^[a-z0-9]([a-z0-9-]{0,118}[a-z0-9])?$'
+                  description: Slug de la fiche d'annuaire. Doit exister.
+                  example: atelier-temoin
+      responses:
+        "201":
+          description: Dossier créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProspectionDossierEnvelope"
+        "200":
+          description: Dossier déjà existant, renvoyé inchangé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProspectionDossierEnvelope"
+        "400": { $ref: "#/components/responses/ProspectionValidationFailed" }
+        "403": { $ref: "#/components/responses/ProspectionAdminRequired" }
+        "404":
+          description: Fiche d'annuaire introuvable
+        "409": { $ref: "#/components/responses/ProspectionConflict" }
+
+  /admin/prospection/dossiers/{dossierId}/prepare:
+    post:
+      tags: [Prospection]
+      operationId: prepareProspectionDossier
+      summary: Lit la page publique de l'atelier et applique le contrôle de cohérence
+      description: >
+        Lecture effectuée exclusivement par readPublicPage(), qui respecte
+        robots.txt, les réservations de fouille de données et le délai de
+        politesse.
+
+
+        Trois issues possibles, toutes renvoyées avec un code 200 car elles
+        décrivent un résultat métier et non une erreur d'appel :
+
+
+        · cohérence validée — le dossier passe en « verified », l'accroche
+        mécanique et les indices vérifiés sont enregistrés ;
+
+
+        · cohérence refusée — le dossier passe en « inconsistent » avec un motif
+        précis. Le motif city_absent_from_page signifie que la ville de la fiche
+        n'apparaît pas sur le site de l'atelier : la fiche doit être corrigée
+        avant tout contact ;
+
+
+        · lecture refusée ou indisponible — refusalMessage porte le message de la
+        passerelle. Le champ retryable distingue un refus définitif, robots.txt
+        ou réservation de fouille, d'une indisponibilité technique passagère.
+      security:
+        - novaluthSession: []
+      parameters:
+        - $ref: "#/components/parameters/ProspectionDossierId"
+      responses:
+        "200":
+          description: Résultat du contrôle de cohérence
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, signals]
+                properties:
+                  state:
+                    $ref: "#/components/schemas/ProspectionState"
+                  signals:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: string
+                      maxLength: 200
+                    description: >
+                      Indices de cohérence retrouvés sur la page de l'atelier.
+                      Faits publics, destinés à être affichés à l'opérateur.
+                    example:
+                      - nom « Atelier Témoin »
+                      - ville « Estaires »
+                      - modèle « Modèle Flandre »
+                  reason:
+                    $ref: "#/components/schemas/ProspectionReason"
+                  retryable:
+                    type: boolean
+                    description: >
+                      Vrai si l'échec est technique et mérite une nouvelle
+                      tentative. Faux pour un refus de lecture définitif.
+                  refusalMessage:
+                    type: string
+                    maxLength: 300
+                    description: Message de refus de la passerelle, à afficher tel quel.
+                    example: robots.txt interdit cette lecture
+        "403": { $ref: "#/components/responses/ProspectionAdminRequired" }
+        "404": { $ref: "#/components/responses/ProspectionNotFound" }
+        "409": { $ref: "#/components/responses/ProspectionConflict" }
+        "423": { $ref: "#/components/responses/ProspectionLocked" }
+
+  /admin/prospection/dossiers/{dossierId}/hook:
+    post:
+      tags: [Prospection]
+      operationId: validateProspectionHook
+      summary: Enregistre l'accroche relue par un administrateur
+      description: >
+        Fait passer le dossier de « verified » à « draft_ready ».
+
+
+        L'origine de production de l'accroche n'est PAS modifiée : une accroche
+        rédigée par un modèle conserve hookOrigin = "ai" tout en portant une date
+        de validation et un compte validateur. C'est ce qui permet de dire
+        honnêtement quelle part des fiches a une accroche assistée.
+
+
+        Une accroche contenant encore le marqueur « [À compléter » est refusée :
+        la phrase personnelle doit avoir été écrite.
+      security:
+        - novaluthSession: []
+      parameters:
+        - $ref: "#/components/parameters/ProspectionDossierId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hook]
+              properties:
+                hook:
+                  type: string
+                  minLength: 40
+                  maxLength: 2000
+                  description: Accroche relue, marqueur à compléter retiré.
+      responses:
+        "200":
+          description: Dossier passé en draft_ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProspectionDossierEnvelope"
+        "400": { $ref: "#/components/responses/ProspectionValidationFailed" }
+        "403": { $ref: "#/components/responses/ProspectionAdminRequired" }
+        "404": { $ref: "#/components/responses/ProspectionNotFound" }
+        "409": { $ref: "#/components/responses/ProspectionConflict" }
+        "423": { $ref: "#/components/responses/ProspectionLocked" }
+
+  /admin/prospection/oppositions:
+    post:
+      tags: [Prospection]
+      operationId: recordProspectionOpposition
+      summary: Enregistre une opposition définitive
+      description: >
+        L'adresse n'est jamais stockée : seule une empreinte HMAC-SHA-256
+        versionnée est conservée. Aucune route ne permet de lever une
+        opposition — c'est délibéré et irréversible.
+
+
+        L'enregistrement clôt, dans la même transaction, tout dossier portant
+        cette adresse et retire ses propositions actives.
+
+
+        Une adresse syntaxiquement invalide est refusée, pas empreintée.
+      security:
+        - novaluthSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, origin]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 320
+                origin:
+                  type: string
+                  enum:
+                    - email_reply
+                    - admin_entry
+                    - telegram_callback
+                    - unsubscribe_request
+                  description: >
+                    Circonstance de l'opposition. email_reply couvre la réponse
+                    « STOP » ; admin_entry une saisie manuelle ;
+                    unsubscribe_request une demande explicite de retrait.
+      responses:
+        "201":
+          description: Opposition enregistrée
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recorded, closedDossiers, withdrawnProposals]
+                properties:
+                  recorded:
+                    type: boolean
+                    example: true
+                  closedDossiers:
+                    type: integer
+                    format: int32
+                    minimum: 0
+                    description: Dossiers passés en « opposed » par cet enregistrement.
+                  withdrawnProposals:
+                    type: integer
+                    format: int32
+                    minimum: 0
+                    description: Propositions actives retirées.
+                  note:
+                    type: string
+                    example: >-
+                      Une opposition est définitive : aucune route ne permet de
+                      la lever.
+        "400": { $ref: "#/components/responses/ProspectionValidationFailed" }
+        "403": { $ref: "#/components/responses/ProspectionAdminRequired" }
+
+components:
+  parameters:
+    ProspectionDossierId:
+      name: dossierId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ProspectionValidationFailed:
+      description: Corps de requête invalide
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProspectionError"
+    ProspectionAdminRequired:
+      description: Compte administrateur actif requis
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProspectionError"
+    ProspectionNotFound:
+      description: Dossier introuvable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProspectionError"
+    ProspectionConflict:
+      description: >
+        Transition non permise, écriture concurrente détectée, ou adresse en
+        opposition. Le champ error distingue transition_refused de
+        opposition_active.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProspectionError"
+    ProspectionLocked:
+      description: >
+        Un autre opérateur travaille en ce moment sur ce dossier. Réessayez dans
+        un instant.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProspectionError"
+
+  schemas:
+    ProspectionError:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          enum:
+            - validation_failed
+            - transition_refused
+            - opposition_active
+            - admin_required
+            - dossier_locked
+            - not_found
+        message:
+          type: string
+          maxLength: 300
+        issues:
+          type: array
+          description: Détail de validation, présent uniquement pour validation_failed.
+          items:
+            type: object
+            additionalProperties: true
+
+    ProspectionState:
+      type: string
+      enum:
+        - opened
+        - verified
+        - draft_ready
+        - proposed
+        - sent
+        - followed_up
+        - replied
+        - enrolled
+        - declined
+        - no_reply
+        - inconsistent
+        - no_website
+        - opposed
+        - abandoned
+
+    ProspectionReason:
+      type: string
+      enum:
+        - name_absent_from_page
+        - city_absent_from_page
+        - insufficient_signals
+        - page_too_short
+        - read_refused
+        - gateway_unavailable
+        - no_website
+        - opposition_active
+        - missing_hook
+        - already_proposed
+        - human_validation
+        - removed_from_queue
+        - record_corrected
+        - silence_after_follow_up
+        - human_decision
+        - uncoded_reason
+
+    ProspectionHookOrigin:
+      type: string
+      enum: [signals, human, ai]
+      description: >
+        Origine de PRODUCTION de l'accroche. Indépendante de sa validation
+        humaine : une accroche « ai » validée reste « ai ».
+
+    ProspectionDossierEnvelope:
+      type: object
+      required: [dossier]
+      properties:
+        dossier:
+          $ref: "#/components/schemas/ProspectionDossier"
+
+    ProspectionDossier:
+      type: object
+      required: [id, slug, workshopName, state, revision, openedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        workshopName:
+          type: string
+          maxLength: 200
+        websiteUrl:
+          type: string
+          maxLength: 2048
+          nullable: true
+        contactEmail:
+          type: string
+          maxLength: 320
+          nullable: true
+        contactFirstName:
+          type: string
+          maxLength: 100
+          nullable: true
+        state:
+          $ref: "#/components/schemas/ProspectionState"
+        lastReason:
+          allOf:
+            - $ref: "#/components/schemas/ProspectionReason"
+          nullable: true
+        hook:
+          type: string
+          maxLength: 2000
+          nullable: true
+        hookOrigin:
+          allOf:
+            - $ref: "#/components/schemas/ProspectionHookOrigin"
+          nullable: true
+        hookValidatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        hookValidatedByAccountId:
+          type: integer
+          format: int32
+          nullable: true
+          description: >
+            Identifiant ENTIER de compte plateforme. Point de vigilance de
+            génération de code.
+        verifiedSignals:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 200
+        followUpCount:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 1
+          description: Borné à 0 ou 1 par contrainte de base.
+        revision:
+          type: integer
+          format: int32
+          minimum: 0
+          description: >
+            Jeton de verrouillage optimiste. À renvoyer dans expectedRevision
+            lors d'une transition manuelle.
+        openedAt:
+          type: string
+          format: date-time
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        proposedAt:
+          type: string
+          format: date-time
+          nullable: true
+        sentAt:
+          type: string
+          format: date-time
+          nullable: true
+        followedUpAt:
+          type: string
+          format: date-time
+          nullable: true
+        repliedAt:
+          type: string
+          format: date-time
+          nullable: true
+        closedAt:
+          type: string
+          format: date-time
+          nullable: true

@@ -1,6 +1,6 @@
-import { and, eq, gt, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, isNull, lte, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import {
   CreateBriefBody,
   CreateBriefResponse,
@@ -57,6 +57,31 @@ import {
   UseAtelierFollowupCreditResponse,
   ConfirmProtectedDeliveryParams,
   ConfirmProtectedDeliveryResponse,
+  CorrectProspectionDossierBody,
+  CorrectProspectionDossierParams,
+  CorrectProspectionDossierResponse,
+  GetProspectionDossierParams,
+  GetProspectionDossierResponse,
+  ListProspectionDossiersResponse,
+  MarkProspectionDossierBody,
+  MarkProspectionDossierParams,
+  MarkProspectionDossierResponse,
+  ValidateProspectionProposalBody,
+  ValidateProspectionProposalParams,
+  ValidateProspectionProposalResponse,
+  WithdrawProspectionProposalBody,
+  WithdrawProspectionProposalParams,
+  WithdrawProspectionProposalResponse,
+  OpenProspectionDossierBody,
+  OpenProspectionDossierResponse,
+  PrepareProspectionDossierBody,
+  PrepareProspectionDossierParams,
+  PrepareProspectionDossierResponse,
+  ValidateProspectionHookBody,
+  ValidateProspectionHookParams,
+  ValidateProspectionHookResponse,
+  RecordProspectionOppositionBody,
+  RecordProspectionOppositionResponse,
 } from "@workspace/api-zod";
 import {
   db,
@@ -66,8 +91,13 @@ import {
   novaluthProfilesTable,
   novaluthProjectsTable,
   novaluthProtectedOrdersTable,
+  prospectionDossiers,
+  prospectionProposals,
   type NovaluthAccessRequest,
   type NovaluthProject,
+  type NovaluthPlatformAccount,
+  type ProspectionDossier,
+  type ProspectionProposal,
 } from "@workspace/db";
 import { novaluthSeed } from "../data/novaluth-seed";
 import {
@@ -112,6 +142,16 @@ import {
   type Sn13PurgeMaintenanceResult,
 } from "../gateway/provider-registry";
 import {
+  correctProspectionDossier,
+  transitionProspectionDossier,
+  validateAndQueueProspectionProposal,
+  withdrawProspectionProposal,
+  openProspectionDossier,
+  verifyProspectionDossier,
+  validateProspectionHook,
+  recordProspectionOppositionForEmail,
+} from "../lib/novaluth-prospection";
+import {
   cancelProtectedOrderByAtelier,
   cancelProtectedOrderByMusician,
   confirmProtectedOrderDelivery,
@@ -122,6 +162,10 @@ import {
   protectedOrderViewFromOrder,
   runProtectedOrderMaintenance,
 } from "../lib/novaluth-orders";
+import {
+  accountForSession,
+  sessionTokenFromCookie,
+} from "../lib/p2p-meet-auth";
 
 const router: IRouter = Router();
 const publicStatus = "publiee";
@@ -398,6 +442,71 @@ async function recommendations(brief: Brief) {
 function requireAdminToken(token: string | undefined) {
   const expected = process.env.NOVALUTH_ADMIN_TOKEN ?? "demo-admin";
   return token === expected;
+}
+
+async function requireProspectionAdmin(req: Request) {
+  const account = await accountForSession(
+    sessionTokenFromCookie(req.header("cookie")),
+  );
+  return account?.role === "admin" && account.active ? account : null;
+}
+
+function proposalForDisplay(proposal: ProspectionProposal | undefined) {
+  return proposal
+    ? {
+        id: proposal.id,
+        kind: proposal.kind,
+        subject: proposal.subject,
+        body: proposal.body,
+        validated_at: proposal.validatedAt.toISOString(),
+        withdrawn_at: proposal.withdrawnAt?.toISOString() ?? null,
+        delivery_allowed: false,
+      }
+    : null;
+}
+
+function dossierForDisplay(
+  dossier: ProspectionDossier,
+  proposal?: ProspectionProposal,
+) {
+  return {
+    id: dossier.id,
+    workshop_name: dossier.workshopName,
+    slug: dossier.slug,
+    website_url: dossier.websiteUrl,
+    contact_email: dossier.contactEmail,
+    contact_first_name: dossier.contactFirstName,
+    state: dossier.state,
+    hook: dossier.hook,
+    hook_origin: dossier.hookOrigin,
+    verified_signals: dossier.verifiedSignals,
+    revision: dossier.revision,
+    opened_at: dossier.openedAt.toISOString(),
+    proposal: proposalForDisplay(proposal),
+  };
+}
+
+function prospectionError(
+  reason: "validation_failed" | "transition_refused" | "opposition_active" | "admin_required" | "dossier_locked" | "not_found",
+  message: string,
+) {
+  return { error: reason, message };
+}
+
+async function getProspectionDetail(dossierId: string) {
+  const [[dossier], [proposal]] = await Promise.all([
+    db.select().from(prospectionDossiers).where(eq(prospectionDossiers.id, dossierId)),
+    db
+      .select()
+      .from(prospectionProposals)
+      .where(
+        and(
+          eq(prospectionProposals.dossierId, dossierId),
+          isNull(prospectionProposals.withdrawnAt),
+        ),
+      ),
+  ]);
+  return dossier ? dossierForDisplay(dossier, proposal) : null;
 }
 
 function portalPath(reference: string, musicianToken: string) {
@@ -995,6 +1104,349 @@ router.post("/briefs", async (req, res, next) => {
     );
   } catch (error) {
     next(error);
+  }
+});
+
+router.post("/admin/prospection/dossiers", async (req, res): Promise<void> => {
+  const account = await requireProspectionAdmin(req);
+  if (!account) {
+    res.status(403).json(prospectionError("admin_required", "Compte administrateur actif requis."));
+    return;
+  }
+  const parsed = OpenProspectionDossierBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(prospectionError("validation_failed", "Demande d’ouverture invalide."));
+    return;
+  }
+  try {
+    await seedProfiles();
+    const outcome = await openProspectionDossier({ adminAccountId: account.id, slug: parsed.data.slug });
+    if (!outcome.ok) {
+      const status = outcome.reason === "not_found" ? 404 : outcome.reason === "locked" ? 423 : outcome.reason === "opposed" ? 409 : 403;
+      res.status(status).json(prospectionError(
+        outcome.reason === "not_found" ? "not_found" : outcome.reason === "locked" ? "dossier_locked" :
+          outcome.reason === "opposed" ? "opposition_active" : "admin_required",
+        "L’ouverture du dossier est refusée.",
+      ));
+      return;
+    }
+    const detail = await getProspectionDetail(outcome.value.id);
+    res.status(outcome.value.created ? 201 : 200).json(OpenProspectionDossierResponse.parse(detail));
+  } catch {
+    res.status(500).json({ error: "Le dossier n’a pas pu être ouvert." });
+  }
+});
+
+router.get("/admin/prospection/dossiers", async (req, res, _next): Promise<void> => {
+  try {
+    if (!(await requireProspectionAdmin(req))) {
+      res.status(401).json({ error: "Compte administrateur authentifié requis." });
+      return;
+    }
+    const rows = await db
+      .select({
+        dossier: prospectionDossiers,
+        proposalId: prospectionProposals.id,
+      })
+      .from(prospectionDossiers)
+      .leftJoin(
+        prospectionProposals,
+        and(
+          eq(prospectionProposals.dossierId, prospectionDossiers.id),
+          isNull(prospectionProposals.withdrawnAt),
+        ),
+      )
+      .orderBy(desc(prospectionDossiers.openedAt));
+    res.set("Cache-Control", "no-store");
+    res.json(ListProspectionDossiersResponse.parse({
+      dossiers: rows.map(({ dossier, proposalId }) => ({
+        id: dossier.id,
+        workshop_name: dossier.workshopName,
+        slug: dossier.slug,
+        state: dossier.state,
+        revision: dossier.revision,
+        opened_at: dossier.openedAt.toISOString(),
+        has_active_proposal: Boolean(proposalId),
+      })),
+    }));
+  } catch {
+    res.status(500).json({ error: "La liste des dossiers est indisponible." });
+  }
+});
+
+router.get("/admin/prospection/dossiers/:dossierId", async (req, res, _next): Promise<void> => {
+  try {
+    if (!(await requireProspectionAdmin(req))) {
+      res.status(401).json({ error: "Compte administrateur authentifié requis." });
+      return;
+    }
+    const { dossierId } = GetProspectionDossierParams.parse(req.params);
+    const detail = await getProspectionDetail(dossierId);
+    if (!detail) {
+      res.status(404).json({ error: "Dossier introuvable." });
+      return;
+    }
+    res.set("Cache-Control", "no-store");
+    res.json(GetProspectionDossierResponse.parse(detail));
+  } catch {
+    res.status(500).json({ error: "Le dossier est indisponible." });
+  }
+});
+
+router.patch("/admin/prospection/dossiers/:dossierId", async (req, res, _next): Promise<void> => {
+  try {
+    const account = await requireProspectionAdmin(req);
+    if (!account) {
+      res.status(401).json({ error: "Compte administrateur authentifié requis." });
+      return;
+    }
+    const { dossierId } = CorrectProspectionDossierParams.parse(req.params);
+    const input = CorrectProspectionDossierBody.parse(req.body);
+    const updated = await correctProspectionDossier({
+      adminAccountId: account.id, dossierId, revision: input.revision,
+      contactEmail: input.contact_email, contactFirstName: input.contact_first_name,
+      hook: input.hook, hookOrigin: input.hook_origin,
+      subject: input.subject ?? undefined, body: input.body ?? undefined,
+    });
+    if (!updated.ok && updated.reason === "not_found") {
+      res.status(404).json({ error: "Dossier introuvable." });
+      return;
+    }
+    if (!updated.ok && updated.reason === "conflict") {
+      res.status(409).json({ error: "Le dossier a changé. Rechargez-le." });
+      return;
+    }
+    if (!updated.ok && (updated.reason === "invalid" || updated.reason === "opposed")) {
+      res.status(400).json({ error: "La correction est incompatible avec le dossier." });
+      return;
+    }
+    if (!updated.ok) { res.status(401).json({ error: "Compte administrateur authentifié requis." }); return; }
+    const detail = await getProspectionDetail(dossierId);
+    res.json(CorrectProspectionDossierResponse.parse(detail));
+  } catch {
+    res.status(500).json({ error: "Les corrections n’ont pas pu être enregistrées." });
+  }
+});
+
+router.post("/admin/prospection/dossiers/:dossierId/prepare", async (req, res): Promise<void> => {
+  const account = await requireProspectionAdmin(req);
+  if (!account) {
+    res.status(403).json(prospectionError("admin_required", "Compte administrateur actif requis."));
+    return;
+  }
+  const params = PrepareProspectionDossierParams.safeParse(req.params);
+  const body = PrepareProspectionDossierBody.safeParse(req.body);
+  if (!params.success || !body.success) {
+    res.status(400).json(prospectionError("validation_failed", "Demande de préparation invalide."));
+    return;
+  }
+  try {
+    const [current] = await db.select().from(prospectionDossiers)
+      .where(eq(prospectionDossiers.id, params.data.dossierId));
+    if (current?.state === "no_website") {
+      res.json(PrepareProspectionDossierResponse.parse({
+        state: "no_website", signals: [], reason: "no_website",
+        retryable: false, refusalMessage: null,
+      }));
+      return;
+    }
+    const outcome = await verifyProspectionDossier({
+      adminAccountId: account.id, dossierId: params.data.dossierId, revision: body.data.revision,
+    });
+    if (!outcome.ok) {
+      if (outcome.reason === "read_unavailable") {
+        res.json(PrepareProspectionDossierResponse.parse({
+          state: "opened", signals: [], reason: "gateway_unavailable", retryable: true,
+          refusalMessage: "La lecture de la page est temporairement indisponible.",
+        }));
+        return;
+      }
+      const status = outcome.reason === "not_found" ? 404 : outcome.reason === "locked" ? 423 :
+        outcome.reason === "unauthorized" ? 403 : 409;
+      res.status(status).json(prospectionError(
+        outcome.reason === "not_found" ? "not_found" : outcome.reason === "locked" ? "dossier_locked" :
+          outcome.reason === "opposed" ? "opposition_active" : "transition_refused",
+        "La préparation est refusée.",
+      ));
+      return;
+    }
+    const [dossier] = await db.select().from(prospectionDossiers)
+      .where(eq(prospectionDossiers.id, params.data.dossierId));
+    res.json(PrepareProspectionDossierResponse.parse({
+      state: outcome.value.state, signals: dossier?.verifiedSignals ?? [],
+      reason: dossier?.lastReason ?? null,
+      retryable: dossier?.lastReason === "read_refused" ? false : null,
+      refusalMessage: dossier?.lastReason === "read_refused"
+        ? "La lecture de cette page publique est refusée par la passerelle."
+        : null,
+    }));
+  } catch {
+    res.status(500).json({ error: "La préparation est indisponible." });
+  }
+});
+
+router.post("/admin/prospection/dossiers/:dossierId/hook", async (req, res): Promise<void> => {
+  const account = await requireProspectionAdmin(req);
+  if (!account) {
+    res.status(403).json(prospectionError("admin_required", "Compte administrateur actif requis."));
+    return;
+  }
+  const params = ValidateProspectionHookParams.safeParse(req.params);
+  const body = ValidateProspectionHookBody.safeParse(req.body);
+  if (!params.success || !body.success || body.data.hook.includes("[À compléter")) {
+    res.status(400).json(prospectionError("validation_failed", "L’accroche doit être complète et relue."));
+    return;
+  }
+  try {
+    const outcome = await validateProspectionHook({
+      adminAccountId: account.id, dossierId: params.data.dossierId,
+      revision: body.data.revision, hook: body.data.hook,
+    });
+    if (!outcome.ok) {
+      const status = outcome.reason === "not_found" ? 404 : outcome.reason === "locked" ? 423 :
+        outcome.reason === "unauthorized" ? 403 : outcome.reason === "invalid" ? 409 : 409;
+      res.status(status).json(prospectionError(
+        outcome.reason === "not_found" ? "not_found" : outcome.reason === "locked" ? "dossier_locked" :
+          outcome.reason === "opposed" ? "opposition_active" : "transition_refused",
+        "L’accroche est refusée.",
+      ));
+      return;
+    }
+    res.json(ValidateProspectionHookResponse.parse(await getProspectionDetail(params.data.dossierId)));
+  } catch {
+    res.status(500).json({ error: "L’accroche n’a pas pu être enregistrée." });
+  }
+});
+
+router.post("/admin/prospection/dossiers/:dossierId/validate", async (req, res, _next): Promise<void> => {
+  try {
+    const account = await requireProspectionAdmin(req);
+    if (!account) {
+      res.status(401).json({ error: "Compte administrateur authentifié requis." });
+      return;
+    }
+    const { dossierId } = ValidateProspectionProposalParams.parse(req.params);
+    const input = ValidateProspectionProposalBody.parse(req.body);
+    const outcome = await validateAndQueueProspectionProposal({
+      adminAccountId: account.id,
+      dossierId,
+      revision: input.revision,
+      subject: input.subject,
+      body: input.body,
+    });
+    if (!outcome.ok && outcome.reason === "not_found") {
+      res.status(404).json({ error: "Dossier introuvable." });
+      return;
+    }
+    if (!outcome.ok && (outcome.reason === "invalid" || outcome.reason === "opposed")) {
+      res.status(400).json({ error: "Le dossier n’est pas prêt à être validé." });
+      return;
+    }
+    if (!outcome.ok && outcome.reason === "conflict") {
+      res.status(409).json({ error: "Le dossier a changé ou possède déjà une proposition." });
+      return;
+    }
+    if (!outcome.ok) {
+      res.status(401).json({ error: "Compte administrateur authentifié requis." });
+      return;
+    }
+    res.json(ValidateProspectionProposalResponse.parse(await getProspectionDetail(dossierId)));
+  } catch {
+    res.status(500).json({ error: "La proposition n’a pas pu être validée." });
+  }
+});
+
+router.post("/admin/prospection/dossiers/:dossierId/withdraw", async (req, res, _next): Promise<void> => {
+  try {
+    const account = await requireProspectionAdmin(req);
+    if (!account) {
+      res.status(401).json({ error: "Compte administrateur authentifié requis." });
+      return;
+    }
+    const { dossierId } = WithdrawProspectionProposalParams.parse(req.params);
+    const input = WithdrawProspectionProposalBody.parse(req.body);
+    const outcome = await withdrawProspectionProposal({ adminAccountId: account.id, dossierId, revision: input.revision });
+    if (!outcome.ok && outcome.reason === "not_found") {
+      res.status(404).json({ error: "Proposition active introuvable." });
+      return;
+    }
+    if (!outcome.ok && outcome.reason === "conflict") {
+      res.status(409).json({ error: "Le dossier a changé. Rechargez-le." });
+      return;
+    }
+    if (!outcome.ok) { res.status(401).json({ error: "Compte administrateur authentifié requis." }); return; }
+    res.json(WithdrawProspectionProposalResponse.parse(await getProspectionDetail(dossierId)));
+  } catch {
+    res.status(500).json({ error: "La proposition n’a pas pu être retirée." });
+  }
+});
+
+router.post("/admin/prospection/dossiers/:dossierId/mark", async (req, res, _next): Promise<void> => {
+  try {
+    const account = await requireProspectionAdmin(req);
+    if (!account) {
+      res.status(401).json({ error: "Compte administrateur authentifié requis." });
+      return;
+    }
+    const { dossierId } = MarkProspectionDossierParams.parse(req.params);
+    const input = MarkProspectionDossierBody.parse(req.body);
+    const outcome = await transitionProspectionDossier({
+      adminAccountId: account.id,
+      dossierId,
+      revision: input.revision,
+      state: input.state,
+      reason: "human_decision",
+    });
+    if (!outcome.ok && outcome.reason === "not_found") {
+      res.status(404).json({ error: "Dossier introuvable." });
+      return;
+    }
+    if (!outcome.ok && (outcome.reason === "invalid" || outcome.reason === "opposed")) {
+      res.status(400).json({ error: "Cette transition manuelle n’est pas autorisée." });
+      return;
+    }
+    if (!outcome.ok && outcome.reason === "conflict") {
+      res.status(409).json({ error: "Le dossier a changé. Rechargez-le." });
+      return;
+    }
+    if (!outcome.ok) {
+      res.status(401).json({ error: "Compte administrateur authentifié requis." });
+      return;
+    }
+    res.json(MarkProspectionDossierResponse.parse(await getProspectionDetail(dossierId)));
+  } catch {
+    res.status(500).json({ error: "Le marquage manuel n’a pas pu être enregistré." });
+  }
+});
+
+router.post("/admin/prospection/oppositions", async (req, res): Promise<void> => {
+  const account = await requireProspectionAdmin(req);
+  if (!account) {
+    res.status(403).json(prospectionError("admin_required", "Compte administrateur actif requis."));
+    return;
+  }
+  const body = RecordProspectionOppositionBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json(prospectionError("validation_failed", "Opposition invalide."));
+    return;
+  }
+  try {
+    const outcome = await recordProspectionOppositionForEmail({
+      adminAccountId: account.id, email: body.data.email, origin: body.data.origin,
+    });
+    if (!outcome.ok) {
+      const status = outcome.reason === "locked" ? 423 : outcome.reason === "unauthorized" ? 403 : 400;
+      res.status(status).json(prospectionError(
+        outcome.reason === "locked" ? "dossier_locked" : "admin_required",
+        "L’opposition est refusée.",
+      ));
+      return;
+    }
+    res.status(201).json(RecordProspectionOppositionResponse.parse({
+      recorded: true, ...outcome.value,
+    }));
+  } catch {
+    res.status(400).json(prospectionError("validation_failed", "Opposition invalide."));
   }
 });
 

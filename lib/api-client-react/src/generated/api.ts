@@ -46,6 +46,23 @@ import type {
   MeetIceConfig,
   MusicianDecisionInput,
   MusicianProject,
+  ProspectionAdminRequiredResponse,
+  ProspectionConfirmation,
+  ProspectionConflictResponse,
+  ProspectionCorrection,
+  ProspectionDossierDetail,
+  ProspectionDossierList,
+  ProspectionDossierOpen,
+  ProspectionHookValidation,
+  ProspectionLockedResponse,
+  ProspectionManualMark,
+  ProspectionNotFoundResponse,
+  ProspectionOppositionInput,
+  ProspectionOppositionResult,
+  ProspectionPreparation,
+  ProspectionPreparationResult,
+  ProspectionValidation,
+  ProspectionValidationFailedResponse,
   ProtectedOrder,
   ProtectedOrderCreated,
   ProtectedOrderDecisionInput,
@@ -2439,6 +2456,734 @@ export function useGetAdminSummary<TData = Awaited<ReturnType<typeof getAdminSum
 
 
 
+
+export const getListProspectionDossiersUrl = () => {
+
+
+
+
+  return `/api/admin/prospection/dossiers`
+}
+
+/**
+ * @summary List prospecting files for human review
+ */
+export const listProspectionDossiers = async ( options?: Parameters<typeof customFetch>[1]): Promise<ProspectionDossierList> => {
+
+  return customFetch<ProspectionDossierList>(getListProspectionDossiersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProspectionDossiersQueryKey = () => {
+    return [
+    `/api/admin/prospection/dossiers`
+    ] as const;
+    }
+
+
+export const getListProspectionDossiersQueryOptions = <TData = Awaited<ReturnType<typeof listProspectionDossiers>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProspectionDossiers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProspectionDossiersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProspectionDossiers>>> = ({ signal }) => listProspectionDossiers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProspectionDossiers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProspectionDossiersQueryResult = NonNullable<Awaited<ReturnType<typeof listProspectionDossiers>>>
+export type ListProspectionDossiersQueryError = ErrorType<void>
+
+
+/**
+ * @summary List prospecting files for human review
+ */
+
+export function useListProspectionDossiers<TData = Awaited<ReturnType<typeof listProspectionDossiers>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProspectionDossiers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProspectionDossiersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getOpenProspectionDossierUrl = () => {
+
+
+
+
+  return `/api/admin/prospection/dossiers`
+}
+
+/**
+ * @summary Open an idempotent prospecting file from an existing directory profile
+ */
+export const openProspectionDossier = async (prospectionDossierOpen: ProspectionDossierOpen, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionDossierDetail> => {
+
+  return customFetch<ProspectionDossierDetail>(getOpenProspectionDossierUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(prospectionDossierOpen)
+  }
+);}
+
+
+
+
+
+export const getOpenProspectionDossierMutationOptions = <TError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openProspectionDossier>>, TError,{data: BodyType<ProspectionDossierOpen>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof openProspectionDossier>>, TError,{data: BodyType<ProspectionDossierOpen>}, TContext> => {
+
+const mutationKey = ['openProspectionDossier'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof openProspectionDossier>>, {data: BodyType<ProspectionDossierOpen>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  openProspectionDossier(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OpenProspectionDossierMutationResult = NonNullable<Awaited<ReturnType<typeof openProspectionDossier>>>
+    export type OpenProspectionDossierMutationBody = BodyType<ProspectionDossierOpen>
+    export type OpenProspectionDossierMutationError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>
+
+    /**
+ * @summary Open an idempotent prospecting file from an existing directory profile
+ */
+export const useOpenProspectionDossier = <TError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openProspectionDossier>>, TError,{data: BodyType<ProspectionDossierOpen>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof openProspectionDossier>>,
+        TError,
+        {data: BodyType<ProspectionDossierOpen>},
+        TContext
+      > => {
+      return useMutation(getOpenProspectionDossierMutationOptions(options));
+    }
+
+export const getGetProspectionDossierUrl = (dossierId: string,) => {
+
+
+
+
+  return `/api/admin/prospection/dossiers/${dossierId}`
+}
+
+/**
+ * @summary Get a prospecting file and its active proposal
+ */
+export const getProspectionDossier = async (dossierId: string, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionDossierDetail> => {
+
+  return customFetch<ProspectionDossierDetail>(getGetProspectionDossierUrl(dossierId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProspectionDossierQueryKey = (dossierId: string,) => {
+    return [
+    `/api/admin/prospection/dossiers/${dossierId}`
+    ] as const;
+    }
+
+
+export const getGetProspectionDossierQueryOptions = <TData = Awaited<ReturnType<typeof getProspectionDossier>>, TError = ErrorType<void>>(dossierId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProspectionDossier>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProspectionDossierQueryKey(dossierId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProspectionDossier>>> = ({ signal }) => getProspectionDossier(dossierId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: dossierId !== null && dossierId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProspectionDossier>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProspectionDossierQueryResult = NonNullable<Awaited<ReturnType<typeof getProspectionDossier>>>
+export type GetProspectionDossierQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a prospecting file and its active proposal
+ */
+
+export function useGetProspectionDossier<TData = Awaited<ReturnType<typeof getProspectionDossier>>, TError = ErrorType<void>>(
+ dossierId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProspectionDossier>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProspectionDossierQueryOptions(dossierId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCorrectProspectionDossierUrl = (dossierId: string,) => {
+
+
+
+
+  return `/api/admin/prospection/dossiers/${dossierId}`
+}
+
+/**
+ * @summary Correct reviewable prospecting fields
+ */
+export const correctProspectionDossier = async (dossierId: string,
+    prospectionCorrection: ProspectionCorrection, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionDossierDetail> => {
+
+  return customFetch<ProspectionDossierDetail>(getCorrectProspectionDossierUrl(dossierId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(prospectionCorrection)
+  }
+);}
+
+
+
+
+
+export const getCorrectProspectionDossierMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionCorrection>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof correctProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionCorrection>}, TContext> => {
+
+const mutationKey = ['correctProspectionDossier'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof correctProspectionDossier>>, {dossierId: string;data: BodyType<ProspectionCorrection>}> = (props) => {
+          const {dossierId,data} = props ?? {};
+
+          return  correctProspectionDossier(dossierId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CorrectProspectionDossierMutationResult = NonNullable<Awaited<ReturnType<typeof correctProspectionDossier>>>
+    export type CorrectProspectionDossierMutationBody = BodyType<ProspectionCorrection>
+    export type CorrectProspectionDossierMutationError = ErrorType<void>
+
+    /**
+ * @summary Correct reviewable prospecting fields
+ */
+export const useCorrectProspectionDossier = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionCorrection>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof correctProspectionDossier>>,
+        TError,
+        {dossierId: string;data: BodyType<ProspectionCorrection>},
+        TContext
+      > => {
+      return useMutation(getCorrectProspectionDossierMutationOptions(options));
+    }
+
+export const getValidateProspectionProposalUrl = (dossierId: string,) => {
+
+
+
+
+  return `/api/admin/prospection/dossiers/${dossierId}/validate`
+}
+
+/**
+ * @summary Human-validate a proposal without allowing delivery
+ */
+export const validateProspectionProposal = async (dossierId: string,
+    prospectionValidation: ProspectionValidation, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionDossierDetail> => {
+
+  return customFetch<ProspectionDossierDetail>(getValidateProspectionProposalUrl(dossierId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(prospectionValidation)
+  }
+);}
+
+
+
+
+
+export const getValidateProspectionProposalMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof validateProspectionProposal>>, TError,{dossierId: string;data: BodyType<ProspectionValidation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof validateProspectionProposal>>, TError,{dossierId: string;data: BodyType<ProspectionValidation>}, TContext> => {
+
+const mutationKey = ['validateProspectionProposal'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof validateProspectionProposal>>, {dossierId: string;data: BodyType<ProspectionValidation>}> = (props) => {
+          const {dossierId,data} = props ?? {};
+
+          return  validateProspectionProposal(dossierId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ValidateProspectionProposalMutationResult = NonNullable<Awaited<ReturnType<typeof validateProspectionProposal>>>
+    export type ValidateProspectionProposalMutationBody = BodyType<ProspectionValidation>
+    export type ValidateProspectionProposalMutationError = ErrorType<void>
+
+    /**
+ * @summary Human-validate a proposal without allowing delivery
+ */
+export const useValidateProspectionProposal = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof validateProspectionProposal>>, TError,{dossierId: string;data: BodyType<ProspectionValidation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof validateProspectionProposal>>,
+        TError,
+        {dossierId: string;data: BodyType<ProspectionValidation>},
+        TContext
+      > => {
+      return useMutation(getValidateProspectionProposalMutationOptions(options));
+    }
+
+export const getPrepareProspectionDossierUrl = (dossierId: string,) => {
+
+
+
+
+  return `/api/admin/prospection/dossiers/${dossierId}/prepare`
+}
+
+/**
+ * @summary Read the public website and prepare a prospecting file
+ */
+export const prepareProspectionDossier = async (dossierId: string,
+    prospectionPreparation: ProspectionPreparation, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionPreparationResult> => {
+
+  return customFetch<ProspectionPreparationResult>(getPrepareProspectionDossierUrl(dossierId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(prospectionPreparation)
+  }
+);}
+
+
+
+
+
+export const getPrepareProspectionDossierMutationOptions = <TError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionPreparation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof prepareProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionPreparation>}, TContext> => {
+
+const mutationKey = ['prepareProspectionDossier'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof prepareProspectionDossier>>, {dossierId: string;data: BodyType<ProspectionPreparation>}> = (props) => {
+          const {dossierId,data} = props ?? {};
+
+          return  prepareProspectionDossier(dossierId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PrepareProspectionDossierMutationResult = NonNullable<Awaited<ReturnType<typeof prepareProspectionDossier>>>
+    export type PrepareProspectionDossierMutationBody = BodyType<ProspectionPreparation>
+    export type PrepareProspectionDossierMutationError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>
+
+    /**
+ * @summary Read the public website and prepare a prospecting file
+ */
+export const usePrepareProspectionDossier = <TError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof prepareProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionPreparation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof prepareProspectionDossier>>,
+        TError,
+        {dossierId: string;data: BodyType<ProspectionPreparation>},
+        TContext
+      > => {
+      return useMutation(getPrepareProspectionDossierMutationOptions(options));
+    }
+
+export const getValidateProspectionHookUrl = (dossierId: string,) => {
+
+
+
+
+  return `/api/admin/prospection/dossiers/${dossierId}/hook`
+}
+
+/**
+ * @summary Record the human-reviewed personal hook
+ */
+export const validateProspectionHook = async (dossierId: string,
+    prospectionHookValidation: ProspectionHookValidation, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionDossierDetail> => {
+
+  return customFetch<ProspectionDossierDetail>(getValidateProspectionHookUrl(dossierId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(prospectionHookValidation)
+  }
+);}
+
+
+
+
+
+export const getValidateProspectionHookMutationOptions = <TError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof validateProspectionHook>>, TError,{dossierId: string;data: BodyType<ProspectionHookValidation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof validateProspectionHook>>, TError,{dossierId: string;data: BodyType<ProspectionHookValidation>}, TContext> => {
+
+const mutationKey = ['validateProspectionHook'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof validateProspectionHook>>, {dossierId: string;data: BodyType<ProspectionHookValidation>}> = (props) => {
+          const {dossierId,data} = props ?? {};
+
+          return  validateProspectionHook(dossierId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ValidateProspectionHookMutationResult = NonNullable<Awaited<ReturnType<typeof validateProspectionHook>>>
+    export type ValidateProspectionHookMutationBody = BodyType<ProspectionHookValidation>
+    export type ValidateProspectionHookMutationError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>
+
+    /**
+ * @summary Record the human-reviewed personal hook
+ */
+export const useValidateProspectionHook = <TError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse | ProspectionNotFoundResponse | ProspectionConflictResponse | ProspectionLockedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof validateProspectionHook>>, TError,{dossierId: string;data: BodyType<ProspectionHookValidation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof validateProspectionHook>>,
+        TError,
+        {dossierId: string;data: BodyType<ProspectionHookValidation>},
+        TContext
+      > => {
+      return useMutation(getValidateProspectionHookMutationOptions(options));
+    }
+
+export const getWithdrawProspectionProposalUrl = (dossierId: string,) => {
+
+
+
+
+  return `/api/admin/prospection/dossiers/${dossierId}/withdraw`
+}
+
+/**
+ * @summary Withdraw an active proposal
+ */
+export const withdrawProspectionProposal = async (dossierId: string,
+    prospectionConfirmation: ProspectionConfirmation, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionDossierDetail> => {
+
+  return customFetch<ProspectionDossierDetail>(getWithdrawProspectionProposalUrl(dossierId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(prospectionConfirmation)
+  }
+);}
+
+
+
+
+
+export const getWithdrawProspectionProposalMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof withdrawProspectionProposal>>, TError,{dossierId: string;data: BodyType<ProspectionConfirmation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof withdrawProspectionProposal>>, TError,{dossierId: string;data: BodyType<ProspectionConfirmation>}, TContext> => {
+
+const mutationKey = ['withdrawProspectionProposal'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof withdrawProspectionProposal>>, {dossierId: string;data: BodyType<ProspectionConfirmation>}> = (props) => {
+          const {dossierId,data} = props ?? {};
+
+          return  withdrawProspectionProposal(dossierId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type WithdrawProspectionProposalMutationResult = NonNullable<Awaited<ReturnType<typeof withdrawProspectionProposal>>>
+    export type WithdrawProspectionProposalMutationBody = BodyType<ProspectionConfirmation>
+    export type WithdrawProspectionProposalMutationError = ErrorType<void>
+
+    /**
+ * @summary Withdraw an active proposal
+ */
+export const useWithdrawProspectionProposal = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof withdrawProspectionProposal>>, TError,{dossierId: string;data: BodyType<ProspectionConfirmation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof withdrawProspectionProposal>>,
+        TError,
+        {dossierId: string;data: BodyType<ProspectionConfirmation>},
+        TContext
+      > => {
+      return useMutation(getWithdrawProspectionProposalMutationOptions(options));
+    }
+
+export const getMarkProspectionDossierUrl = (dossierId: string,) => {
+
+
+
+
+  return `/api/admin/prospection/dossiers/${dossierId}/mark`
+}
+
+/**
+ * @summary Manually record a prospecting outcome
+ */
+export const markProspectionDossier = async (dossierId: string,
+    prospectionManualMark: ProspectionManualMark, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionDossierDetail> => {
+
+  return customFetch<ProspectionDossierDetail>(getMarkProspectionDossierUrl(dossierId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(prospectionManualMark)
+  }
+);}
+
+
+
+
+
+export const getMarkProspectionDossierMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionManualMark>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionManualMark>}, TContext> => {
+
+const mutationKey = ['markProspectionDossier'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markProspectionDossier>>, {dossierId: string;data: BodyType<ProspectionManualMark>}> = (props) => {
+          const {dossierId,data} = props ?? {};
+
+          return  markProspectionDossier(dossierId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkProspectionDossierMutationResult = NonNullable<Awaited<ReturnType<typeof markProspectionDossier>>>
+    export type MarkProspectionDossierMutationBody = BodyType<ProspectionManualMark>
+    export type MarkProspectionDossierMutationError = ErrorType<void>
+
+    /**
+ * @summary Manually record a prospecting outcome
+ */
+export const useMarkProspectionDossier = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markProspectionDossier>>, TError,{dossierId: string;data: BodyType<ProspectionManualMark>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markProspectionDossier>>,
+        TError,
+        {dossierId: string;data: BodyType<ProspectionManualMark>},
+        TContext
+      > => {
+      return useMutation(getMarkProspectionDossierMutationOptions(options));
+    }
+
+export const getRecordProspectionOppositionUrl = () => {
+
+
+
+
+  return `/api/admin/prospection/oppositions`
+}
+
+/**
+ * @summary Record a definitive opposition for an email address
+ */
+export const recordProspectionOpposition = async (prospectionOppositionInput: ProspectionOppositionInput, options?: Parameters<typeof customFetch>[1]): Promise<ProspectionOppositionResult> => {
+
+  return customFetch<ProspectionOppositionResult>(getRecordProspectionOppositionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(prospectionOppositionInput)
+  }
+);}
+
+
+
+
+
+export const getRecordProspectionOppositionMutationOptions = <TError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordProspectionOpposition>>, TError,{data: BodyType<ProspectionOppositionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordProspectionOpposition>>, TError,{data: BodyType<ProspectionOppositionInput>}, TContext> => {
+
+const mutationKey = ['recordProspectionOpposition'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordProspectionOpposition>>, {data: BodyType<ProspectionOppositionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  recordProspectionOpposition(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordProspectionOppositionMutationResult = NonNullable<Awaited<ReturnType<typeof recordProspectionOpposition>>>
+    export type RecordProspectionOppositionMutationBody = BodyType<ProspectionOppositionInput>
+    export type RecordProspectionOppositionMutationError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse>
+
+    /**
+ * @summary Record a definitive opposition for an email address
+ */
+export const useRecordProspectionOpposition = <TError = ErrorType<ProspectionValidationFailedResponse | ProspectionAdminRequiredResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordProspectionOpposition>>, TError,{data: BodyType<ProspectionOppositionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recordProspectionOpposition>>,
+        TError,
+        {data: BodyType<ProspectionOppositionInput>},
+        TContext
+      > => {
+      return useMutation(getRecordProspectionOppositionMutationOptions(options));
+    }
 
 export const getListMeetAccountsUrl = () => {
 

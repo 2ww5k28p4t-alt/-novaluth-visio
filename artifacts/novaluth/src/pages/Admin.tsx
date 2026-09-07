@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { useGetAdminSummary, useGetSn13PurgeIncidents, useRunAccessMaintenance, useUpdateFicheStatus, StatusUpdateStatut, getGetAdminSummaryQueryKey, getGetSn13PurgeIncidentsQueryKey, useListMeetAccounts, useCreateMeetAccount, useUpdateMeetAccount, useResetMeetAccountPassword, getListMeetAccountsQueryKey, CreateMeetAccountRole } from "@workspace/api-client-react";
+import { useGetAdminSummary, useGetSn13PurgeIncidents, useRunAccessMaintenance, useUpdateFicheStatus, StatusUpdateStatut, getGetAdminSummaryQueryKey, getGetSn13PurgeIncidentsQueryKey, useListMeetAccounts, useCreateMeetAccount, useUpdateMeetAccount, useResetMeetAccountPassword, getListMeetAccountsQueryKey, CreateMeetAccountRole, useListProspectionDossiers, useGetProspectionDossier, useCorrectProspectionDossier, useValidateProspectionProposal, useWithdrawProspectionProposal, useMarkProspectionDossier, getListProspectionDossiersQueryKey, getGetProspectionDossierQueryKey, ProspectionManualMarkState, useLoginMeetAccount, ProspectionCorrectionHookOrigin } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { 
   Table, 
@@ -306,6 +307,8 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
           </div>
         ))}
       </div>
+
+      <ProspectionReview />
 
       <section className="bg-card border border-border/50 p-6 mb-12">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5 mb-6">
@@ -715,5 +718,215 @@ function AdminDashboard({ token, onLogout }: { token: string, onLogout: () => vo
         )}
       </div>
     </div>
+  );
+}
+
+function ProspectionReview() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const request = { credentials: "include" as const };
+  const dossiers = useListProspectionDossiers({
+    request,
+    query: { queryKey: getListProspectionDossiersQueryKey(), retry: false, refetchOnMount: "always", staleTime: 15_000 },
+  });
+  const [selectedId, setSelectedId] = useState("");
+  const detail = useGetProspectionDossier(selectedId, {
+    request,
+    query: { queryKey: getGetProspectionDossierQueryKey(selectedId), enabled: Boolean(selectedId), retry: false },
+  });
+  const correct = useCorrectProspectionDossier({ request });
+  const validate = useValidateProspectionProposal({ request });
+  const withdraw = useWithdrawProspectionProposal({ request });
+  const mark = useMarkProspectionDossier({ request });
+  const login = useLoginMeetAccount({ request });
+  const [accountLogin, setAccountLogin] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [hook, setHook] = useState("");
+  const [hookOrigin, setHookOrigin] = useState<ProspectionCorrectionHookOrigin>(null);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [markState, setMarkState] = useState<ProspectionManualMarkState>(ProspectionManualMarkState.sent);
+
+  useEffect(() => {
+    if (!detail.data) return;
+    setEmail(detail.data.contact_email ?? "");
+    setFirstName(detail.data.contact_first_name ?? "");
+    setHook(detail.data.hook ?? "");
+    setHookOrigin((detail.data.hook_origin as ProspectionCorrectionHookOrigin) ?? null);
+    setSubject(detail.data.proposal?.subject ?? "");
+    setBody(detail.data.proposal?.body ?? "");
+  }, [detail.data]);
+
+  const refresh = async (id: string) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: getListProspectionDossiersQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: getGetProspectionDossierQueryKey(id) }),
+    ]);
+  };
+  const fail = () => toast({
+    variant: "destructive",
+    title: "Action impossible",
+    description: "Le dossier a peut-être changé. Rechargez-le avant de recommencer.",
+  });
+  const save = () => {
+    if (!detail.data) return;
+    correct.mutate({
+      dossierId: detail.data.id,
+      data: {
+        revision: detail.data.revision,
+        contact_email: email || null,
+        contact_first_name: firstName || null,
+        hook: hook || null,
+        hook_origin: hook ? hookOrigin : null,
+        ...(detail.data.proposal ? { subject, body } : {}),
+      },
+    }, {
+      onSuccess: (saved) => {
+        void refresh(saved.id);
+        toast({ title: "Corrections enregistrées" });
+      },
+      onError: fail,
+    });
+  };
+  const approve = () => {
+    if (!detail.data || !window.confirm("Valider cette proposition au nom de votre compte administrateur ? Aucun courriel ne sera envoyé.")) return;
+    validate.mutate({
+      dossierId: detail.data.id,
+      data: { revision: detail.data.revision, subject, body },
+    }, {
+      onSuccess: (saved) => {
+        void refresh(saved.id);
+        toast({ title: "Proposition validée", description: "La livraison reste désactivée." });
+      },
+      onError: fail,
+    });
+  };
+  const remove = () => {
+    if (!detail.data || !window.confirm("Retirer définitivement cette proposition active de la file de relecture ?")) return;
+    withdraw.mutate({
+      dossierId: detail.data.id,
+      data: { revision: detail.data.revision, confirmed: true },
+    }, {
+      onSuccess: (saved) => {
+        void refresh(saved.id);
+        toast({ title: "Proposition retirée" });
+      },
+      onError: fail,
+    });
+  };
+  const manuallyMark = () => {
+    if (!detail.data || !window.confirm(`Confirmer le passage manuel du dossier à « ${markState.replace(/_/g, " ")} » ? Cette action n’envoie aucun message.`)) return;
+    mark.mutate({
+      dossierId: detail.data.id,
+      data: { revision: detail.data.revision, confirmed: true, state: markState },
+    }, {
+      onSuccess: (saved) => {
+        void refresh(saved.id);
+        toast({ title: "État manuel enregistré" });
+      },
+      onError: fail,
+    });
+  };
+
+  return (
+    <section className="bg-card border border-border/50 p-6 mb-12">
+      <div className="flex flex-col gap-2 mb-6 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-xl font-serif text-primary">Relecture des propositions</h2>
+          <p className="text-sm text-muted-foreground">
+            Consultation et validation humaines uniquement. Aucune action de cet écran ne déclenche un envoi.
+          </p>
+        </div>
+        <Badge variant="outline" className="rounded-none self-start">Livraison désactivée</Badge>
+      </div>
+      {dossiers.isError ? (
+        <form
+          className="grid gap-3 border border-amber-500/40 bg-amber-500/10 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            login.mutate({ data: { login: accountLogin, password: accountPassword } }, {
+              onSuccess: () => {
+                setAccountPassword("");
+                void dossiers.refetch();
+                toast({ title: "Session administrateur ouverte" });
+              },
+              onError: () => toast({ variant: "destructive", title: "Connexion refusée", description: "Utilisez un compte NovaLuth actif ayant le rôle administrateur." }),
+            });
+          }}
+        >
+          <label className="space-y-1 text-sm"><span>Compte NovaLuth administrateur</span><Input value={accountLogin} onChange={(event) => setAccountLogin(event.target.value)} autoComplete="username" required className="rounded-none bg-background" /></label>
+          <label className="space-y-1 text-sm"><span>Mot de passe</span><Input type="password" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} autoComplete="current-password" required className="rounded-none bg-background" /></label>
+          <Button type="submit" className="rounded-none" disabled={login.isPending}>{login.isPending ? "Connexion…" : "Ouvrir la session"}</Button>
+        </form>
+      ) : dossiers.isLoading ? (
+        <p className="text-sm text-muted-foreground">Chargement des dossiers…</p>
+      ) : dossiers.data?.dossiers.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Aucun dossier de prospection à relire.</p>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)]">
+          <div className="space-y-2">
+            {dossiers.data?.dossiers.map((dossier) => (
+              <button
+                key={dossier.id}
+                type="button"
+                onClick={() => setSelectedId(dossier.id)}
+                className={`w-full border p-3 text-left transition-colors ${selectedId === dossier.id ? "border-primary bg-primary/5" : "border-border/50 hover:bg-muted/40"}`}
+              >
+                <span className="block font-medium text-primary">{dossier.workshop_name}</span>
+                <span className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{dossier.state.replace(/_/g, " ")}</span>
+                  <span>{dossier.has_active_proposal ? "Proposition active" : "Sans proposition"}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          {!selectedId ? (
+            <div className="border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              Sélectionnez un dossier pour relire son contenu.
+            </div>
+          ) : detail.isLoading || !detail.data ? (
+            <p className="text-sm text-muted-foreground">Chargement du détail…</p>
+          ) : (
+            <div className="space-y-4 border border-border/50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-serif text-lg text-primary">{detail.data.workshop_name}</h3>
+                  <p className="text-xs text-muted-foreground">{detail.data.slug} · révision {detail.data.revision}</p>
+                </div>
+                <Badge variant="secondary" className="rounded-none">{detail.data.state.replace(/_/g, " ")}</Badge>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1 text-sm"><span className="text-muted-foreground">Prénom du contact</span><Input value={firstName} onChange={(event) => setFirstName(event.target.value)} className="rounded-none" /></label>
+                <label className="space-y-1 text-sm"><span className="text-muted-foreground">Courriel</span><Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={Boolean(detail.data.proposal)} className="rounded-none" /></label>
+              </div>
+              <label className="block space-y-1 text-sm"><span className="text-muted-foreground">Accroche vérifiée</span><Textarea value={hook} onChange={(event) => { setHook(event.target.value); setHookOrigin(ProspectionCorrectionHookOrigin.human); }} disabled={Boolean(detail.data.proposal)} className="min-h-24 rounded-none" /></label>
+              {detail.data.proposal ? <p className="text-xs text-muted-foreground">Retirez d’abord la proposition pour modifier son destinataire ou son accroche.</p> : null}
+              <label className="block space-y-1 text-sm"><span className="text-muted-foreground">Objet</span><Input value={subject} onChange={(event) => setSubject(event.target.value)} className="rounded-none" /></label>
+              <label className="block space-y-1 text-sm"><span className="text-muted-foreground">Message</span><Textarea value={body} onChange={(event) => setBody(event.target.value)} className="min-h-52 rounded-none" /></label>
+              <p className="text-xs text-muted-foreground">Le contenu affiché ici n’est jamais écrit dans les journaux techniques.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" className="rounded-none" onClick={save} disabled={correct.isPending}>Enregistrer les corrections</Button>
+                {!detail.data.proposal ? (
+                  <Button type="button" className="rounded-none" onClick={approve} disabled={validate.isPending || subject.trim().length < 10 || body.trim().length < 200}>Valider la proposition</Button>
+                ) : (
+                  <Button type="button" variant="destructive" className="rounded-none" onClick={remove} disabled={withdraw.isPending}>Retirer la proposition</Button>
+                )}
+              </div>
+              <div className="border-t border-border/50 pt-4">
+                <p className="mb-2 text-sm font-medium">Marquage manuel</p>
+                <div className="flex flex-wrap gap-2">
+                  <select value={markState} onChange={(event) => setMarkState(event.target.value as ProspectionManualMarkState)} className="h-10 border border-input bg-background px-3 text-sm">
+                    {Object.values(ProspectionManualMarkState).map((state) => <option key={state} value={state}>{state.replace(/_/g, " ")}</option>)}
+                  </select>
+                  <Button type="button" variant="outline" className="rounded-none" onClick={manuallyMark} disabled={mark.isPending}>Confirmer le marquage</Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
