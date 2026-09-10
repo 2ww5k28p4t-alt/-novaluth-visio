@@ -43,3 +43,11 @@ _Populate as you build — sharp edges, "always run X before Y" rules._
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+
+## Atlas des luthiers d'Europe
+
+- Carte publique : `artifacts/novaluth/public/atlas/` (Leaflet, servi sur `/atlas/`), configurée par `window.NOVALUTH_ATLAS` dans `index.html` (`apiBase: '/'` car front et API partagent l'origine).
+- API : `artifacts/api-server/src/routes/atlas.ts` — `GET /api/atlas/session`, `GET /api/atlas/luthiers` (lecture publique), `POST/PATCH/DELETE /api/atlas/luthiers` (administrateurs seulement, session `novaluth_platform_sessions` avec rôle `admin`, ou en-tête `X-Admin-Token`).
+- Table : `novaluth_atlas_points` (`lib/db/src/schema/novaluth-atlas.ts`). Après un pull, exécuter `pnpm --filter @workspace/db run push`.
+- Règle métier : une fiche `novaluth_profiles` au statut `publiee` apparaît automatiquement sur la carte ; ses coordonnées sont géocodées une fois (ville + pays, Photon/OpenStreetMap) puis mises en cache dans `novaluth_atlas_points`. Un administrateur peut affiner l'adresse, les instruments et les spécialisations, ou masquer un point. Les luthiers ne saisissent jamais sur la carte.
+- Variables facultatives : `ATLAS_GEOCODAGE=off` pour désactiver le géocodage, `ATLAS_GEOCODAGE_URL` pour pointer un autre service.
