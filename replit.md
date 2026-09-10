@@ -51,3 +51,10 @@ _Populate as you build — sharp edges, "always run X before Y" rules._
 - Table : `novaluth_atlas_points` (`lib/db/src/schema/novaluth-atlas.ts`). Après un pull, exécuter `pnpm --filter @workspace/db run push`.
 - Règle métier : une fiche `novaluth_profiles` au statut `publiee` apparaît automatiquement sur la carte ; ses coordonnées sont géocodées une fois (ville + pays, Photon/OpenStreetMap) puis mises en cache dans `novaluth_atlas_points`. Un administrateur peut affiner l'adresse, les instruments et les spécialisations, ou masquer un point. Les luthiers ne saisissent jamais sur la carte.
 - Variables facultatives : `ATLAS_GEOCODAGE=off` pour désactiver le géocodage, `ATLAS_GEOCODAGE_URL` pour pointer un autre service.
+
+### Atlas : robustesse du géocodage
+
+- Deux services en cascade : Photon, puis Nominatim (OpenStreetMap) si Photon refuse ou ne répond pas.
+- Si les deux échouent, la fiche est placée au centre de son pays (précision « pays ») : elle reste visible sur la carte et son emplacement est affiné automatiquement à une synchronisation suivante.
+- Huit géocodages maximum par synchronisation, espacés de 1,2 s, pour respecter les quotas publics.
+- `GET /api/atlas/diagnostic` (administrateurs) indique en une requête le nombre de fiches publiées, de points en base, les pays non reconnus et l'état du géocodeur — à utiliser si la carte semble vide.

@@ -101,6 +101,16 @@ async function init() {
   if (window.matchMedia('(max-width: 900px)').matches) $('#sidebar').dataset.collapsed = 'true';
 
   map = L.map('map', { center: [48.5, 10], zoom: 4, minZoom: 3, maxZoom: 16, zoomControl: true, worldCopyJump: false });
+  // La hauteur du conteneur peut changer (liste, filtres, rotation) : on resynchronise Leaflet.
+  const conteneurCarte = document.getElementById('map');
+  if (conteneurCarte && 'ResizeObserver' in window) {
+    let attente = null;
+    new ResizeObserver(function () {
+      clearTimeout(attente);
+      attente = setTimeout(function () { map.invalidateSize({ animate: false }); }, 120);
+    }).observe(conteneurCarte);
+  }
+  window.addEventListener('load', function () { map.invalidateSize({ animate: false }); });
   tileLayer = L.tileLayer(TILES[theme], {
     attribution: 'Fond de carte &copy; <a href="https://www.esri.com">Esri</a>, HERE, Garmin, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 16

@@ -66,6 +66,52 @@ const codesPays: Record<string, string> = {
   Islande: "is",
 };
 
+/**
+ * Centre approximatif de chaque pays : filet de sécurité quand le géocodeur
+ * est indisponible. La fiche publiée apparaît quand même sur la carte, avec
+ * la précision « pays », et sera affinée automatiquement plus tard.
+ */
+const centresPays: Record<string, { latitude: number; longitude: number }> = {
+  fr: { latitude: 46.6, longitude: 2.4 },
+  be: { latitude: 50.6, longitude: 4.6 },
+  ch: { latitude: 46.8, longitude: 8.2 },
+  de: { latitude: 51.1, longitude: 10.4 },
+  it: { latitude: 42.8, longitude: 12.5 },
+  es: { latitude: 40.2, longitude: -3.7 },
+  pt: { latitude: 39.6, longitude: -8.0 },
+  nl: { latitude: 52.2, longitude: 5.5 },
+  at: { latitude: 47.6, longitude: 14.1 },
+  gb: { latitude: 54.0, longitude: -2.2 },
+  ie: { latitude: 53.2, longitude: -8.0 },
+  pl: { latitude: 52.1, longitude: 19.4 },
+  cz: { latitude: 49.8, longitude: 15.4 },
+  sk: { latitude: 48.7, longitude: 19.5 },
+  hu: { latitude: 47.2, longitude: 19.4 },
+  ro: { latitude: 45.9, longitude: 25.0 },
+  bg: { latitude: 42.7, longitude: 25.3 },
+  gr: { latitude: 39.1, longitude: 22.0 },
+  hr: { latitude: 45.1, longitude: 15.9 },
+  si: { latitude: 46.1, longitude: 14.8 },
+  rs: { latitude: 44.2, longitude: 20.8 },
+  dk: { latitude: 56.0, longitude: 9.8 },
+  se: { latitude: 62.2, longitude: 15.5 },
+  no: { latitude: 64.0, longitude: 11.5 },
+  fi: { latitude: 64.0, longitude: 26.0 },
+  ee: { latitude: 58.7, longitude: 25.4 },
+  lv: { latitude: 56.9, longitude: 24.9 },
+  lt: { latitude: 55.3, longitude: 23.9 },
+  lu: { latitude: 49.8, longitude: 6.1 },
+  ua: { latitude: 49.0, longitude: 31.4 },
+  is: { latitude: 64.9, longitude: -18.6 },
+};
+
+/** Nombre d'appels au géocodeur autorisés par synchronisation. */
+const geocodagesParSync = 8;
+/** Pause entre deux appels : Photon limite le rythme des requêtes. */
+const pauseGeocodage = 1200;
+/** Passe à vrai quand le service refuse (429) : on n'insiste pas. */
+let quotaAtteint = false;
+
 type Compte = { id: number; role: string } | null;
 
 async function compteConnecte(req: Request): Promise<Compte> {
@@ -95,8 +141,37 @@ async function exigerAdmin(req: Request) {
 /* Géocodage (Photon / OpenStreetMap), utilisé une seule fois par fiche */
 /* ------------------------------------------------------------------ */
 
+const pause = (ms: number) =>
+  new Promise<void>((resoudre) => setTimeout(resoudre, ms));
+
+/** Secours quand Photon refuse : Nominatim (OpenStreetMap). */
+async function geocoderNominatim(requete: string, code: string | undefined) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", requete);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", "1");
+  if (code) url.searchParams.set("countrycodes", code);
+  try {
+    const reponse = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        // Nominatim exige une identification de l'application.
+        "User-Agent": "NovaLuth-Atlas/1.0 (contact@novaluth.fr)",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!reponse.ok) return null;
+    const data = (await reponse.json()) as Array<{ lat?: string; lon?: string }>;
+    const premier = data[0];
+    if (!premier?.lat || !premier?.lon) return null;
+    return { latitude: Number(premier.lat), longitude: Number(premier.lon) };
+  } catch {
+    return null;
+  }
+}
+
 async function geocoder(ville: string | null, pays: string) {
-  if (!geocodageEnabled) return null;
+  if (!geocodageEnabled || quotaAtteint) return null;
   const requete = [ville, pays].filter(Boolean).join(", ");
   if (!requete) return null;
   const url = new URL(geocodageEndpoint);
@@ -113,7 +188,15 @@ async function geocoder(ville: string | null, pays: string) {
       signal: controleur.signal,
     });
     clearTimeout(minuteur);
-    if (!reponse.ok) return null;
+    if (!reponse.ok) {
+      // 429 = quota Photon atteint : on arrête les appels jusqu'à la prochaine synchronisation.
+      if (reponse.status === 429) quotaAtteint = true;
+      logger.warn(
+        { statut: reponse.status, requete },
+        "[atlas] géocodage refusé, tentative de secours",
+      );
+      return geocoderNominatim(requete, code);
+    }
     const data = (await reponse.json()) as {
       features?: Array<{ geometry?: { coordinates?: [number, number] } }>;
     };
@@ -121,9 +204,56 @@ async function geocoder(ville: string | null, pays: string) {
     if (!coords) return null;
     return { longitude: coords[0], latitude: coords[1] };
   } catch (erreur) {
-    logger.warn({ erreur, requete }, "[atlas] géocodage indisponible");
-    return null;
+    logger.warn(
+      { err: erreur, requete },
+      "[atlas] géocodage indisponible, tentative de secours",
+    );
+    return geocoderNominatim(requete, code);
   }
+}
+
+/**
+ * Diagnostic réservé aux administrateurs : sert à comprendre en une requête
+ * pourquoi la carte serait vide (aucune fiche publiée, géocodeur injoignable...).
+ */
+router.get("/atlas/diagnostic", async (req, res) => {
+  const admin = await exigerAdmin(req);
+  if (!admin) {
+    res.status(403).json({ erreur: "reserve_admin" });
+    return;
+  }
+  const debut = Date.now();
+  let geocodeur: Record<string, unknown> = { actif: geocodageEnabled };
+  if (geocodageEnabled) {
+    const essai = await geocoder("Cremona", "Italie");
+    geocodeur = {
+      actif: true,
+      service: geocodageEndpoint,
+      joignable: Boolean(essai),
+      ms: Date.now() - debut,
+    };
+  }
+  const profils = await db
+    .select()
+    .from(novaluthProfilesTable)
+    .where(eq(novaluthProfilesTable.status, publicStatus));
+  const points = await db.select().from(novaluthAtlasPointsTable);
+  res.set("Cache-Control", "no-store");
+  res.json({
+    fiches_publiees: profils.length,
+    points_en_base: points.length,
+    points_masques: points.filter((p) => p.masque).length,
+    points_precision_pays: points.filter((p) => p.precisionGeo === "pays").length,
+    sans_pays_reconnu: profils
+      .filter((p) => !codesPays[p.country ?? ""])
+      .map((p) => ({ slug: p.slug, pays: p.country })),
+    geocodeur,
+  });
+});
+
+function centreDuPays(pays: string) {
+  const code = codesPays[pays];
+  return code ? (centresPays[code] ?? null) : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -156,7 +286,9 @@ function pointVersFiche(point: NovaluthAtlasPoint) {
     latitude: point.latitude,
     longitude: point.longitude,
     precision: point.precisionGeo,
-    statut: point.slug ? "publiee" : "saisie_admin",
+    // Un point saisi par un administrateur est validé par définition :
+    // la carte n'affiche que les fiches au statut « publiee ».
+    statut: "publiee",
     origine: point.origine,
     maj: point.updatedAt.toISOString(),
   };
@@ -237,10 +369,29 @@ router.get("/atlas/luthiers", async (_req, res) => {
     );
     const publies = new Set(profils.map((profil) => profil.slug));
 
+    let budgetGeocodage = geocodagesParSync;
+    quotaAtteint = false;
+    let premierAppel = true;
+    const appelGeocodeur = async (ville: string | null, pays: string) => {
+      if (budgetGeocodage <= 0 || quotaAtteint) return null;
+      budgetGeocodage -= 1;
+      if (!premierAppel) await pause(pauseGeocodage);
+      premierAppel = false;
+      return geocoder(ville, pays);
+    };
+
     // Une fiche publiée sans point : on la géolocalise une fois puis on garde le résultat.
+    // Si le géocodeur ne répond pas, on place la fiche au centre de son pays :
+    // elle reste visible sur la carte et sera affinée à une prochaine synchronisation.
     for (const profil of profils) {
       if (parSlug.has(profil.slug)) continue;
-      const coords = await geocoder(profil.city, profil.country ?? "");
+      const pays = profil.country ?? "";
+      let precision = "ville";
+      let coords = await appelGeocodeur(profil.city, pays);
+      if (!coords) {
+        coords = centreDuPays(pays);
+        precision = "pays";
+      }
       if (!coords) continue;
       const data = (profil.data ?? {}) as Record<string, unknown>;
       const [cree] = await db
@@ -257,12 +408,32 @@ router.get("/atlas/luthiers", async (_req, res) => {
           sourceUrl: `/atelier/${profil.slug}`,
           latitude: coords.latitude,
           longitude: coords.longitude,
-          precisionGeo: "ville",
+          precisionGeo: precision,
           origine: "novaluth",
         })
         .onConflictDoNothing()
         .returning();
       if (cree) parSlug.set(profil.slug, cree);
+    }
+
+    // Affinage progressif des fiches posées au centre d'un pays.
+    for (const point of parSlug.values()) {
+      if (budgetGeocodage <= 0 || quotaAtteint) break;
+      if (point.origine !== "novaluth" || point.precisionGeo !== "pays") continue;
+      if (!point.ville) continue;
+      const coords = await appelGeocodeur(point.ville, point.pays);
+      if (!coords) continue;
+      const [affine] = await db
+        .update(novaluthAtlasPointsTable)
+        .set({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          precisionGeo: "ville",
+          updatedAt: new Date(),
+        })
+        .where(eq(novaluthAtlasPointsTable.id, point.id))
+        .returning();
+      if (affine && affine.slug) parSlug.set(affine.slug, affine);
     }
 
     const visibles = [

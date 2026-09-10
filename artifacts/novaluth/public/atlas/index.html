@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=bespoke-serif@400,500&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 <a class="skip" href="#liste">Aller à la liste des ateliers</a>
@@ -254,8 +254,7 @@
      et laisser NovaLuth décider qui est administrateur. -->
 <script>
   window.NOVALUTH_ATLAS = Object.assign({
-    // Le front et l'API sont servis sur la même origine (routeur « path » Replit) :
-    // apiBase '/' suffit, les appels partent sur /api/atlas/...
+    // Le front et l'API partagent la même origine sur Replit : /api/... suffit.
     apiBase: '/',
     cheminFiches: '/api/atlas/luthiers',
     cheminSession: '/api/atlas/session',
@@ -265,6 +264,6 @@
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
