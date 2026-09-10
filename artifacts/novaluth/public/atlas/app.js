@@ -33,6 +33,8 @@ const SPECS = [
 ];
 const INSTR_LABEL = Object.fromEntries(INSTR.map(i => [i.k, i.l]));
 const SPEC_LABEL = Object.fromEntries(SPECS.map(s => [s.k, s.l]));
+/* Étiquettes affichées dans la vignette de la liste avant le repli « +N ». */
+const CARD_TAGS_MAX = 6;
 
 const PAYS = ['Allemagne', 'Autriche', 'Belgique', 'Bulgarie', 'Croatie', 'Chypre', 'Danemark', 'Espagne', 'Estonie',
   'Finlande', 'France', 'Grèce', 'Hongrie', 'Irlande', 'Islande', 'Italie', 'Lettonie', 'Lituanie', 'Luxembourg',
@@ -463,8 +465,12 @@ function renderList(keptArg) {
   $('#emptyAdd').hidden = state.all.length > 0;
 
   $('#cards').innerHTML = page.map(r => {
-    const tags = [...(r.i || []).slice(0, 2).map(k => `<span class="tag i">${esc(INSTR_LABEL[k] || k)}</span>`),
-      ...(r.s || []).slice(0, 2).map(k => `<span class="tag">${esc(SPEC_LABEL[k] || k)}</span>`)].join('');
+    const cardTags = [...(r.i || []).map(k => ({ c: 'tag i', l: INSTR_LABEL[k] || k })),
+      ...(r.s || []).map(k => ({ c: 'tag', l: SPEC_LABEL[k] || k }))];
+    const shownTags = cardTags.slice(0, CARD_TAGS_MAX);
+    const restTags = cardTags.slice(CARD_TAGS_MAX);
+    const tags = shownTags.map(t => `<span class="${t.c}">${esc(t.l)}</span>`).join('')
+      + (restTags.length ? `<span class="tag more-tag" title="${esc(restTags.map(t => t.l).join(', '))}">+${restTags.length}</span>` : '');
     return `<button class="card${state.selected === r.id ? ' active' : ''}" type="button" data-id="${r.id}">
       ${r.m ? '<span class="mine" title="Fiche saisie par un administrateur">saisie</span>' : (r.nl ? '<span class="mine ok" title="Fiche validée dans NovaLuth">validée</span>' : '')}
       <span class="cn">${esc(r.n)}</span>
