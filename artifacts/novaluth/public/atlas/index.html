@@ -8,9 +8,12 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://api.fontshare.com">
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=bespoke-serif@400,500&display=swap">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="styles.css?v=12">
+<!-- Bibliothèques servies en local (vendor/) : aucune dépendance à un CDN,
+     licences BSD / MIT / ISC reproduites dans vendor/licences/. -->
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="vendor/MarkerCluster.css">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="styles.css?v=14">
 </head>
 <body>
 <a class="skip" href="#liste">Aller à la liste des ateliers</a>
@@ -154,7 +157,7 @@
     </details>
     <p class="dl" hidden><a class="btn" href="data/luthiers_europe.csv" download>Télécharger le jeu de données (CSV)</a> <a class="btn ghost" href="data/luthiers.json" download>Version JSON</a></p>
     <p class="admin-note">Les fiches publiées proviennent des dossiers validés dans NovaLuth : dès qu’un atelier est validé, il apparaît sur la carte à la synchronisation suivante. La saisie et la correction directes sont réservées aux administrateurs ; les luthiers passent par leur dossier NovaLuth. <button type="button" class="btn small ghost" id="adminLogin" hidden>Espace administrateur</button></p>
-    <p class="note">Géocodage des adresses saisies : <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a> sur données <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>. Fond de carte <a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a> Light/Dark Gray Canvas. Les champs non renseignés restent vides plutôt qu'estimés.</p>
+    <p class="note">Fond de carte <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>, données <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> — libre d'usage commercial, sans clé ni quota. Géocodage des adresses saisies : <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a> sur données OpenStreetMap. Les champs non renseignés restent vides plutôt qu'estimés.</p>
   </div>
 </footer>
 
@@ -262,8 +265,10 @@
     cheminConnexion: '/admin'
   }, window.NOVALUTH_ATLAS || {});
 </script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<script src="app.js?v=13"></script>
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/maplibre-gl.js"></script>
+<script src="vendor/leaflet-maplibre-gl.js"></script>
+<script src="vendor/leaflet.markercluster.js"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

@@ -211,6 +211,14 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 /* ---------- Carte ---------- */
 .map-wrap { position: relative; min-height: 24rem; }
 #map { position: absolute; inset: 0; background: var(--surface-2); }
+/* Le fond OpenFreeMap est rendu par MapLibre dans un canvas dimensionné par le greffon :
+   ne pas forcer sa taille en CSS, sinon il hérite d'un panneau Leaflet de hauteur nulle. */
+/* MapLibre porte sa propre attribution : la nôtre, côté Leaflet, suffit. */
+#map .maplibregl-ctrl-bottom-right, #map .maplibregl-ctrl-bottom-left { display: none; }
+/* Appareil sans WebGL : trame discrète plutôt qu'un cadre vide. */
+#map.sans-fond { background:
+  repeating-linear-gradient(45deg, transparent 0 11px, color-mix(in oklab, var(--border) 60%, transparent) 11px 12px),
+  var(--surface-2); }
 .map-vignette { position: absolute; inset: 0; pointer-events: none; z-index: 420; box-shadow: inset 0 0 120px -60px oklch(0.3 0.03 60 / 0.5); }
 [data-theme="dark"] .map-vignette { box-shadow: inset 0 0 140px -60px oklch(0 0 0 / 0.85); }
 .leaflet-container { font-family: var(--font-body); background: var(--surface-2); }

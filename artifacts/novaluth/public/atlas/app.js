@@ -57,7 +57,7 @@ const state = {
   admin: !API_ON, role: API_ON ? 'public' : 'demo', sync: null, syncing: false, syncErr: false
 };
 const markers = new Map();
-let map, cluster, tileLayer, labelLayer, theme = 'light', lastFocus = null, pickMarker = null;
+let map, cluster, fondCarte, theme = 'light', lastFocus = null, pickMarker = null;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -71,14 +71,36 @@ const cleanUrl = u => {
 const shortUrl = u => u.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
 
 /* ---------- Thème ---------- */
-const ESRI = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_';
-const TILES = { light: ESRI + 'Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', dark: ESRI + 'Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}' };
-const LABELS = { light: ESRI + 'Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', dark: ESRI + 'Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}' };
+/* Fond de carte OpenFreeMap : tuiles vectorielles libres d'usage commercial,
+   sans inscription, sans clé et sans limite de requêtes sur l'instance publique.
+   Seule obligation : conserver l'attribution affichée sur la carte.
+   Pour couper toute dépendance externe, OpenFreeMap peut être auto-hébergé :
+   remplacez alors ces deux URL par celles de votre serveur. */
+const STYLES = {
+  light: 'https://tiles.openfreemap.org/styles/positron',
+  dark: 'https://tiles.openfreemap.org/styles/dark'
+};
+const ATTRIBUTION = '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> '
+  + '&copy; <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> '
+  + 'Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+/* Les tuiles OpenMapTiles portent les noms locaux et latins : on préfère le français
+   quand il existe, puis le nom latin, puis le nom local. */
+function franciserLibelles(m) {
+  try {
+    m.getStyle().layers.forEach(function (l) {
+      if (l.type !== 'symbol') return;
+      if (!m.getLayoutProperty(l.id, 'text-field')) return;
+      m.setLayoutProperty(l.id, 'text-field', ['coalesce', ['get', 'name:fr'], ['get', 'name:latin'], ['get', 'name']]);
+    });
+  } catch (e) { /* style pas encore chargé */ }
+}
+
 function applyTheme(t) {
   theme = t;
   document.documentElement.dataset.theme = t;
-  if (tileLayer) tileLayer.setUrl(TILES[t]);
-  if (labelLayer) labelLayer.setUrl(LABELS[t]);
+  if (fondCarte && typeof fondCarte.getMaplibreMap === 'function') {
+    try { fondCarte.getMaplibreMap().setStyle(STYLES[t]); } catch (e) { /* style pas encore prêt */ }
+  }
 }
 
 /* ---------- Toasts ---------- */
@@ -113,11 +135,21 @@ async function init() {
     }).observe(conteneurCarte);
   }
   window.addEventListener('load', function () { map.invalidateSize({ animate: false }); });
-  tileLayer = L.tileLayer(TILES[theme], {
-    attribution: 'Fond de carte &copy; <a href="https://www.esri.com">Esri</a>, HERE, Garmin, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 16
-  }).addTo(map);
-  labelLayer = L.tileLayer(LABELS[theme], { maxZoom: 16, pane: 'shadowPane', opacity: 0.9 }).addTo(map);
+  /* Fond vectoriel OpenFreeMap, rendu par MapLibre à l'intérieur de Leaflet :
+     marqueurs, regroupements, bulles et contrôles Leaflet restent inchangés. */
+  try {
+    fondCarte = L.maplibreGL({ style: STYLES[theme], attribution: ATTRIBUTION }).addTo(map);
+    const ml = fondCarte.getMaplibreMap();
+    // à chaque chargement de style (démarrage et bascule clair/sombre)
+    ml.on('styledata', function () { franciserLibelles(ml); });
+  } catch (e) {
+    // Appareil sans WebGL : la carte reste utilisable, sans fond dessiné.
+    document.getElementById('map').classList.add('sans-fond');
+    console.warn('Fond de carte indisponible (WebGL) :', e);
+  }
+  // L'attribution OpenFreeMap est obligatoire : on la force dans le contrôle Leaflet
+  // même si la couche ne la déclare pas elle-même.
+  if (map.attributionControl) map.attributionControl.addAttribution(ATTRIBUTION);
   L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
   const Recentrer = L.Control.extend({
